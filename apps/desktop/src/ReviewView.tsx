@@ -9,6 +9,7 @@ import {
   searchProject,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
+import RegionThumb from "./RegionThumb";
 import type {
   ApplySummary,
   AuditReport,
@@ -36,12 +37,20 @@ interface TextRule {
 interface RegionRule {
   rect: Rect;
   action: "erase" | "mask";
-  /// "all" or the 0-based page index the rule is limited to.
+  /** "all" or the 0-based page index the rule is limited to. */
   scope: "all" | number;
+  /** 0-based page the rectangle was drawn on, for thumbnails. */
+  drawnOn: number;
 }
 
 const findingKey = (finding: Finding) =>
   `${finding.category}|::|${finding.text}`;
+
+const ACTION_LABELS: Record<Exclude<DecisionAction, "keep">, string> = {
+  erase: "消去",
+  mask: "マスク",
+  replace: "置換",
+};
 
 interface AnalyzeProgress {
   stage: string;
@@ -86,6 +95,10 @@ export default function ReviewView(props: {
   const [searchInput, setSearchInput] = useState("");
   const [searchHits, setSearchHits] = useState<PageFindings[] | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
+    null,
+  );
+  const [previewRegion, setPreviewRegion] = useState<number | null>(null);
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -153,6 +166,24 @@ export default function ReviewView(props: {
     [findings],
   );
 
+  const decidedEntries = useMemo(() => {
+    const unique = new Map<string, Finding>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      if (!unique.has(key)) unique.set(key, finding);
+    }
+    return [...unique.entries()]
+      .filter(([key]) => {
+        const decision = decisions[key];
+        return decision && decision.action !== "keep";
+      })
+      .map(([key, finding]) => ({
+        key,
+        finding,
+        decision: decisions[key],
+      }));
+  }, [flatFindings, decisions]);
+
   const policy: Policy = useMemo(() => {
     const rules: PolicyRule[] = [];
     const seenTexts = new Set<string>();
@@ -173,15 +204,12 @@ export default function ReviewView(props: {
               : { type: "remove" },
       });
     };
-    const decidedFindings = new Map<string, Finding>();
-    for (const { finding } of flatFindings) {
-      const key = findingKey(finding);
-      if (!decidedFindings.has(key)) decidedFindings.set(key, finding);
-    }
-    for (const [key, finding] of decidedFindings) {
-      const decision = decisions[key];
-      if (!decision || decision.action === "keep") continue;
-      pushTextRule(finding.text, decision.action, decision.value);
+    for (const entry of decidedEntries) {
+      pushTextRule(
+        entry.finding.text,
+        entry.decision.action as Exclude<DecisionAction, "keep">,
+        entry.decision.value,
+      );
     }
     for (const rule of textRules) {
       pushTextRule(rule.text, rule.action, rule.value);
@@ -197,7 +225,7 @@ export default function ReviewView(props: {
       });
     }
     return { rules };
-  }, [flatFindings, decisions, textRules, regionRules]);
+  }, [decidedEntries, textRules, regionRules]);
 
   function runApply() {
     void run("変換を適用中…", async () => {
@@ -239,6 +267,15 @@ export default function ReviewView(props: {
     ]);
   }
 
+  function jumpTo(pageIndex: number, finding: Finding) {
+    setPage(pageIndex);
+    setHighlightKey(findingKey(finding));
+    setFocus((current) => ({
+      rect: finding.rect,
+      nonce: (current?.nonce ?? 0) + 1,
+    }));
+  }
+
   const visibleRegions = regionRules
     .map((rule, index) => ({ ...rule, index }))
     .filter((rule) => rule.scope === "all" || rule.scope === page);
@@ -269,6 +306,12 @@ export default function ReviewView(props: {
       ...current,
       [key]: { action: current[key]?.action ?? "replace", value },
     }));
+  }
+
+  function clearAllRules() {
+    setDecisions({});
+    setTextRules([]);
+    setRegionRules([]);
   }
 
   return (
@@ -360,9 +403,7 @@ export default function ReviewView(props: {
                     {scope === "all" ? "全ページ" : "このページ"}
                   </button>
                 ))}
-                <span className="hint">
-                  ドラッグで領域ルールを追加（クリックで削除）
-                </span>
+                <span className="hint">ドラッグで領域ルールを追加</span>
               </>
             )}
           </div>
@@ -376,6 +417,8 @@ export default function ReviewView(props: {
             highlightKey={highlightKey}
             findingKey={findingKey}
             drawMode={drawMode}
+            focusRect={focus?.rect ?? null}
+            focusNonce={focus?.nonce ?? 0}
             onRegion={(rect) =>
               setRegionRules((current) => [
                 ...current,
@@ -383,6 +426,7 @@ export default function ReviewView(props: {
                   rect,
                   action: drawMode === "mask" ? "mask" : "erase",
                   scope: drawScope === "all" ? "all" : page,
+                  drawnOn: page,
                 },
               ])
             }
@@ -431,10 +475,7 @@ export default function ReviewView(props: {
                     entry.findings.map((finding, index) => (
                       <li key={`${entry.page_index}-${index}`}>
                         <button
-                          onClick={() => {
-                            setPage(entry.page_index);
-                            setHighlightKey(findingKey(finding));
-                          }}
+                          onClick={() => jumpTo(entry.page_index, finding)}
                         >
                           p.{entry.page_index + 1} {finding.text}
                         </button>
@@ -444,71 +485,112 @@ export default function ReviewView(props: {
                 </ul>
               </div>
             )}
-            {textRules.length > 0 && (
-              <div className="text-rules">
-                {textRules.map((rule, index) => (
-                  <div key={index} className="text-rule">
-                    <span className="chip-action">
-                      {rule.action === "replace"
-                        ? "置換"
-                        : rule.action === "mask"
-                          ? "マスク"
-                          : "消去"}
-                    </span>
-                    <span className="rule-text" title={rule.text}>
-                      {rule.text}
-                    </span>
-                    {rule.action === "replace" && (
-                      <input
-                        placeholder="置換後の表現"
-                        value={rule.value}
-                        onChange={(event) =>
-                          setTextRules((current) =>
-                            current.map((entry, i) =>
-                              i === index
-                                ? { ...entry, value: event.target.value }
-                                : entry,
-                            ),
-                          )
-                        }
-                      />
-                    )}
-                    <button
-                      onClick={() =>
-                        setTextRules((current) =>
-                          current.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </section>
 
-          {regionRules.length > 0 && (
-            <section>
-              <h2>矩形領域ルール（{regionRules.length}件）</h2>
-              <div className="region-list">
-                {regionRules.map((rule, index) => (
-                  <div key={index} className="region-row">
+          <section>
+            <h2>適用予定ルール（{policy.rules.length}件）</h2>
+            <div className="rule-list">
+              {decidedEntries.map((entry) => (
+                <div key={entry.key} className="rule-entry">
+                  <span className="chip-action">
+                    {
+                      ACTION_LABELS[
+                        entry.decision.action as Exclude<DecisionAction, "keep">
+                      ]
+                    }
+                  </span>
+                  <button
+                    className="rule-target"
+                    title={entry.finding.text}
+                    onClick={() => {
+                      const location = flatFindings.find(
+                        ({ finding }) => findingKey(finding) === entry.key,
+                      );
+                      if (location) jumpTo(location.pageIndex, location.finding);
+                    }}
+                  >
+                    <span className="category-tag">
+                      {entry.finding.category}
+                    </span>
+                    <span className="finding-text">{entry.finding.text}</span>
+                  </button>
+                  {entry.decision.action === "replace" && (
+                    <input
+                      className="replace-input"
+                      placeholder="置換後"
+                      value={entry.decision.value}
+                      onChange={(event) =>
+                        setDecisionValue(entry.key, event.target.value)
+                      }
+                    />
+                  )}
+                  <button onClick={() => setDecision(entry.key, "undecided")}>
+                    解除
+                  </button>
+                </div>
+              ))}
+
+              {textRules.map((rule, index) => (
+                <div key={`text-${index}`} className="rule-entry">
+                  <span className="chip-action">
+                    {ACTION_LABELS[rule.action]}
+                  </span>
+                  <span className="rule-target" title={rule.text}>
+                    <span className="category-tag">検索</span>
+                    <span className="finding-text">{rule.text}</span>
+                  </span>
+                  {rule.action === "replace" && (
+                    <input
+                      className="replace-input"
+                      placeholder="置換後"
+                      value={rule.value}
+                      onChange={(event) =>
+                        setTextRules((current) =>
+                          current.map((entry, i) =>
+                            i === index
+                              ? { ...entry, value: event.target.value }
+                              : entry,
+                          ),
+                        )
+                      }
+                    />
+                  )}
+                  <button
+                    onClick={() =>
+                      setTextRules((current) =>
+                        current.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    削除
+                  </button>
+                </div>
+              ))}
+
+              {regionRules.map((rule, index) => (
+                <div key={`region-${index}`} className="rule-entry region">
+                  <div className="rule-entry-main">
                     <span className="chip-action">
-                      {rule.action === "mask" ? "マスク" : "消去"}
+                      {ACTION_LABELS[rule.action]}
                     </span>
                     <button
-                      className="region-label"
-                      onClick={() => {
-                        if (rule.scope !== "all") setPage(rule.scope);
-                      }}
+                      className="rule-target"
+                      onClick={() =>
+                        setPage(rule.scope === "all" ? rule.drawnOn : rule.scope)
+                      }
                     >
-                      領域{index + 1}（
-                      {rule.scope === "all"
-                        ? "全ページ"
-                        : `p.${rule.scope + 1}`}
-                      ）
+                      <span className="category-tag">領域</span>
+                      <span className="finding-text">
+                        {rule.scope === "all"
+                          ? "全ページ"
+                          : `p.${rule.scope + 1} のみ`}
+                      </span>
                     </button>
+                    {rule.scope === "all" && (
+                      <button onClick={() => setPreviewRegion(index)}>
+                        プレビュー
+                      </button>
+                    )}
                     <button
                       onClick={() =>
                         setRegionRules((current) =>
@@ -519,13 +601,26 @@ export default function ReviewView(props: {
                       削除
                     </button>
                   </div>
-                ))}
-                <button onClick={() => setRegionRules([])}>
-                  すべて削除
-                </button>
-              </div>
-            </section>
-          )}
+                  <RegionThumb
+                    projectDir={project.projectDir}
+                    pageIndex={rule.scope === "all" ? rule.drawnOn : rule.scope}
+                    rect={rule.rect}
+                    maxWidth={320}
+                    maxHeight={72}
+                  />
+                </div>
+              ))}
+
+              {policy.rules.length === 0 && (
+                <p className="status">
+                  候補の判断・検索・矩形選択でルールを作成します
+                </p>
+              )}
+              {policy.rules.length > 0 && (
+                <button onClick={clearAllRules}>すべて解除</button>
+              )}
+            </div>
+          </section>
 
           <section className="findings-section">
             <h2>検出候補（{flatFindings.length}件）</h2>
@@ -536,19 +631,18 @@ export default function ReviewView(props: {
                 return (
                   <div
                     key={index}
-                    className={
-                      highlightKey === key
-                        ? "finding-row highlight"
-                        : "finding-row"
-                    }
+                    className={[
+                      "finding-row",
+                      highlightKey === key ? "highlight" : "",
+                      decision ? "decided" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <button
                       className="finding-label"
                       title={finding.text}
-                      onClick={() => {
-                        setPage(pageIndex);
-                        setHighlightKey(key);
-                      }}
+                      onClick={() => jumpTo(pageIndex, finding)}
                     >
                       <span className="page-tag">p.{pageIndex + 1}</span>
                       <span className={`category-tag cat-${finding.category}`}>
@@ -571,16 +665,6 @@ export default function ReviewView(props: {
                       <option value="erase">消去</option>
                       <option value="replace">置換</option>
                     </select>
-                    {decision?.action === "replace" && (
-                      <input
-                        className="replace-input"
-                        placeholder="置換後"
-                        value={decision.value}
-                        onChange={(event) =>
-                          setDecisionValue(key, event.target.value)
-                        }
-                      />
-                    )}
                   </div>
                 );
               })}
@@ -624,6 +708,10 @@ export default function ReviewView(props: {
                     onClick={() => {
                       setShowRendered(true);
                       setPage(residual.page - 1);
+                      setFocus((current) => ({
+                        rect: residual.rect,
+                        nonce: (current?.nonce ?? 0) + 1,
+                      }));
                     }}
                   >
                     p.{residual.page} 残存 [{residual.term}] {residual.text}
@@ -634,6 +722,40 @@ export default function ReviewView(props: {
           </section>
         </aside>
       </div>
+
+      {previewRegion !== null && regionRules[previewRegion] && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setPreviewRegion(null)}
+        >
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <h2>
+                領域プレビュー（全{project.pageCount}ページ・
+                {ACTION_LABELS[regionRules[previewRegion].action]}）
+              </h2>
+              <button onClick={() => setPreviewRegion(null)}>閉じる</button>
+            </div>
+            <p className="status">
+              この領域が各ページで何を含むか確認してから適用してください。
+            </p>
+            <div className="modal-body">
+              {Array.from({ length: project.pageCount }, (_, index) => (
+                <div key={index} className="preview-row">
+                  <span className="page-tag">p.{index + 1}</span>
+                  <RegionThumb
+                    projectDir={project.projectDir}
+                    pageIndex={index}
+                    rect={regionRules[previewRegion].rect}
+                    maxWidth={520}
+                    maxHeight={110}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -19,6 +19,8 @@ export default function PageViewer(props: {
   highlightKey: string | null;
   findingKey: (finding: Finding) => string;
   drawMode: DrawMode;
+  focusRect: Rect | null;
+  focusNonce: number;
   onRegion: (rect: Rect) => void;
   onRegionRemove: (index: number) => void;
 }) {
@@ -28,6 +30,8 @@ export default function PageViewer(props: {
     null,
   );
   const overlayRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -43,6 +47,20 @@ export default function PageViewer(props: {
       cancelled = true;
     };
   }, [props.projectDir, props.pageIndex, props.rendered, props.version]);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const image = imageRef.current;
+    if (!wrap || !image || !size || !props.focusRect) return;
+    const scale = image.clientWidth / size.w;
+    const centerX = (props.focusRect.x + props.focusRect.width / 2) * scale;
+    const centerY = (props.focusRect.y + props.focusRect.height / 2) * scale;
+    wrap.scrollTo({
+      left: Math.max(0, centerX - wrap.clientWidth / 2),
+      top: Math.max(0, centerY - wrap.clientHeight / 2),
+      behavior: "smooth",
+    });
+  }, [props.focusNonce, size]);
 
   function toImageCoords(event: React.PointerEvent): Point | null {
     const svg = overlayRef.current;
@@ -78,12 +96,13 @@ export default function PageViewer(props: {
   const dragRect = drag ? normalized(drag.start, drag.current) : null;
 
   return (
-    <div className="page-stage-wrap">
+    <div className="page-stage-wrap" ref={wrapRef}>
       {url === null ? (
         <p className="status">ページ画像を読み込み中…</p>
       ) : (
         <div className="page-stage">
           <img
+            ref={imageRef}
             src={url}
             alt={`page ${props.pageIndex + 1}`}
             onLoad={(event) =>
@@ -96,7 +115,9 @@ export default function PageViewer(props: {
           {size && (
             <svg
               ref={overlayRef}
-              className={props.drawMode !== "none" ? "overlay drawing" : "overlay"}
+              className={
+                props.drawMode !== "none" ? "overlay drawing" : "overlay"
+              }
               viewBox={`0 0 ${size.w} ${size.h}`}
               preserveAspectRatio="none"
               onPointerDown={onPointerDown}
