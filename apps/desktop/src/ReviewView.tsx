@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
+  addDictionaryEntry,
   analyzeProject,
   applyPolicy,
   auditProject,
   exportProject,
+  listDictionary,
   listFindings,
   pageImageUrl,
+  removeDictionaryEntry,
   searchProject,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
@@ -14,6 +17,7 @@ import RegionThumb from "./RegionThumb";
 import type {
   ApplySummary,
   AuditReport,
+  DictionaryEntry,
   Finding,
   PageFindings,
   Policy,
@@ -122,6 +126,9 @@ export default function ReviewView(props: {
   const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchHits, setSearchHits] = useState<PageFindings[] | null>(null);
+  const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
+  const [dictionaryCategory, setDictionaryCategory] = useState("organization");
+  const [dictionaryNote, setDictionaryNote] = useState<string | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
@@ -151,6 +158,18 @@ export default function ReviewView(props: {
       cancelled = true;
     };
   }, [project.projectDir, project.analyzed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listDictionary(project.projectDir)
+      .then((entries) => {
+        if (!cancelled) setDictionary(entries);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [project.projectDir]);
 
   useEffect(() => {
     const unlisten = listen<AnalyzeProgress>("analyze-progress", (event) => {
@@ -302,6 +321,17 @@ export default function ReviewView(props: {
       ...current.filter((rule) => rule.text !== text),
       { text, action, value: "" },
     ]);
+  }
+
+  function registerToDictionary() {
+    const text = searchInput.trim();
+    if (!text) return;
+    void run("辞書に登録中…", async () => {
+      setDictionary(
+        await addDictionaryEntry(project.projectDir, dictionaryCategory, text),
+      );
+      setDictionaryNote("登録しました。再解析すると検出候補に反映されます。");
+    });
   }
 
   function jumpTo(pageIndex: number, finding: Finding) {
@@ -533,9 +563,58 @@ export default function ReviewView(props: {
                     )),
                   )}
                 </ul>
+                <div className="dictionary-register">
+                  <select
+                    value={dictionaryCategory}
+                    onChange={(event) =>
+                      setDictionaryCategory(event.target.value)
+                    }
+                  >
+                    <option value="organization">組織名</option>
+                    <option value="department">部署名</option>
+                    <option value="person">人物名</option>
+                    <option value="product">製品名</option>
+                    <option value="place">地名</option>
+                    <option value="custom">その他</option>
+                  </select>
+                  <button onClick={registerToDictionary} disabled={busy !== null}>
+                    辞書に登録（以後の解析で自動検出）
+                  </button>
+                </div>
+                {dictionaryNote && <p className="status">{dictionaryNote}</p>}
               </div>
             )}
           </section>
+
+          {dictionary.length > 0 && (
+            <section>
+              <h2>辞書（{dictionary.length}件）</h2>
+              <div className="rule-list">
+                {dictionary.map((entry) => (
+                  <div key={entry.text} className="rule-entry">
+                    <span className="category-tag">{entry.category}</span>
+                    <span className="rule-target" title={entry.text}>
+                      <span className="finding-text">{entry.text}</span>
+                    </span>
+                    <button
+                      onClick={() => {
+                        void run("辞書から削除中…", async () => {
+                          setDictionary(
+                            await removeDictionaryEntry(
+                              project.projectDir,
+                              entry.text,
+                            ),
+                          );
+                        });
+                      }}
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           <section>
             <h2>適用予定ルール（{policy.rules.length}件）</h2>

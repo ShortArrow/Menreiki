@@ -29,6 +29,11 @@ export interface PageFindings {
   findings: Finding[];
 }
 
+export interface DictionaryEntry {
+  category: string;
+  text: string;
+}
+
 export type RuleAction =
   | { type: "keep" }
   | { type: "remove" }

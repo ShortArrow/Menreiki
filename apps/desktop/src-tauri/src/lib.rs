@@ -144,7 +144,11 @@ async fn analyze_project(
         .map_err(|error| error.to_string())?;
 
         emit("detect", None, None);
-        menreiki_project::detect_pages(&project_dir, &menreiki_detect::builtin_rules())
+        let mut rules = menreiki_detect::builtin_rules();
+        let dictionary = menreiki_project::load_dictionary(&project_dir)
+            .map_err(|error| error.to_string())?;
+        rules.extend(menreiki_project::dictionary_rules(&dictionary));
+        menreiki_project::detect_pages(&project_dir, &rules)
             .map_err(|error| error.to_string())?;
 
         emit("done", None, None);
@@ -157,6 +161,35 @@ async fn analyze_project(
 #[tauri::command]
 fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>, String> {
     menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn list_dictionary(
+    project: String,
+) -> Result<Vec<menreiki_project::DictionaryEntry>, String> {
+    menreiki_project::load_dictionary(Path::new(&project)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn add_dictionary_entry(
+    project: String,
+    category: String,
+    text: String,
+) -> Result<Vec<menreiki_project::DictionaryEntry>, String> {
+    menreiki_project::add_dictionary_entry(
+        Path::new(&project),
+        menreiki_project::DictionaryEntry { category, text },
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn remove_dictionary_entry(
+    project: String,
+    text: String,
+) -> Result<Vec<menreiki_project::DictionaryEntry>, String> {
+    menreiki_project::remove_dictionary_entry(Path::new(&project), &text)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -281,6 +314,9 @@ pub fn run() {
             get_config,
             set_config,
             initial_project,
+            list_dictionary,
+            add_dictionary_entry,
+            remove_dictionary_entry,
             import_document,
             open_project,
             analyze_project,

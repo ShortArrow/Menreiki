@@ -513,6 +513,12 @@ button.rule-target:hover {
   margin: 6px 0;
 }
 
+.dictionary-register {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 .hit-list {
   list-style: none;
   margin: 6px 0 0;

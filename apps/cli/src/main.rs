@@ -138,7 +138,11 @@ fn run(cli: Cli) -> Result<(), String> {
                 project.join(menreiki_project::OCR_DIR).display()
             );
 
-            menreiki_project::detect_pages(&project, &menreiki_detect::builtin_rules())
+            let mut rules = menreiki_detect::builtin_rules();
+            let dictionary =
+                menreiki_project::load_dictionary(&project).map_err(|error| error.to_string())?;
+            rules.extend(menreiki_project::dictionary_rules(&dictionary));
+            menreiki_project::detect_pages(&project, &rules)
                 .map_err(|error| error.to_string())?;
             let total_findings: usize = menreiki_project::load_findings(&project)
                 .map_err(|error| error.to_string())?

@@ -9,6 +9,7 @@ pub const DECISIONS_DIR: &str = "decisions";
 pub const RENDERS_DIR: &str = "renders";
 pub const OUTPUT_DIR: &str = "output";
 pub const AUDIT_DIR: &str = "audit";
+pub const RULES_DIR: &str = "rules";
 
 /// Location of the rendered image for a 0-based page index: `pages/page-001.png`.
 pub fn page_image_path(project_dir: &Path, page_index: u16) -> PathBuf {
@@ -52,6 +53,11 @@ pub fn sanitized_pdf_path(project_dir: &Path) -> PathBuf {
 /// Location of the audit report: `audit/report.json`.
 pub fn audit_report_path(project_dir: &Path) -> PathBuf {
     project_dir.join(AUDIT_DIR).join("report.json")
+}
+
+/// Location of the user dictionary: `rules/dictionary.json`.
+pub fn dictionary_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(RULES_DIR).join("dictionary.json")
 }
 
 fn page_file_name(page_index: u16, extension: &str) -> String {

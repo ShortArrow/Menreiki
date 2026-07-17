@@ -10,9 +10,11 @@ use std::ops::Range;
 use menreiki_core::{Finding, PageOcr, Rect, Span};
 use regex::Regex;
 
-/// A detection rule: text matching `pattern` is reported as `category`.
+/// A detection rule: text matching `pattern` is reported as `category`,
+/// attributed to `detector` ("regex" or "dictionary").
 pub struct RegexRule {
     category: String,
+    detector: String,
     pattern: Regex,
 }
 
@@ -20,8 +22,18 @@ impl RegexRule {
     pub fn new(category: &str, pattern: &str) -> Result<Self, regex::Error> {
         Ok(Self {
             category: category.to_string(),
+            detector: "regex".to_string(),
             pattern: Regex::new(pattern)?,
         })
+    }
+
+    /// A user-dictionary rule: matches `text` with the same OCR tolerance
+    /// as [`Self::literal`], reported under the entry's own category and
+    /// attributed to the dictionary.
+    pub fn dictionary(category: &str, text: &str) -> Self {
+        let mut rule = Self::literal(category, text);
+        rule.detector = "dictionary".to_string();
+        rule
     }
 
     /// A rule matching `text` the way OCR may have read it — the path for
@@ -76,11 +88,59 @@ fn confusable_class(character: char) -> String {
     }
 }
 
+/// Characters that may appear inside a Japanese company name. Hiragana is
+/// excluded on purpose: it terminates the name so surrounding particles
+/// (「〜した」「〜から」) never leak into the match.
+const ORG_CHAR: &str = "[一-龥ァ-ヶーA-Za-z0-9]";
+
+/// Spaced-tolerant spellings of company legal forms.
+fn legal_forms() -> String {
+    ["株式会社", "有限会社", "合同会社"]
+        .map(|form| {
+            form.chars()
+                .map(|c| regex::escape(&c.to_string()))
+                .collect::<Vec<_>>()
+                .join(r"\s?")
+        })
+        .join("|")
+}
+
+/// Words a name-suffix heuristic would otherwise flag (都市, 政府, 彼氏…);
+/// candidates matching one of these exactly are dropped.
+const HEURISTIC_STOPWORDS: [&str; 7] =
+    ["都市", "首都", "政府", "地区", "彼氏", "摂氏", "華氏"];
+
 /// Built-in rules for mechanically detectable identifiers. Patterns accept
 /// common OCR confusions (dash variants, a lost colon in URLs) so that a
-/// recognizable identifier is still flagged.
+/// recognizable identifier is still flagged. The name heuristics
+/// deliberately over-trigger — findings are candidates for human review,
+/// and a missed name costs more than a rejected candidate.
 pub fn builtin_rules() -> Vec<RegexRule> {
+    let forms = legal_forms();
     [
+        (
+            "organization",
+            format!(
+                "(?:{forms})(?:\\s?{ORG_CHAR}){{1,20}}\
+                 |(?:{ORG_CHAR}\\s?){{1,20}}(?:{forms})\
+                 |(?:{ORG_CHAR}\\s?){{2,20}}(?:グループ|ホールディングス)"
+            ),
+        ),
+        (
+            "department",
+            format!(
+                "(?:{ORG_CHAR}\\s?){{1,20}}(?:部門|事業部|本部|支社|支店|営業所|研究所|製作所)\
+                 |(?:{ORG_CHAR}\\s?){{2,20}}[部課係]"
+            ),
+        ),
+        (
+            "person",
+            format!("(?:{ORG_CHAR}\\s?){{1,4}}(?:氏|殿|さん)"),
+        ),
+        (
+            "place",
+            format!("(?:{ORG_CHAR}\\s?){{1,6}}[都府県市区町村]|北\\s?海\\s?道"),
+        ),
         (
             "email",
             r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}".to_string(),
@@ -121,6 +181,9 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
         let line_rect = union_rects(words.iter().map(|(_, rect)| *rect));
         for rule in rules {
             for matched in rule.pattern.find_iter(&line.text) {
+                if HEURISTIC_STOPWORDS.contains(&matched.as_str()) {
+                    continue;
+                }
                 let rect = rect_for_range(matched.range(), &words)
                     .or(line_rect)
                     .unwrap_or(EMPTY_RECT);
@@ -128,7 +191,7 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
                     category: rule.category.clone(),
                     text: matched.as_str().to_string(),
                     rect,
-                    detector: "regex".to_string(),
+                    detector: rule.detector.clone(),
                 });
             }
         }
@@ -404,6 +467,114 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].text, "株式会社べータ電機");
+    }
+
+    #[test]
+    fn company_names_are_flagged_as_organization_candidates() {
+        let page = page(&[
+            "本書は、株式会社ベータ電機から受領した",
+            "納入元はベータ電子株式会社とする",
+            "担当は 株 式 会 社 アルファ技研 のもの",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let organizations: Vec<&str> = findings
+            .iter()
+            .filter(|finding| finding.category == "organization")
+            .map(|finding| finding.text.as_str())
+            .collect();
+        assert!(
+            organizations.contains(&"株式会社ベータ電機"),
+            "found: {organizations:?}"
+        );
+        assert!(
+            organizations.contains(&"ベータ電子株式会社"),
+            "found: {organizations:?}"
+        );
+        assert!(
+            organizations
+                .iter()
+                .any(|text| text.contains("アルファ技研")),
+            "found: {organizations:?}"
+        );
+    }
+
+    #[test]
+    fn departments_people_and_places_are_flagged() {
+        let page = page(&[
+            "技術開発部の田中氏が担当する",
+            "アルファグループ各社および横浜市の拠点",
+            "詳細は佐藤さんと第二営業課まで",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let by_category = |category: &str| -> Vec<&str> {
+            findings
+                .iter()
+                .filter(|finding| finding.category == category)
+                .map(|finding| finding.text.as_str())
+                .collect()
+        };
+        assert!(
+            by_category("department").contains(&"技術開発部"),
+            "departments: {:?}",
+            by_category("department")
+        );
+        assert!(
+            by_category("department").contains(&"第二営業課"),
+            "departments: {:?}",
+            by_category("department")
+        );
+        assert!(
+            by_category("person").contains(&"田中氏"),
+            "people: {:?}",
+            by_category("person")
+        );
+        assert!(
+            by_category("person").contains(&"佐藤さん"),
+            "people: {:?}",
+            by_category("person")
+        );
+        assert!(
+            by_category("organization").contains(&"アルファグループ"),
+            "organizations: {:?}",
+            by_category("organization")
+        );
+        assert!(
+            by_category("place").contains(&"横浜市"),
+            "places: {:?}",
+            by_category("place")
+        );
+    }
+
+    #[test]
+    fn heuristic_stopwords_are_not_flagged() {
+        let page = page(&["都市計画は政府と地区の方針による"]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        assert!(
+            findings.is_empty(),
+            "unexpected findings: {:?}",
+            findings
+                .iter()
+                .map(|finding| finding.text.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn dictionary_rule_reports_its_own_category_and_detector() {
+        let page = page(&["納入元はベータ電子です"]);
+        let rules = vec![RegexRule::dictionary("organization", "ベータ電子")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].category, "organization");
+        assert_eq!(findings[0].detector, "dictionary");
     }
 
     #[test]

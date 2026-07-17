@@ -3,6 +3,7 @@ import type {
   AppConfig,
   ApplySummary,
   AuditReport,
+  DictionaryEntry,
   PageFindings,
   Policy,
   ProjectInfo,
@@ -37,6 +38,29 @@ export function analyzeProject(project: string, dpi = 300, ocrLanguage = "ja") {
 
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
+}
+
+export function listDictionary(project: string) {
+  return invoke<DictionaryEntry[]>("list_dictionary", { project });
+}
+
+export function addDictionaryEntry(
+  project: string,
+  category: string,
+  text: string,
+) {
+  return invoke<DictionaryEntry[]>("add_dictionary_entry", {
+    project,
+    category,
+    text,
+  });
+}
+
+export function removeDictionaryEntry(project: string, text: string) {
+  return invoke<DictionaryEntry[]>("remove_dictionary_entry", {
+    project,
+    text,
+  });
 }
 
 export function searchProject(project: string, text: string) {
