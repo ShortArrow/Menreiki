@@ -36,6 +36,13 @@ enum Command {
         /// BCP-47 tag of the OCR language (falls back to profile languages)
         #[arg(long, default_value = "ja")]
         ocr_language: String,
+        /// Keep existing per-page results and continue where a previous
+        /// run stopped, instead of starting from a clean slate
+        #[arg(long)]
+        resume: bool,
+        /// Run a single stage only (render, ocr, or detect)
+        #[arg(long, value_parser = ["render", "ocr", "detect"])]
+        only: Option<String>,
     },
     /// List the findings detected in a project
     Findings {
@@ -111,48 +118,72 @@ fn run(cli: Cli) -> Result<(), String> {
             project,
             dpi,
             ocr_language,
+            resume,
+            only,
         } => {
-            menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
-            let rasterizer = menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
-                .map_err(|error| error.to_string())?;
-            let page_count =
-                menreiki_project::analyze(&project, &rasterizer, dpi, &mut |page_index, total| {
-                    eprint!("\rrendering page {} / {total}...", page_index + 1);
-                })
-                .map_err(|error| error.to_string())?;
-            eprintln!();
-            println!(
-                "rendered {page_count} pages into {}",
-                project.join(menreiki_project::PAGES_DIR).display()
-            );
+            let stage = |name: &str| only.as_deref().map_or(true, |chosen| chosen == name);
+            if !resume && only.is_none() {
+                menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
+            }
 
-            let ocr_engine = ocr_engine(&ocr_language)?;
-            let ocr_count =
-                menreiki_project::ocr_pages(&project, &ocr_engine, &mut |page_index, total| {
-                    eprint!("\rrecognizing page {} / {total}...", page_index + 1);
-                })
+            if stage("render") {
+                let rasterizer =
+                    menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+                        .map_err(|error| error.to_string())?;
+                let page_count = menreiki_project::analyze(
+                    &project,
+                    &rasterizer,
+                    dpi,
+                    resume,
+                    &mut |page_index, total| {
+                        eprint!("\rrendering page {} / {total}...", page_index + 1);
+                        true
+                    },
+                )
                 .map_err(|error| error.to_string())?;
-            eprintln!();
-            println!(
-                "recognized text on {ocr_count} pages into {}",
-                project.join(menreiki_project::OCR_DIR).display()
-            );
+                eprintln!();
+                println!(
+                    "rendered {page_count} pages into {}",
+                    project.join(menreiki_project::PAGES_DIR).display()
+                );
+            }
 
-            let mut rules = menreiki_detect::builtin_rules();
-            let dictionary =
-                menreiki_project::load_dictionary(&project).map_err(|error| error.to_string())?;
-            rules.extend(menreiki_project::dictionary_rules(&dictionary));
-            menreiki_project::detect_pages(&project, &rules)
+            if stage("ocr") {
+                let ocr_engine = ocr_engine(&ocr_language)?;
+                let ocr_count = menreiki_project::ocr_pages(
+                    &project,
+                    &ocr_engine,
+                    resume,
+                    &mut |page_index, total| {
+                        eprint!("\rrecognizing page {} / {total}...", page_index + 1);
+                        true
+                    },
+                )
                 .map_err(|error| error.to_string())?;
-            let total_findings: usize = menreiki_project::load_findings(&project)
-                .map_err(|error| error.to_string())?
-                .iter()
-                .map(|page| page.findings.len())
-                .sum();
-            println!(
-                "detected {total_findings} findings into {}",
-                project.join(menreiki_project::FINDINGS_DIR).display()
-            );
+                eprintln!();
+                println!(
+                    "recognized text on {ocr_count} pages into {}",
+                    project.join(menreiki_project::OCR_DIR).display()
+                );
+            }
+
+            if stage("ocr") || stage("detect") {
+                let mut rules = menreiki_detect::builtin_rules();
+                let dictionary = menreiki_project::load_dictionary(&project)
+                    .map_err(|error| error.to_string())?;
+                rules.extend(menreiki_project::dictionary_rules(&dictionary));
+                menreiki_project::detect_pages(&project, &rules)
+                    .map_err(|error| error.to_string())?;
+                let total_findings: usize = menreiki_project::load_findings(&project)
+                    .map_err(|error| error.to_string())?
+                    .iter()
+                    .map(|page| page.findings.len())
+                    .sum();
+                println!(
+                    "detected {total_findings} findings into {}",
+                    project.join(menreiki_project::FINDINGS_DIR).display()
+                );
+            }
             Ok(())
         }
         Command::Findings { project } => {

@@ -7,9 +7,14 @@
 mod settings;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+
+/// Set to true by `cancel_analysis`; analysis loops stop between pages.
+struct AnalysisCancel(Arc<AtomicBool>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -110,13 +115,51 @@ fn open_project(project: String) -> Result<ProjectInfo, String> {
     project_info(Path::new(&project))
 }
 
+/// Which parts of the analysis pipeline a run executes.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum AnalysisScope {
+    All,
+    Resume,
+    RenderOnly,
+    OcrOnly,
+    DetectOnly,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AnalyzeOutcome {
+    cancelled: bool,
+    project: ProjectInfo,
+}
+
+fn run_detection(project_dir: &Path) -> Result<(), String> {
+    let mut rules = menreiki_detect::builtin_rules();
+    let dictionary =
+        menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
+    rules.extend(menreiki_project::dictionary_rules(&dictionary));
+    menreiki_project::detect_pages(project_dir, &rules)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn cancel_analysis(state: tauri::State<'_, AnalysisCancel>) {
+    state.0.store(true, Ordering::Relaxed);
+}
+
 #[tauri::command]
 async fn analyze_project(
     app: tauri::AppHandle,
+    state: tauri::State<'_, AnalysisCancel>,
     project: String,
     dpi: u32,
     ocr_language: String,
-) -> Result<ProjectInfo, String> {
+    scope: AnalysisScope,
+) -> Result<AnalyzeOutcome, String> {
+    let cancel = state.0.clone();
+    cancel.store(false, Ordering::Relaxed);
+
     tauri::async_runtime::spawn_blocking(move || {
         let project_dir = PathBuf::from(&project);
         let emit = |stage: &str, page: Option<u16>, total: Option<u16>| {
@@ -125,34 +168,72 @@ async fn analyze_project(
                 serde_json::json!({ "stage": stage, "page": page, "total": total }),
             );
         };
+        let outcome = |cancelled: bool| -> Result<AnalyzeOutcome, String> {
+            Ok(AnalyzeOutcome {
+                cancelled,
+                project: project_info(&project_dir)?,
+            })
+        };
+        let resume = matches!(scope, AnalysisScope::Resume);
+        let render = matches!(
+            scope,
+            AnalysisScope::All | AnalysisScope::Resume | AnalysisScope::RenderOnly
+        );
+        let ocr = matches!(
+            scope,
+            AnalysisScope::All | AnalysisScope::Resume | AnalysisScope::OcrOnly
+        );
 
-        menreiki_project::clear_analysis(&project_dir).map_err(|error| error.to_string())?;
-        emit("render", None, None);
-        let rasterizer =
-            menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
-                .map_err(|error| error.to_string())?;
-        menreiki_project::analyze(&project_dir, &rasterizer, dpi, &mut |page_index, total| {
-            emit("render", Some(page_index + 1), Some(total));
-        })
-        .map_err(|error| error.to_string())?;
+        if matches!(scope, AnalysisScope::All) {
+            menreiki_project::clear_analysis(&project_dir).map_err(|error| error.to_string())?;
+        }
 
-        emit("ocr", None, None);
-        let engine = ocr_engine(&ocr_language)?;
-        menreiki_project::ocr_pages(&project_dir, &engine, &mut |page_index, total| {
-            emit("ocr", Some(page_index + 1), Some(total));
-        })
-        .map_err(|error| error.to_string())?;
+        if render {
+            emit("render", None, None);
+            let rasterizer =
+                menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+                    .map_err(|error| error.to_string())?;
+            let result = menreiki_project::analyze(
+                &project_dir,
+                &rasterizer,
+                dpi,
+                resume,
+                &mut |page_index, total| {
+                    emit("render", Some(page_index + 1), Some(total));
+                    !cancel.load(Ordering::Relaxed)
+                },
+            );
+            match result {
+                Ok(_) => {}
+                Err(menreiki_project::AnalyzeError::Cancelled) => return outcome(true),
+                Err(error) => return Err(error.to_string()),
+            }
+        }
+
+        if ocr {
+            emit("ocr", None, None);
+            let engine = ocr_engine(&ocr_language)?;
+            let result = menreiki_project::ocr_pages(
+                &project_dir,
+                &engine,
+                resume,
+                &mut |page_index, total| {
+                    emit("ocr", Some(page_index + 1), Some(total));
+                    !cancel.load(Ordering::Relaxed)
+                },
+            );
+            match result {
+                Ok(_) => {}
+                Err(menreiki_project::OcrPagesError::Cancelled) => return outcome(true),
+                Err(error) => return Err(error.to_string()),
+            }
+        }
 
         emit("detect", None, None);
-        let mut rules = menreiki_detect::builtin_rules();
-        let dictionary = menreiki_project::load_dictionary(&project_dir)
-            .map_err(|error| error.to_string())?;
-        rules.extend(menreiki_project::dictionary_rules(&dictionary));
-        menreiki_project::detect_pages(&project_dir, &rules)
-            .map_err(|error| error.to_string())?;
+        run_detection(&project_dir)?;
 
         emit("done", None, None);
-        project_info(&project_dir)
+        outcome(false)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -301,6 +382,7 @@ fn save_window_placement(window: &tauri::Window) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(AnalysisCancel(Arc::new(AtomicBool::new(false))))
         .setup(|app| {
             restore_window_placement(app);
             Ok(())
@@ -320,6 +402,7 @@ pub fn run() {
             import_document,
             open_project,
             analyze_project,
+            cancel_analysis,
             list_findings,
             search_project,
             page_image,

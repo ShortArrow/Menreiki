@@ -14,17 +14,23 @@ pub enum OcrPagesError {
     Ocr(#[from] OcrError),
     #[error("OCR result could not be written: {0}")]
     Write(std::io::Error),
+    #[error("OCR was cancelled")]
+    Cancelled,
 }
 
 /// Runs OCR over every rendered page image, storing one JSON per page under
-/// `ocr/`, and returns the number of pages processed. Pages are processed in
-/// order and written as soon as they finish, so a partial run leaves valid
-/// per-page results behind. `on_page` receives each finished 0-based page
-/// index together with the total page count for progress display.
+/// `ocr/`, and returns the number of pages processed.
+///
+/// With `resume`, pages whose OCR result already exists are skipped, so an
+/// interrupted run continues where it stopped. `on_page` receives each
+/// finished (or skipped) 0-based page index with the total page count;
+/// returning `false` stops before the next page with
+/// [`OcrPagesError::Cancelled`], leaving all finished pages valid.
 pub fn ocr_pages(
     project_dir: &Path,
     engine: &dyn OcrEngine,
-    on_page: &mut dyn FnMut(u16, u16),
+    resume: bool,
+    on_page: &mut dyn FnMut(u16, u16) -> bool,
 ) -> Result<u16, OcrPagesError> {
     fs::create_dir_all(project_dir.join(OCR_DIR)).map_err(OcrPagesError::Write)?;
 
@@ -34,12 +40,18 @@ pub fn ocr_pages(
     }
 
     for page_index in 0..total {
-        let png = fs::read(page_image_path(project_dir, page_index)).map_err(OcrPagesError::Read)?;
-        let page_ocr = engine.recognize(&png)?;
-        let json =
-            serde_json::to_string_pretty(&page_ocr).expect("OCR result is always serializable");
-        fs::write(page_ocr_path(project_dir, page_index), json).map_err(OcrPagesError::Write)?;
-        on_page(page_index, total);
+        let out_path = page_ocr_path(project_dir, page_index);
+        if !(resume && out_path.exists()) {
+            let png = fs::read(page_image_path(project_dir, page_index))
+                .map_err(OcrPagesError::Read)?;
+            let page_ocr = engine.recognize(&png)?;
+            let json = serde_json::to_string_pretty(&page_ocr)
+                .expect("OCR result is always serializable");
+            fs::write(out_path, json).map_err(OcrPagesError::Write)?;
+        }
+        if !on_page(page_index, total) {
+            return Err(OcrPagesError::Cancelled);
+        }
     }
     Ok(total)
 }

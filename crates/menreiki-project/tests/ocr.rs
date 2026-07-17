@@ -2,7 +2,9 @@ use std::fs;
 
 use menreiki_core::{OcrLine, PageOcr};
 use menreiki_ocr::{OcrEngine, OcrError};
-use menreiki_project::{import, ocr_pages, page_image_path, page_ocr_path, PAGES_DIR};
+use menreiki_project::{
+    import, ocr_pages, page_image_path, page_ocr_path, OcrPagesError, PAGES_DIR,
+};
 
 struct FakeOcrEngine;
 
@@ -36,7 +38,7 @@ fn writes_one_ocr_json_per_page() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, &mut |_, _| {}).unwrap();
+    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, false, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 2);
     let first: PageOcr =
@@ -51,7 +53,37 @@ fn project_without_rendered_pages_yields_zero() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, &mut |_, _| {}).unwrap();
+    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, false, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 0);
+}
+
+#[test]
+fn ocr_resume_skips_pages_that_already_have_results() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
+    fs::create_dir_all(page_ocr_path(&project_dir, 0).parent().unwrap()).unwrap();
+    fs::write(page_ocr_path(&project_dir, 0), "{\"from\":\"previous\"}").unwrap();
+
+    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, true, &mut |_, _| true).unwrap();
+
+    assert_eq!(page_count, 2);
+    assert_eq!(
+        fs::read_to_string(page_ocr_path(&project_dir, 0)).unwrap(),
+        "{\"from\":\"previous\"}"
+    );
+    assert!(page_ocr_path(&project_dir, 1).exists());
+}
+
+#[test]
+fn ocr_cancel_keeps_finished_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
+
+    let cancel_after_first_page = &mut |_: u16, _: u16| false;
+    let result = ocr_pages(&project_dir, &FakeOcrEngine, false, cancel_after_first_page);
+
+    assert!(matches!(result, Err(OcrPagesError::Cancelled)));
+    assert!(page_ocr_path(&project_dir, 0).exists());
+    assert!(!page_ocr_path(&project_dir, 1).exists());
 }

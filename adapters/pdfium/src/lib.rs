@@ -7,7 +7,7 @@
 use std::io::Cursor;
 use std::path::Path;
 
-use menreiki_render::{DocumentRasterizer, PageImage, PageSink, RasterError};
+use menreiki_render::{DocumentRasterizer, PageImage, RasterError};
 use pdfium_render::prelude::*;
 
 pub struct PdfiumRasterizer {
@@ -39,25 +39,22 @@ impl DocumentRasterizer for PdfiumRasterizer {
         Ok(document.pages().len())
     }
 
-    fn rasterize(
+    fn rasterize_page(
         &self,
         document: &[u8],
+        page_index: u16,
         dpi: u32,
-        sink: &mut PageSink<'_>,
-    ) -> Result<u16, RasterError> {
+    ) -> Result<PageImage, RasterError> {
         let document = self
             .pdfium
             .load_pdf_from_byte_slice(document, None)
             .map_err(|error| RasterError::UnsupportedDocument(error.to_string()))?;
+        let page = document
+            .pages()
+            .get(page_index)
+            .map_err(|error| RasterError::Page(page_index, error.to_string()))?;
         let config = PdfRenderConfig::new().scale_page_by_factor(dpi as f32 / 72.0);
-        let page_count = document.pages().len();
-        for (index, page) in document.pages().iter().enumerate() {
-            let index = index as u16;
-            let image = render_page_to_png(&page, &config)
-                .map_err(|reason| RasterError::Page(index, reason))?;
-            sink(index, image)?;
-        }
-        Ok(page_count)
+        render_page_to_png(&page, &config).map_err(|reason| RasterError::Page(page_index, reason))
     }
 }
 

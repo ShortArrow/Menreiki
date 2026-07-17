@@ -12,21 +12,28 @@ pub enum AnalyzeError {
     Manifest(#[from] LoadError),
     #[error("source document could not be read: {0}")]
     Source(std::io::Error),
-    #[error("pages directory could not be created: {0}")]
+    #[error("page image could not be written: {0}")]
     Pages(std::io::Error),
     #[error(transparent)]
     Raster(#[from] RasterError),
+    #[error("analysis was cancelled")]
+    Cancelled,
 }
 
 /// Renders every page of the project's source document into `pages/` and
-/// returns the page count. `on_page` receives each finished 0-based page
-/// index together with the total page count, so callers can show
-/// "page 3 of 12" progress from the first page on.
+/// returns the page count.
+///
+/// With `resume`, pages whose image already exists are skipped, so an
+/// interrupted run continues where it stopped. `on_page` receives each
+/// finished (or skipped) 0-based page index with the total page count;
+/// returning `false` stops before the next page with
+/// [`AnalyzeError::Cancelled`], leaving all finished pages valid.
 pub fn analyze(
     project_dir: &Path,
     rasterizer: &dyn DocumentRasterizer,
     dpi: u32,
-    on_page: &mut dyn FnMut(u16, u16),
+    resume: bool,
+    on_page: &mut dyn FnMut(u16, u16) -> bool,
 ) -> Result<u16, AnalyzeError> {
     let manifest = load_manifest(project_dir)?;
     let source_path = project_dir
@@ -36,10 +43,15 @@ pub fn analyze(
     fs::create_dir_all(project_dir.join(PAGES_DIR)).map_err(AnalyzeError::Pages)?;
 
     let total = rasterizer.page_count(&source)?;
-    let page_count = rasterizer.rasterize(&source, dpi, &mut |page_index, image| {
-        fs::write(page_image_path(project_dir, page_index), &image.png)?;
-        on_page(page_index, total);
-        Ok(())
-    })?;
-    Ok(page_count)
+    for page_index in 0..total {
+        let path = page_image_path(project_dir, page_index);
+        if !(resume && path.exists()) {
+            let image = rasterizer.rasterize_page(&source, page_index, dpi)?;
+            fs::write(path, &image.png).map_err(AnalyzeError::Pages)?;
+        }
+        if !on_page(page_index, total) {
+            return Err(AnalyzeError::Cancelled);
+        }
+    }
+    Ok(total)
 }

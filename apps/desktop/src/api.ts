@@ -1,5 +1,7 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
+  AnalysisScope,
+  AnalyzeOutcome,
   AppConfig,
   ApplySummary,
   AuditReport,
@@ -32,8 +34,22 @@ export function openProject(project: string) {
   return invoke<ProjectInfo>("open_project", { project });
 }
 
-export function analyzeProject(project: string, dpi = 300, ocrLanguage = "ja") {
-  return invoke<ProjectInfo>("analyze_project", { project, dpi, ocrLanguage });
+export function analyzeProject(
+  project: string,
+  scope: AnalysisScope,
+  dpi = 300,
+  ocrLanguage = "ja",
+) {
+  return invoke<AnalyzeOutcome>("analyze_project", {
+    project,
+    dpi,
+    ocrLanguage,
+    scope,
+  });
+}
+
+export function cancelAnalysis() {
+  return invoke<void>("cancel_analysis");
 }
 
 export function listFindings(project: string) {

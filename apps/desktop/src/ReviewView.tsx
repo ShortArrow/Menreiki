@@ -5,6 +5,7 @@ import {
   analyzeProject,
   applyPolicy,
   auditProject,
+  cancelAnalysis,
   exportProject,
   listDictionary,
   listFindings,
@@ -15,6 +16,7 @@ import {
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import type {
+  AnalysisScope,
   ApplySummary,
   AuditReport,
   DictionaryEntry,
@@ -140,6 +142,7 @@ export default function ReviewView(props: {
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
@@ -183,6 +186,7 @@ export default function ReviewView(props: {
   async function run<T>(label: string, action: () => Promise<T>) {
     setBusy(label);
     setError(null);
+    setNotice(null);
     try {
       return await action();
     } catch (failure) {
@@ -194,20 +198,27 @@ export default function ReviewView(props: {
     }
   }
 
-  function runAnalyze() {
+  function runAnalyze(scope: AnalysisScope) {
     void run("解析中…", async () => {
-      setSearchHits(null);
-      setAudit(null);
-      setApplySummary(null);
-      setExportPath(null);
-      setHasRenders(false);
-      setShowRendered(false);
-      setHighlightKey(null);
-      setFocus(null);
-      const updated = await analyzeProject(project.projectDir);
-      props.onProjectChange(updated);
-      setFindings(await listFindings(project.projectDir));
+      if (scope === "all" || scope === "resume") {
+        setSearchHits(null);
+        setAudit(null);
+        setApplySummary(null);
+        setExportPath(null);
+        setHasRenders(false);
+        setShowRendered(false);
+        setHighlightKey(null);
+        setFocus(null);
+      }
+      const outcome = await analyzeProject(project.projectDir, scope);
+      props.onProjectChange(outcome.project);
+      setFindings(await listFindings(project.projectDir).catch(() => []));
       setVersion((current) => current + 1);
+      if (outcome.cancelled) {
+        setNotice(
+          "解析をキャンセルしました。「解析を再開」で続きから実行できます。",
+        );
+      }
     });
   }
 
@@ -330,7 +341,13 @@ export default function ReviewView(props: {
       setDictionary(
         await addDictionaryEntry(project.projectDir, dictionaryCategory, text),
       );
-      setDictionaryNote("登録しました。再解析すると検出候補に反映されます。");
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+        setDictionaryNote("登録し、検出候補へ反映しました。");
+      } else {
+        setDictionaryNote("登録しました。解析すると検出候補に反映されます。");
+      }
     });
   }
 
@@ -389,17 +406,43 @@ export default function ReviewView(props: {
           {project.fileName}
         </span>
         {project.analyzed ? (
-          <button
-            onClick={runAnalyze}
+          <select
+            className="reanalyze"
+            value=""
             disabled={busy !== null}
-            title="ページ画像・OCR・検出をやり直します（変換結果と監査もリセットされます。判断ルールは残ります）"
+            onChange={(event) => {
+              const scope = event.target.value as AnalysisScope | "";
+              if (scope) runAnalyze(scope);
+            }}
           >
-            再解析
-          </button>
+            <option value="">再解析…</option>
+            <option value="all">すべて（最初から）</option>
+            <option value="resume">続きから再開</option>
+            <option value="render-only">画像化のみ</option>
+            <option value="ocr-only">OCRのみ＋検出</option>
+            <option value="detect-only">検出のみ</option>
+          </select>
+        ) : project.pageCount > 0 ? (
+          <>
+            <button
+              className="primary"
+              onClick={() => runAnalyze("resume")}
+              disabled={busy !== null}
+              title="完了済みのページをスキップして続きから解析します"
+            >
+              解析を再開
+            </button>
+            <button
+              onClick={() => runAnalyze("all")}
+              disabled={busy !== null}
+            >
+              最初から
+            </button>
+          </>
         ) : (
           <button
             className="primary"
-            onClick={runAnalyze}
+            onClick={() => runAnalyze("all")}
             disabled={busy !== null}
           >
             解析を実行
@@ -430,9 +473,13 @@ export default function ReviewView(props: {
         </button>
       </header>
 
-      {(busy || progress || error) && (
+      {(busy || progress || error || notice) && (
         <div className="statusbar">
           {busy && <span className="status">{progress ?? busy}</span>}
+          {busy === "解析中…" && (
+            <button onClick={() => void cancelAnalysis()}>キャンセル</button>
+          )}
+          {notice && <span className="status">{notice}</span>}
           {error && <span className="error">{error}</span>}
         </div>
       )}
@@ -605,6 +652,13 @@ export default function ReviewView(props: {
                               entry.text,
                             ),
                           );
+                          if (project.analyzed) {
+                            await analyzeProject(
+                              project.projectDir,
+                              "detect-only",
+                            );
+                            setFindings(await listFindings(project.projectDir));
+                          }
                         });
                       }}
                     >

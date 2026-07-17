@@ -10,6 +10,18 @@ export interface ProjectInfo {
   analyzed: boolean;
 }
 
+export type AnalysisScope =
+  | "all"
+  | "resume"
+  | "render-only"
+  | "ocr-only"
+  | "detect-only";
+
+export interface AnalyzeOutcome {
+  cancelled: boolean;
+  project: ProjectInfo;
+}
+
 export interface Rect {
   x: number;
   y: number;

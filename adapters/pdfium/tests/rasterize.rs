@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use menreiki_adapter_pdfium::PdfiumRasterizer;
-use menreiki_render::{DocumentRasterizer, PageImage};
+use menreiki_render::DocumentRasterizer;
 use menreiki_test_support::minimal_pdf;
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -20,21 +20,14 @@ fn rasterizer() -> PdfiumRasterizer {
 }
 
 #[test]
-fn rasterizes_every_page_at_requested_dpi() {
+fn reports_page_count_and_rasterizes_each_page_at_requested_dpi() {
     let document = minimal_pdf(2);
-    let mut pages: Vec<(u16, PageImage)> = Vec::new();
+    let rasterizer = rasterizer();
 
-    let page_count = rasterizer()
-        .rasterize(&document, 300, &mut |index, image| {
-            pages.push((index, image));
-            Ok(())
-        })
-        .unwrap();
-
+    let page_count = rasterizer.page_count(&document).unwrap();
     assert_eq!(page_count, 2);
-    assert_eq!(pages.len(), 2);
-    let (index, first) = &pages[0];
-    assert_eq!(*index, 0);
+
+    let first = rasterizer.rasterize_page(&document, 0, 300).unwrap();
     assert!(
         (2548..=2552).contains(&first.width),
         "612pt at 300dpi should be about 2550px, got {}",
@@ -46,11 +39,20 @@ fn rasterizes_every_page_at_requested_dpi() {
         first.height
     );
     assert_eq!(first.png[..8], PNG_SIGNATURE);
+
+    let second = rasterizer.rasterize_page(&document, 1, 300).unwrap();
+    assert_eq!(second.png[..8], PNG_SIGNATURE);
 }
 
 #[test]
 fn rejects_non_pdf_bytes() {
-    let result = rasterizer().rasterize(b"not a pdf", 300, &mut |_, _| Ok(()));
+    assert!(rasterizer().page_count(b"not a pdf").is_err());
+    assert!(rasterizer().rasterize_page(b"not a pdf", 0, 300).is_err());
+}
 
-    assert!(result.is_err());
+#[test]
+fn rejects_out_of_range_page_index() {
+    let document = minimal_pdf(1);
+
+    assert!(rasterizer().rasterize_page(&document, 5, 300).is_err());
 }
