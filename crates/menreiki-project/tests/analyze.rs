@@ -8,6 +8,10 @@ struct FakeRasterizer {
 }
 
 impl DocumentRasterizer for FakeRasterizer {
+    fn page_count(&self, _document: &[u8]) -> Result<u16, RasterError> {
+        Ok(self.pages.len() as u16)
+    }
+
     fn rasterize(
         &self,
         _document: &[u8],
@@ -39,12 +43,14 @@ fn analyze_writes_one_png_per_page() {
         pages: vec![b"png-1".to_vec(), b"png-2".to_vec()],
     };
 
-    let mut reported: Vec<u16> = Vec::new();
-    let page_count =
-        analyze(&project_dir, &rasterizer, 300, &mut |index| reported.push(index)).unwrap();
+    let mut reported: Vec<(u16, u16)> = Vec::new();
+    let page_count = analyze(&project_dir, &rasterizer, 300, &mut |index, total| {
+        reported.push((index, total))
+    })
+    .unwrap();
 
     assert_eq!(page_count, 2);
-    assert_eq!(reported, vec![0, 1]);
+    assert_eq!(reported, vec![(0, 2), (1, 2)]);
     assert_eq!(fs::read(page_image_path(&project_dir, 0)).unwrap(), b"png-1");
     assert_eq!(fs::read(page_image_path(&project_dir, 1)).unwrap(), b"png-2");
 }
@@ -54,7 +60,7 @@ fn analyze_requires_an_existing_project() {
     let tmp = tempfile::tempdir().unwrap();
     let rasterizer = FakeRasterizer { pages: vec![] };
 
-    let result = analyze(tmp.path(), &rasterizer, 300, &mut |_| {});
+    let result = analyze(tmp.path(), &rasterizer, 300, &mut |_, _| {});
 
     assert!(result.is_err());
 }

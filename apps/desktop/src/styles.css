@@ -215,7 +215,7 @@ h2 {
 .panes {
   flex: 1;
   display: grid;
-  grid-template-columns: 72px minmax(280px, 1fr) minmax(280px, 400px);
+  grid-template-columns: 108px minmax(280px, 1fr) minmax(280px, 400px);
   min-height: 0;
 }
 
@@ -233,7 +233,30 @@ h2 {
 
 .page-button {
   position: relative;
-  padding: 10px 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.page-button .thumb {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  background: #ffffff;
+}
+
+.page-button .thumb-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 210 / 297;
+  background: var(--chip-bg);
+  border: 1px dashed var(--border);
+}
+
+.page-button .page-number {
+  font-size: 12px;
 }
 
 .page-button.current {

@@ -126,12 +126,13 @@ async fn analyze_project(
             );
         };
 
+        menreiki_project::clear_analysis(&project_dir).map_err(|error| error.to_string())?;
         emit("render", None, None);
         let rasterizer =
             menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
                 .map_err(|error| error.to_string())?;
-        menreiki_project::analyze(&project_dir, &rasterizer, dpi, &mut |page_index| {
-            emit("render", Some(page_index + 1), None);
+        menreiki_project::analyze(&project_dir, &rasterizer, dpi, &mut |page_index, total| {
+            emit("render", Some(page_index + 1), Some(total));
         })
         .map_err(|error| error.to_string())?;
 

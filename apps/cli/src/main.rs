@@ -112,11 +112,12 @@ fn run(cli: Cli) -> Result<(), String> {
             dpi,
             ocr_language,
         } => {
+            menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
             let rasterizer = menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
                 .map_err(|error| error.to_string())?;
             let page_count =
-                menreiki_project::analyze(&project, &rasterizer, dpi, &mut |page_index| {
-                    eprint!("\rrendering page {}...", page_index + 1);
+                menreiki_project::analyze(&project, &rasterizer, dpi, &mut |page_index, total| {
+                    eprint!("\rrendering page {} / {total}...", page_index + 1);
                 })
                 .map_err(|error| error.to_string())?;
             eprintln!();

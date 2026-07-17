@@ -31,6 +31,14 @@ impl PdfiumRasterizer {
 }
 
 impl DocumentRasterizer for PdfiumRasterizer {
+    fn page_count(&self, document: &[u8]) -> Result<u16, RasterError> {
+        let document = self
+            .pdfium
+            .load_pdf_from_byte_slice(document, None)
+            .map_err(|error| RasterError::UnsupportedDocument(error.to_string()))?;
+        Ok(document.pages().len())
+    }
+
     fn rasterize(
         &self,
         document: &[u8],

@@ -23,6 +23,10 @@ pub type PageSink<'a> = dyn FnMut(u16, PageImage) -> std::io::Result<()> + 'a;
 /// as it is ready (pages must arrive in index order). Streaming keeps memory
 /// flat for large documents and lets review start before rendering finishes.
 pub trait DocumentRasterizer {
+    /// Number of pages in the document, without rasterizing any of them —
+    /// lets callers show "page 3 of 12" progress from the first page on.
+    fn page_count(&self, document: &[u8]) -> Result<u16, RasterError>;
+
     /// Rasterizes `document` at `dpi` and returns the page count.
     fn rasterize(
         &self,

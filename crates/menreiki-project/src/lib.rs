@@ -12,6 +12,7 @@ mod detect;
 mod export;
 mod import;
 mod layout;
+mod maintenance;
 mod manifest;
 mod ocr;
 mod search;
@@ -27,6 +28,7 @@ pub use layout::{
     plan_path, sanitized_pdf_path, AUDIT_DIR, DECISIONS_DIR, FINDINGS_DIR, MANIFEST_FILE_NAME,
     OCR_DIR, OUTPUT_DIR, PAGES_DIR, RENDERS_DIR, SOURCE_DIR,
 };
+pub use maintenance::clear_analysis;
 pub use manifest::{load_manifest, LoadError, ProjectManifest, SCHEMA_VERSION};
 pub use ocr::{load_ocr_pages, ocr_pages, LoadOcrError, OcrPagesError};
 pub use search::search_text;

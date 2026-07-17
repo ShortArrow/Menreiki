@@ -6,6 +6,7 @@ import {
   auditProject,
   exportProject,
   listFindings,
+  pageImageUrl,
   searchProject,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
@@ -79,6 +80,33 @@ function progressLabel(progress: AnalyzeProgress): string {
   }
 }
 
+function PageThumb(props: {
+  projectDir: string;
+  pageIndex: number;
+  version: number;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    pageImageUrl(props.projectDir, props.pageIndex, false)
+      .then((base) => {
+        if (!cancelled) setUrl(`${base}?v=${props.version}`);
+      })
+      .catch(() => {
+        if (!cancelled) setUrl(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [props.projectDir, props.pageIndex, props.version]);
+
+  if (!url) {
+    return <span className="thumb-placeholder" />;
+  }
+  return <img className="thumb" src={url} loading="lazy" alt="" />;
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -149,9 +177,18 @@ export default function ReviewView(props: {
 
   function runAnalyze() {
     void run("解析中…", async () => {
+      setSearchHits(null);
+      setAudit(null);
+      setApplySummary(null);
+      setExportPath(null);
+      setHasRenders(false);
+      setShowRendered(false);
+      setHighlightKey(null);
+      setFocus(null);
       const updated = await analyzeProject(project.projectDir);
       props.onProjectChange(updated);
       setFindings(await listFindings(project.projectDir));
+      setVersion((current) => current + 1);
     });
   }
 
@@ -321,7 +358,15 @@ export default function ReviewView(props: {
         <span className="file-name" title={project.projectDir}>
           {project.fileName}
         </span>
-        {!project.analyzed && (
+        {project.analyzed ? (
+          <button
+            onClick={runAnalyze}
+            disabled={busy !== null}
+            title="ページ画像・OCR・検出をやり直します（変換結果と監査もリセットされます。判断ルールは残ります）"
+          >
+            再解析
+          </button>
+        ) : (
           <button
             className="primary"
             onClick={runAnalyze}
@@ -372,7 +417,12 @@ export default function ReviewView(props: {
               }
               onClick={() => setPage(index)}
             >
-              {index + 1}
+              <PageThumb
+                projectDir={project.projectDir}
+                pageIndex={index}
+                version={version}
+              />
+              <span className="page-number">{index + 1}</span>
               {(findings.find((entry) => entry.page_index === index)?.findings
                 .length ?? 0) > 0 && <span className="dot" />}
             </button>
