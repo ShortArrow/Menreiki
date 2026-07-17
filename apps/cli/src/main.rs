@@ -114,16 +114,24 @@ fn run(cli: Cli) -> Result<(), String> {
         } => {
             let rasterizer = menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
                 .map_err(|error| error.to_string())?;
-            let page_count = menreiki_project::analyze(&project, &rasterizer, dpi)
+            let page_count =
+                menreiki_project::analyze(&project, &rasterizer, dpi, &mut |page_index| {
+                    eprint!("\rrendering page {}...", page_index + 1);
+                })
                 .map_err(|error| error.to_string())?;
+            eprintln!();
             println!(
                 "rendered {page_count} pages into {}",
                 project.join(menreiki_project::PAGES_DIR).display()
             );
 
             let ocr_engine = ocr_engine(&ocr_language)?;
-            let ocr_count = menreiki_project::ocr_pages(&project, &ocr_engine)
+            let ocr_count =
+                menreiki_project::ocr_pages(&project, &ocr_engine, &mut |page_index, total| {
+                    eprint!("\rrecognizing page {} / {total}...", page_index + 1);
+                })
                 .map_err(|error| error.to_string())?;
+            eprintln!();
             println!(
                 "recognized text on {ocr_count} pages into {}",
                 project.join(menreiki_project::OCR_DIR).display()

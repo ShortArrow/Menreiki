@@ -19,11 +19,14 @@ pub enum AnalyzeError {
 }
 
 /// Renders every page of the project's source document into `pages/` and
-/// returns the page count.
+/// returns the page count. `on_page` receives each 0-based page index as
+/// soon as that page's image has been written, so callers can show
+/// per-page progress.
 pub fn analyze(
     project_dir: &Path,
     rasterizer: &dyn DocumentRasterizer,
     dpi: u32,
+    on_page: &mut dyn FnMut(u16),
 ) -> Result<u16, AnalyzeError> {
     let manifest = load_manifest(project_dir)?;
     let source_path = project_dir
@@ -33,7 +36,9 @@ pub fn analyze(
     fs::create_dir_all(project_dir.join(PAGES_DIR)).map_err(AnalyzeError::Pages)?;
 
     let page_count = rasterizer.rasterize(&source, dpi, &mut |page_index, image| {
-        fs::write(page_image_path(project_dir, page_index), &image.png)
+        fs::write(page_image_path(project_dir, page_index), &image.png)?;
+        on_page(page_index);
+        Ok(())
     })?;
     Ok(page_count)
 }

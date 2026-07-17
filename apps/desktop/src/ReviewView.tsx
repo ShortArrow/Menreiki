@@ -41,12 +41,32 @@ interface RegionRule {
 const findingKey = (finding: Finding) =>
   `${finding.category}|::|${finding.text}`;
 
-const STAGE_LABELS: Record<string, string> = {
-  render: "ページを画像化しています…",
-  ocr: "OCRを実行しています…",
-  detect: "機密候補を検出しています…",
-  done: "解析が完了しました",
-};
+interface AnalyzeProgress {
+  stage: string;
+  page: number | null;
+  total: number | null;
+}
+
+function progressLabel(progress: AnalyzeProgress): string {
+  const pages =
+    progress.page === null
+      ? ""
+      : progress.total === null
+        ? `（${progress.page}ページ目）`
+        : `（${progress.page} / ${progress.total}ページ）`;
+  switch (progress.stage) {
+    case "render":
+      return `ページを画像化しています…${pages}`;
+    case "ocr":
+      return `OCRを実行しています…${pages}`;
+    case "detect":
+      return "機密候補を検出しています…";
+    case "done":
+      return "解析が完了しました";
+    default:
+      return progress.stage;
+  }
+}
 
 export default function ReviewView(props: {
   project: ProjectInfo;
@@ -89,8 +109,8 @@ export default function ReviewView(props: {
   }, [project.projectDir, project.analyzed]);
 
   useEffect(() => {
-    const unlisten = listen<string>("analyze-progress", (event) => {
-      setProgress(STAGE_LABELS[event.payload] ?? event.payload);
+    const unlisten = listen<AnalyzeProgress>("analyze-progress", (event) => {
+      setProgress(progressLabel(event.payload));
     });
     return () => {
       void unlisten.then((dispose) => dispose());

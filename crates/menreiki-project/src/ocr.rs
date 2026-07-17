@@ -19,20 +19,29 @@ pub enum OcrPagesError {
 /// Runs OCR over every rendered page image, storing one JSON per page under
 /// `ocr/`, and returns the number of pages processed. Pages are processed in
 /// order and written as soon as they finish, so a partial run leaves valid
-/// per-page results behind.
-pub fn ocr_pages(project_dir: &Path, engine: &dyn OcrEngine) -> Result<u16, OcrPagesError> {
+/// per-page results behind. `on_page` receives each finished 0-based page
+/// index together with the total page count for progress display.
+pub fn ocr_pages(
+    project_dir: &Path,
+    engine: &dyn OcrEngine,
+    on_page: &mut dyn FnMut(u16, u16),
+) -> Result<u16, OcrPagesError> {
     fs::create_dir_all(project_dir.join(OCR_DIR)).map_err(OcrPagesError::Write)?;
 
-    let mut page_index: u16 = 0;
-    while page_image_path(project_dir, page_index).exists() {
+    let mut total: u16 = 0;
+    while page_image_path(project_dir, total).exists() {
+        total += 1;
+    }
+
+    for page_index in 0..total {
         let png = fs::read(page_image_path(project_dir, page_index)).map_err(OcrPagesError::Read)?;
         let page_ocr = engine.recognize(&png)?;
         let json =
             serde_json::to_string_pretty(&page_ocr).expect("OCR result is always serializable");
         fs::write(page_ocr_path(project_dir, page_index), json).map_err(OcrPagesError::Write)?;
-        page_index += 1;
+        on_page(page_index, total);
     }
-    Ok(page_index)
+    Ok(total)
 }
 
 #[derive(Debug, thiserror::Error)]

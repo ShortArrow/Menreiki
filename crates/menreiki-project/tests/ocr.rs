@@ -36,7 +36,7 @@ fn writes_one_ocr_json_per_page() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine).unwrap();
+    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, &mut |_, _| {}).unwrap();
 
     assert_eq!(page_count, 2);
     let first: PageOcr =
@@ -51,7 +51,7 @@ fn project_without_rendered_pages_yields_zero() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine).unwrap();
+    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, &mut |_, _| {}).unwrap();
 
     assert_eq!(page_count, 0);
 }

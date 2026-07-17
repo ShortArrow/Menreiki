@@ -107,27 +107,34 @@ async fn analyze_project(
 ) -> Result<ProjectInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let project_dir = PathBuf::from(&project);
-        let emit = |stage: &str| {
-            let _ = app.emit("analyze-progress", stage);
+        let emit = |stage: &str, page: Option<u16>, total: Option<u16>| {
+            let _ = app.emit(
+                "analyze-progress",
+                serde_json::json!({ "stage": stage, "page": page, "total": total }),
+            );
         };
 
-        emit("render");
+        emit("render", None, None);
         let rasterizer =
             menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
                 .map_err(|error| error.to_string())?;
-        menreiki_project::analyze(&project_dir, &rasterizer, dpi)
-            .map_err(|error| error.to_string())?;
+        menreiki_project::analyze(&project_dir, &rasterizer, dpi, &mut |page_index| {
+            emit("render", Some(page_index + 1), None);
+        })
+        .map_err(|error| error.to_string())?;
 
-        emit("ocr");
+        emit("ocr", None, None);
         let engine = ocr_engine(&ocr_language)?;
-        menreiki_project::ocr_pages(&project_dir, &engine)
-            .map_err(|error| error.to_string())?;
+        menreiki_project::ocr_pages(&project_dir, &engine, &mut |page_index, total| {
+            emit("ocr", Some(page_index + 1), Some(total));
+        })
+        .map_err(|error| error.to_string())?;
 
-        emit("detect");
+        emit("detect", None, None);
         menreiki_project::detect_pages(&project_dir, &menreiki_detect::builtin_rules())
             .map_err(|error| error.to_string())?;
 
-        emit("done");
+        emit("done", None, None);
         project_info(&project_dir)
     })
     .await

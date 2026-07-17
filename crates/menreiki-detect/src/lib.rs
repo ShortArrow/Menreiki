@@ -92,7 +92,9 @@ pub fn builtin_rules() -> Vec<RegexRule> {
         ("ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b".to_string()),
         (
             "phone",
-            format!(r"\b0\d{{1,4}}[{DASH_CHARS}]\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b"),
+            format!(
+                r"[（(]0\d{{1,4}}[)）]\s?\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b|\b0\d{{1,4}}[（(]\d{{1,4}}[)）]\d{{4}}\b|\b0\d{{1,4}}[{DASH_CHARS}]\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b"
+            ),
         ),
         (
             "postal-code",
@@ -148,8 +150,8 @@ pub fn detect_repeated_lines(pages: &[PageOcr]) -> Vec<Vec<Finding>> {
             let Some(rect) = union_rects(line.words.iter().map(|word| word.rect)) else {
                 continue;
             };
-            let normalized = normalize_digits(&line.text);
-            if normalized.trim().is_empty() {
+            let normalized = layout_grouping_key(&line.text);
+            if normalized.is_empty() {
                 continue;
             }
             let band = (vertical_center(&rect, page.height) * 50.0) as u32;
@@ -201,8 +203,13 @@ fn vertical_center(rect: &Rect, page_height: u32) -> f32 {
     (rect.y + rect.height / 2.0) / page_height as f32
 }
 
-fn normalize_digits(text: &str) -> String {
+/// Key for grouping the "same" line across pages: whitespace is dropped
+/// (OCR spacing varies page to page, and letter-spaced text like
+/// 「菊 水 電 子 工 業」 splits into one word per character) and digits
+/// collapse to '#' so numbered footers ("Page 1", "Page 2") group together.
+fn layout_grouping_key(text: &str) -> String {
     text.chars()
+        .filter(|character| !character.is_whitespace())
         .map(|character| {
             if character.is_ascii_digit() {
                 '#'
@@ -364,6 +371,31 @@ mod tests {
     }
 
     #[test]
+    fn literal_rule_tolerates_fully_letter_spaced_text() {
+        let page = page(&["ガ  ン  マ  電  子  工  業  御中"]);
+        let rules = vec![RegexRule::literal("organization", "ガンマ電子工業")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "ガ  ン  マ  電  子  工  業");
+    }
+
+    #[test]
+    fn repeated_lines_group_despite_spacing_differences() {
+        let pages = vec![
+            page_with_line_at("body one", "ガ ン マ 電 子 工 業", 950.0),
+            page_with_line_at("body two", "ガンマ 電子 工業", 950.0),
+        ];
+
+        let findings = detect_repeated_lines(&pages);
+
+        assert_eq!(findings[0].len(), 1);
+        assert_eq!(findings[1].len(), 1);
+        assert_eq!(findings[0][0].category, "footer");
+    }
+
+    #[test]
     fn literal_rule_tolerates_kana_homoglyphs() {
         let page = page(&["発注先は株式会社べータ電機とする"]);
         let rules = vec![RegexRule::literal("organization", "株式会社ベータ電機")];
@@ -372,6 +404,26 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].text, "株式会社べータ電機");
+    }
+
+    #[test]
+    fn parenthesized_area_codes_are_detected_in_full() {
+        let page = page(&[
+            "TEL: (052)72-3359",
+            "FAX: （052）73ー0072",
+            "本社 03(1234)5678 まで",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let phones: Vec<&str> = findings
+            .iter()
+            .filter(|finding| finding.category == "phone")
+            .map(|finding| finding.text.as_str())
+            .collect();
+        assert!(phones.contains(&"(052)72-3359"), "found: {phones:?}");
+        assert!(phones.contains(&"（052）73ー0072"), "found: {phones:?}");
+        assert!(phones.contains(&"03(1234)5678"), "found: {phones:?}");
     }
 
     #[test]
