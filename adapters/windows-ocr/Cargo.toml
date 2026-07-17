@@ -2,6 +2,7 @@
 name = "menreiki-adapter-windows-ocr"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 menreiki-core.workspace = true

@@ -2,6 +2,7 @@
 name = "menreiki-project"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 menreiki-audit.workspace = true

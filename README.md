@@ -74,4 +74,9 @@ schemas/ docs/   スキーマとドキュメント
 
 ## ライセンス
 
-準備中です。オープンソースとして公開する方針です。
+以下のいずれかのライセンスを選択できます。
+
+- MIT License（[LICENSE-MIT](LICENSE-MIT)）
+- Apache License, Version 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
+
+このリポジトリへの意図的な貢献は、追加の条件なく上記デュアルライセンスで提供されるものとします。
