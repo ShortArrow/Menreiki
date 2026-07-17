@@ -36,6 +36,8 @@ interface TextRule {
 interface RegionRule {
   rect: Rect;
   action: "erase" | "mask";
+  /// "all" or the 0-based page index the rule is limited to.
+  scope: "all" | number;
 }
 
 const findingKey = (finding: Finding) =>
@@ -80,6 +82,7 @@ export default function ReviewView(props: {
   const [textRules, setTextRules] = useState<TextRule[]>([]);
   const [regionRules, setRegionRules] = useState<RegionRule[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("none");
+  const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchHits, setSearchHits] = useState<PageFindings[] | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
@@ -185,7 +188,10 @@ export default function ReviewView(props: {
     }
     for (const region of regionRules) {
       rules.push({
-        match: { region: region.rect, pages: "all" },
+        match: {
+          region: region.rect,
+          pages: region.scope === "all" ? "all" : [region.scope + 1],
+        },
         action:
           region.action === "mask" ? { type: "mask" } : { type: "remove" },
       });
@@ -233,8 +239,15 @@ export default function ReviewView(props: {
     ]);
   }
 
-  const currentPageFindings =
-    findings.find((entry) => entry.page_index === page)?.findings ?? [];
+  const visibleRegions = regionRules
+    .map((rule, index) => ({ ...rule, index }))
+    .filter((rule) => rule.scope === "all" || rule.scope === page);
+
+  const currentPageSearchHits =
+    searchHits?.find((entry) => entry.page_index === page)?.findings ?? [];
+  const currentPageFindings = (
+    findings.find((entry) => entry.page_index === page)?.findings ?? []
+  ).concat(currentPageSearchHits);
 
   const searchHitCount =
     searchHits?.reduce((sum, entry) => sum + entry.findings.length, 0) ?? null;
@@ -335,11 +348,23 @@ export default function ReviewView(props: {
                 {mode === "none" ? "なし" : mode === "erase" ? "消去" : "マスク"}
               </button>
             ))}
-            <span className="hint">
-              {drawMode !== "none"
-                ? "ドラッグした矩形を全ページへ適用します"
-                : ""}
-            </span>
+            {drawMode !== "none" && (
+              <>
+                <span>適用範囲:</span>
+                {(["all", "page"] as const).map((scope) => (
+                  <button
+                    key={scope}
+                    className={drawScope === scope ? "mode current" : "mode"}
+                    onClick={() => setDrawScope(scope)}
+                  >
+                    {scope === "all" ? "全ページ" : "このページ"}
+                  </button>
+                ))}
+                <span className="hint">
+                  ドラッグで領域ルールを追加（クリックで削除）
+                </span>
+              </>
+            )}
           </div>
           <PageViewer
             projectDir={project.projectDir}
@@ -347,36 +372,26 @@ export default function ReviewView(props: {
             rendered={showRendered && hasRenders}
             version={version}
             findings={currentPageFindings}
-            regions={regionRules}
+            regions={visibleRegions}
             highlightKey={highlightKey}
             findingKey={findingKey}
             drawMode={drawMode}
             onRegion={(rect) =>
               setRegionRules((current) => [
                 ...current,
-                { rect, action: drawMode === "mask" ? "mask" : "erase" },
+                {
+                  rect,
+                  action: drawMode === "mask" ? "mask" : "erase",
+                  scope: drawScope === "all" ? "all" : page,
+                },
               ])
             }
+            onRegionRemove={(index) =>
+              setRegionRules((current) =>
+                current.filter((_, i) => i !== index),
+              )
+            }
           />
-          {regionRules.length > 0 && (
-            <div className="region-rules">
-              {regionRules.map((rule, index) => (
-                <span key={index} className="chip">
-                  領域{index + 1}（
-                  {rule.action === "mask" ? "マスク" : "消去"}・全ページ）
-                  <button
-                    onClick={() =>
-                      setRegionRules((current) =>
-                        current.filter((_, i) => i !== index),
-                      )
-                    }
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-          )}
         </main>
 
         <aside className="side-pane">
@@ -472,6 +487,45 @@ export default function ReviewView(props: {
               </div>
             )}
           </section>
+
+          {regionRules.length > 0 && (
+            <section>
+              <h2>矩形領域ルール（{regionRules.length}件）</h2>
+              <div className="region-list">
+                {regionRules.map((rule, index) => (
+                  <div key={index} className="region-row">
+                    <span className="chip-action">
+                      {rule.action === "mask" ? "マスク" : "消去"}
+                    </span>
+                    <button
+                      className="region-label"
+                      onClick={() => {
+                        if (rule.scope !== "all") setPage(rule.scope);
+                      }}
+                    >
+                      領域{index + 1}（
+                      {rule.scope === "all"
+                        ? "全ページ"
+                        : `p.${rule.scope + 1}`}
+                      ）
+                    </button>
+                    <button
+                      onClick={() =>
+                        setRegionRules((current) =>
+                          current.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => setRegionRules([])}>
+                  すべて削除
+                </button>
+              </div>
+            </section>
+          )}
 
           <section className="findings-section">
             <h2>検出候補（{flatFindings.length}件）</h2>

@@ -1,11 +1,20 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type {
+  AppConfig,
   ApplySummary,
   AuditReport,
   PageFindings,
   Policy,
   ProjectInfo,
 } from "./types";
+
+export function getConfig() {
+  return invoke<AppConfig>("get_config");
+}
+
+export function setConfig(config: AppConfig) {
+  return invoke<void>("set_config", { config });
+}
 
 export function initialProject() {
   return invoke<ProjectInfo | null>("initial_project");

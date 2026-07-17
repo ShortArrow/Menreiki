@@ -4,10 +4,12 @@
 //! operations run on a blocking thread and report progress through the
 //! `analyze-progress` event.
 
+mod settings;
+
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,6 +75,16 @@ fn ocr_engine(
 
 fn default_font_path() -> PathBuf {
     PathBuf::from(r"C:\Windows\Fonts\msgothic.ttc")
+}
+
+#[tauri::command]
+fn get_config() -> settings::Config {
+    settings::load_config()
+}
+
+#[tauri::command]
+fn set_config(config: settings::Config) -> Result<(), String> {
+    settings::save_config(&config)
 }
 
 /// The project directory passed on the command line, if any — lets the app
@@ -222,10 +234,51 @@ async fn audit_project(
     .map_err(|error| error.to_string())?
 }
 
+fn restore_window_placement(app: &tauri::App) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    let Some(state) = settings::load_session().window else {
+        return;
+    };
+    if state.maximized {
+        let _ = window.maximize();
+    } else {
+        let _ = window.set_position(tauri::PhysicalPosition::new(state.x, state.y));
+        let _ = window.set_size(tauri::PhysicalSize::new(state.width, state.height));
+    }
+}
+
+fn save_window_placement(window: &tauri::Window) {
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.outer_size()) else {
+        return;
+    };
+    let _ = settings::save_session(&settings::Session {
+        window: Some(settings::WindowState {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+            maximized: window.is_maximized().unwrap_or(false),
+        }),
+    });
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            restore_window_placement(app);
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                save_window_placement(window);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
+            get_config,
+            set_config,
             initial_project,
             import_document,
             open_project,

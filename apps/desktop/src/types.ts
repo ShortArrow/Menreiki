@@ -1,3 +1,7 @@
+export interface AppConfig {
+  theme: "light" | "dark";
+}
+
 export interface ProjectInfo {
   projectDir: string;
   fileName: string;

@@ -15,11 +15,12 @@ export default function PageViewer(props: {
   rendered: boolean;
   version: number;
   findings: Finding[];
-  regions: { rect: Rect; action: "erase" | "mask" }[];
+  regions: { rect: Rect; action: "erase" | "mask"; index: number }[];
   highlightKey: string | null;
   findingKey: (finding: Finding) => string;
   drawMode: DrawMode;
   onRegion: (rect: Rect) => void;
+  onRegionRemove: (index: number) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -105,26 +106,36 @@ export default function PageViewer(props: {
               {props.findings.map((finding, index) => (
                 <rect
                   key={index}
-                  className={
+                  className={[
+                    "finding-rect",
+                    finding.category === "search" ? "search" : "",
                     props.highlightKey === props.findingKey(finding)
-                      ? "finding-rect highlight"
-                      : "finding-rect"
-                  }
+                      ? "highlight"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   x={finding.rect.x}
                   y={finding.rect.y}
                   width={finding.rect.width}
                   height={finding.rect.height}
                 />
               ))}
-              {props.regions.map((region, index) => (
+              {props.regions.map((region) => (
                 <rect
-                  key={`region-${index}`}
+                  key={`region-${region.index}`}
                   className={`region-rect ${region.action}`}
                   x={region.rect.x}
                   y={region.rect.y}
                   width={region.rect.width}
                   height={region.rect.height}
-                />
+                  onClick={() => {
+                    if (props.drawMode === "none")
+                      props.onRegionRemove(region.index);
+                  }}
+                >
+                  <title>クリックでこの領域ルールを削除</title>
+                </rect>
               ))}
               {dragRect && (
                 <rect
