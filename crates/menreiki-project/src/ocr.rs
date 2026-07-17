@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use menreiki_core::PageOcr;
 use menreiki_ocr::{OcrEngine, OcrError};
 
 use crate::layout::{page_image_path, page_ocr_path, OCR_DIR};
@@ -32,4 +33,25 @@ pub fn ocr_pages(project_dir: &Path, engine: &dyn OcrEngine) -> Result<u16, OcrP
         page_index += 1;
     }
     Ok(page_index)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum LoadOcrError {
+    #[error("OCR result could not be read: {0}")]
+    Read(std::io::Error),
+    #[error("OCR result is not valid: {0}")]
+    Parse(#[from] serde_json::Error),
+}
+
+/// Reads back every per-page OCR result written by [`ocr_pages`].
+pub fn load_ocr_pages(project_dir: &Path) -> Result<Vec<PageOcr>, LoadOcrError> {
+    let mut pages = Vec::new();
+    let mut page_index: u16 = 0;
+    while page_ocr_path(project_dir, page_index).exists() {
+        let text = fs::read_to_string(page_ocr_path(project_dir, page_index))
+            .map_err(LoadOcrError::Read)?;
+        pages.push(serde_json::from_str(&text)?);
+        page_index += 1;
+    }
+    Ok(pages)
 }

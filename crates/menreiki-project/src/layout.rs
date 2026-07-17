@@ -5,6 +5,8 @@ pub const SOURCE_DIR: &str = "source";
 pub const PAGES_DIR: &str = "pages";
 pub const OCR_DIR: &str = "ocr";
 pub const FINDINGS_DIR: &str = "findings";
+pub const DECISIONS_DIR: &str = "decisions";
+pub const RENDERS_DIR: &str = "renders";
 
 /// Location of the rendered image for a 0-based page index: `pages/page-001.png`.
 pub fn page_image_path(project_dir: &Path, page_index: u16) -> PathBuf {
@@ -25,6 +27,19 @@ pub fn page_findings_path(project_dir: &Path, page_index: u16) -> PathBuf {
     project_dir
         .join(FINDINGS_DIR)
         .join(page_file_name(page_index, "json"))
+}
+
+/// Location of the transformed image for a 0-based page index:
+/// `renders/page-001.png`.
+pub fn page_render_path(project_dir: &Path, page_index: u16) -> PathBuf {
+    project_dir
+        .join(RENDERS_DIR)
+        .join(page_file_name(page_index, "png"))
+}
+
+/// Location of the persisted edit plan: `decisions/plan.json`.
+pub fn plan_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(DECISIONS_DIR).join("plan.json")
 }
 
 fn page_file_name(page_index: u16, extension: &str) -> String {

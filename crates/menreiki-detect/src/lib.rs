@@ -4,6 +4,7 @@
 //! back to page coordinates through the word boxes that overlap it, so a
 //! finding always knows both what was written and where it sits.
 
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use menreiki_core::{Finding, PageOcr, Rect, Span};
@@ -21,6 +22,12 @@ impl RegexRule {
             category: category.to_string(),
             pattern: Regex::new(pattern)?,
         })
+    }
+
+    /// A rule matching `text` verbatim — the path for user-supplied strings
+    /// (search, dictionaries, policy text rules).
+    pub fn literal(category: &str, text: &str) -> Self {
+        Self::new(category, &regex::escape(text)).expect("escaped literal is a valid pattern")
     }
 }
 
@@ -65,6 +72,85 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Finds text lines that repeat at the same vertical position across pages —
+/// header, footer, and page-number removal candidates. ASCII digits are
+/// ignored when comparing text, so "Page 1" and "Page 2" group together.
+/// Returns one findings list per page, ordered top to bottom.
+pub fn detect_repeated_lines(pages: &[PageOcr]) -> Vec<Vec<Finding>> {
+    let mut groups: HashMap<(String, u32), Vec<(usize, Rect, String)>> = HashMap::new();
+    for (page_index, page) in pages.iter().enumerate() {
+        if page.height == 0 {
+            continue;
+        }
+        for line in &page.lines {
+            let Some(rect) = union_rects(line.words.iter().map(|word| word.rect)) else {
+                continue;
+            };
+            let normalized = normalize_digits(&line.text);
+            if normalized.trim().is_empty() {
+                continue;
+            }
+            let band = (vertical_center(&rect, page.height) * 50.0) as u32;
+            groups
+                .entry((normalized, band))
+                .or_default()
+                .push((page_index, rect, line.text.clone()));
+        }
+    }
+
+    let required_pages = (pages.len() / 2).max(2);
+    let mut findings = vec![Vec::new(); pages.len()];
+    for occurrences in groups.into_values() {
+        let distinct_pages: HashSet<usize> = occurrences
+            .iter()
+            .map(|(page_index, _, _)| *page_index)
+            .collect();
+        if distinct_pages.len() < required_pages {
+            continue;
+        }
+        for (page_index, rect, text) in occurrences {
+            let center = vertical_center(&rect, pages[page_index].height);
+            let category = if center < 0.2 {
+                "header"
+            } else if center > 0.8 {
+                "footer"
+            } else {
+                "repeated-text"
+            };
+            findings[page_index].push(Finding {
+                category: category.to_string(),
+                text,
+                rect,
+                detector: "layout".to_string(),
+            });
+        }
+    }
+    for page in &mut findings {
+        page.sort_by(|a, b| {
+            (a.rect.y, a.rect.x)
+                .partial_cmp(&(b.rect.y, b.rect.x))
+                .expect("finding coordinates are finite")
+        });
+    }
+    findings
+}
+
+fn vertical_center(rect: &Rect, page_height: u32) -> f32 {
+    (rect.y + rect.height / 2.0) / page_height as f32
+}
+
+fn normalize_digits(text: &str) -> String {
+    text.chars()
+        .map(|character| {
+            if character.is_ascii_digit() {
+                '#'
+            } else {
+                character
+            }
+        })
+        .collect()
 }
 
 const EMPTY_RECT: Rect = Rect {
@@ -193,5 +279,80 @@ mod tests {
         let page = page(&["nothing sensitive here"]);
 
         assert!(detect_page(&page, &builtin_rules()).is_empty());
+    }
+
+    #[test]
+    fn literal_rule_matches_verbatim_including_regex_metacharacters() {
+        let page = page(&["order (A+B) confirmed"]);
+        let rules = vec![RegexRule::literal("order-code", "(A+B)")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "(A+B)");
+    }
+
+    fn page_with_line_at(body: &str, footer: &str, footer_y: f32) -> PageOcr {
+        let make_line = |text: &str, y: f32| OcrLine {
+            text: text.to_string(),
+            words: vec![Span {
+                text: text.to_string(),
+                rect: Rect {
+                    x: 100.0,
+                    y,
+                    width: 300.0,
+                    height: 20.0,
+                },
+            }],
+        };
+        PageOcr {
+            width: 1000,
+            height: 1000,
+            lines: vec![make_line(body, 400.0), make_line(footer, footer_y)],
+        }
+    }
+
+    #[test]
+    fn repeated_footer_with_page_numbers_is_flagged_on_every_page() {
+        let pages = vec![
+            page_with_line_at("first page body", "Alpha Corp - Page 1", 950.0),
+            page_with_line_at("second page body", "Alpha Corp - Page 2", 950.0),
+            page_with_line_at("third page body", "Alpha Corp - Page 3", 950.0),
+        ];
+
+        let findings = detect_repeated_lines(&pages);
+
+        assert_eq!(findings.len(), 3);
+        for (index, page_findings) in findings.iter().enumerate() {
+            assert_eq!(page_findings.len(), 1, "page {index}");
+            assert_eq!(page_findings[0].category, "footer");
+            assert_eq!(page_findings[0].detector, "layout");
+        }
+        assert_eq!(findings[1][0].text, "Alpha Corp - Page 2");
+    }
+
+    #[test]
+    fn repeated_top_line_is_a_header_candidate() {
+        let pages = vec![
+            page_with_line_at("body one", "CONFIDENTIAL", 50.0),
+            page_with_line_at("body two", "CONFIDENTIAL", 50.0),
+        ];
+
+        let findings = detect_repeated_lines(&pages);
+
+        assert_eq!(findings[0][0].category, "header");
+        assert_eq!(findings[1][0].category, "header");
+    }
+
+    #[test]
+    fn unique_lines_are_not_flagged() {
+        let pages = vec![
+            page_with_line_at("body one", "note alpha", 950.0),
+            page_with_line_at("body two", "note beta", 950.0),
+        ];
+
+        let findings = detect_repeated_lines(&pages);
+
+        assert!(findings.iter().all(|page| page.is_empty()));
     }
 }

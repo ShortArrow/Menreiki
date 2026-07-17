@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 menreiki-project.workspace = true
 menreiki-detect.workspace = true
+menreiki-policy.workspace = true
 menreiki-adapter-pdfium.workspace = true
 menreiki-adapter-windows-ocr.workspace = true
 clap.workspace = true

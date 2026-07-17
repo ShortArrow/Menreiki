@@ -1,11 +1,11 @@
 [package]
-name = "menreiki-render"
+name = "menreiki-policy"
 version.workspace = true
 edition.workspace = true
 
 [dependencies]
 menreiki-core.workspace = true
-image.workspace = true
-imageproc.workspace = true
-ab_glyph.workspace = true
+menreiki-detect.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
 thiserror.workspace = true

@@ -39,6 +39,24 @@ enum Command {
         /// Project directory created by `import`
         project: PathBuf,
     },
+    /// Find every occurrence of a string across the document
+    Search {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// String to look for in the OCR results
+        text: String,
+    },
+    /// Apply an anonymization policy, producing transformed page images
+    Apply {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// Policy YAML describing what to transform and how
+        #[arg(long)]
+        policy: PathBuf,
+        /// Font used to draw replacement text
+        #[arg(long, default_value = r"C:\Windows\Fonts\msgothic.ttc")]
+        font: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -113,6 +131,41 @@ fn run(cli: Cli) -> Result<(), String> {
                 }
             }
             println!("{total} findings");
+            Ok(())
+        }
+        Command::Search { project, text } => {
+            let pages = menreiki_project::search_text(&project, &text)
+                .map_err(|error| error.to_string())?;
+            let mut total = 0;
+            for page in &pages {
+                for finding in &page.findings {
+                    total += 1;
+                    println!(
+                        "page {:>3}  at ({:.0}, {:.0})  {}",
+                        page.page_index + 1,
+                        finding.rect.x,
+                        finding.rect.y,
+                        finding.text
+                    );
+                }
+            }
+            println!("{total} matches");
+            Ok(())
+        }
+        Command::Apply {
+            project,
+            policy,
+            font,
+        } => {
+            let policy = menreiki_policy::load_policy(&policy).map_err(|error| error.to_string())?;
+            let summary = menreiki_project::apply(&project, &policy, &font)
+                .map_err(|error| error.to_string())?;
+            println!(
+                "applied {} edits across {} pages into {}",
+                summary.edit_count,
+                summary.page_count,
+                project.join(menreiki_project::RENDERS_DIR).display()
+            );
             Ok(())
         }
     }

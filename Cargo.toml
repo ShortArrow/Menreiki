@@ -5,6 +5,7 @@ members = [
     "crates/menreiki-project",
     "crates/menreiki-detect",
     "crates/menreiki-ocr",
+    "crates/menreiki-policy",
     "crates/menreiki-render",
     "crates/menreiki-test-support",
     "adapters/pdfium",
@@ -21,7 +22,11 @@ menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
 menreiki-ocr = { path = "crates/menreiki-ocr" }
+menreiki-policy = { path = "crates/menreiki-policy" }
 regex = "1"
+serde_yaml = "0.9"
+imageproc = "0.25"
+ab_glyph = "0.2"
 menreiki-render = { path = "crates/menreiki-render" }
 menreiki-test-support = { path = "crates/menreiki-test-support" }
 menreiki-adapter-pdfium = { path = "adapters/pdfium" }
