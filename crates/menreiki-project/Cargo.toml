@@ -1,0 +1,15 @@
+[package]
+name = "menreiki-project"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+menreiki-core.workspace = true
+menreiki-ocr.workspace = true
+menreiki-render.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

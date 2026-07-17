@@ -1,0 +1,4 @@
+[package]
+name = "menreiki-test-support"
+version.workspace = true
+edition.workspace = true

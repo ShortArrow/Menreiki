@@ -1,0 +1,13 @@
+[package]
+name = "menreiki-adapter-pdfium"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+menreiki-render.workspace = true
+pdfium-render.workspace = true
+image.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+menreiki-test-support.workspace = true

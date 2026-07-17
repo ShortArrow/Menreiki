@@ -1,0 +1,10 @@
+[package]
+name = "menreiki-adapter-windows-ocr"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+menreiki-core.workspace = true
+menreiki-ocr.workspace = true
+image.workspace = true
+windows.workspace = true
