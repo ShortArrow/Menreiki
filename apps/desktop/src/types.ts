@@ -46,6 +46,17 @@ export interface DictionaryEntry {
   text: string;
 }
 
+export interface ReviewDecisions {
+  findings: { category: string; text: string; action: string; value: string }[];
+  texts: { text: string; action: string; value: string }[];
+  regions: {
+    rect: Rect;
+    action: string;
+    page: number | null;
+    drawn_on: number;
+  }[];
+}
+
 export type RuleAction =
   | { type: "keep" }
   | { type: "remove" }

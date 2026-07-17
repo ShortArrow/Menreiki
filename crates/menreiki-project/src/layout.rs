@@ -45,6 +45,11 @@ pub fn plan_path(project_dir: &Path) -> PathBuf {
     project_dir.join(DECISIONS_DIR).join("plan.json")
 }
 
+/// Location of the persisted review decisions: `decisions/decisions.json`.
+pub fn decisions_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(DECISIONS_DIR).join("decisions.json")
+}
+
 /// Location of the reconstructed document: `output/sanitized.pdf`.
 pub fn sanitized_pdf_path(project_dir: &Path) -> PathBuf {
     project_dir.join(OUTPUT_DIR).join("sanitized.pdf")

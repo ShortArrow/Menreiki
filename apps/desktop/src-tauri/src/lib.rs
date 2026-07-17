@@ -245,6 +245,22 @@ fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>,
 }
 
 #[tauri::command]
+fn load_review_decisions(
+    project: String,
+) -> Result<menreiki_project::ReviewDecisions, String> {
+    menreiki_project::load_decisions(Path::new(&project)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_review_decisions(
+    project: String,
+    decisions: menreiki_project::ReviewDecisions,
+) -> Result<(), String> {
+    menreiki_project::save_decisions(Path::new(&project), &decisions)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_dictionary(
     project: String,
 ) -> Result<Vec<menreiki_project::DictionaryEntry>, String> {
@@ -396,6 +412,8 @@ pub fn run() {
             get_config,
             set_config,
             initial_project,
+            load_review_decisions,
+            save_review_decisions,
             list_dictionary,
             add_dictionary_entry,
             remove_dictionary_entry,

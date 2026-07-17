@@ -9,6 +9,7 @@ import type {
   PageFindings,
   Policy,
   ProjectInfo,
+  ReviewDecisions,
 } from "./types";
 
 export function getConfig() {
@@ -54,6 +55,17 @@ export function cancelAnalysis() {
 
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
+}
+
+export function loadReviewDecisions(project: string) {
+  return invoke<ReviewDecisions>("load_review_decisions", { project });
+}
+
+export function saveReviewDecisions(
+  project: string,
+  decisions: ReviewDecisions,
+) {
+  return invoke<void>("save_review_decisions", { project, decisions });
 }
 
 export function listDictionary(project: string) {

@@ -9,8 +9,10 @@ import {
   exportProject,
   listDictionary,
   listFindings,
+  loadReviewDecisions,
   pageImageUrl,
   removeDictionaryEntry,
+  saveReviewDecisions,
   searchProject,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
@@ -26,6 +28,7 @@ import type {
   PolicyRule,
   ProjectInfo,
   Rect,
+  ReviewDecisions,
 } from "./types";
 
 type DecisionAction = "keep" | "erase" | "mask" | "replace";
@@ -146,6 +149,75 @@ export default function ReviewView(props: {
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadReviewDecisions(project.projectDir)
+      .then((saved) => {
+        if (cancelled) return;
+        const record: Record<string, Decision> = {};
+        for (const finding of saved.findings) {
+          record[`${finding.category}|::|${finding.text}`] = {
+            action: finding.action as DecisionAction,
+            value: finding.value,
+          };
+        }
+        setDecisions(record);
+        setTextRules(
+          saved.texts.map((text) => ({
+            text: text.text,
+            action: text.action as Exclude<DecisionAction, "keep">,
+            value: text.value,
+          })),
+        );
+        setRegionRules(
+          saved.regions.map((region) => ({
+            rect: region.rect,
+            action: region.action as "erase" | "mask",
+            scope: region.page === null ? "all" : region.page,
+            drawnOn: region.drawn_on,
+          })),
+        );
+        setHydrated(true);
+      })
+      .catch(() => {
+        if (!cancelled) setHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [project.projectDir]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = setTimeout(() => {
+      const payload: ReviewDecisions = {
+        findings: Object.entries(decisions).map(([key, decision]) => {
+          const [category, ...rest] = key.split("|::|");
+          return {
+            category,
+            text: rest.join("|::|"),
+            action: decision.action,
+            value: decision.value,
+          };
+        }),
+        texts: textRules.map((rule) => ({
+          text: rule.text,
+          action: rule.action,
+          value: rule.value,
+        })),
+        regions: regionRules.map((rule) => ({
+          rect: rule.rect,
+          action: rule.action,
+          page: rule.scope === "all" ? null : rule.scope,
+          drawn_on: rule.drawnOn,
+        })),
+      };
+      void saveReviewDecisions(project.projectDir, payload).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [decisions, textRules, regionRules, hydrated, project.projectDir]);
 
   useEffect(() => {
     if (!project.analyzed) return;
