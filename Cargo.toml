@@ -12,6 +12,7 @@ members = [
     "adapters/pdfium",
     "adapters/windows-ocr",
     "apps/cli",
+    "apps/desktop/src-tauri",
 ]
 
 [workspace.package]

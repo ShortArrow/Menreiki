@@ -11,7 +11,7 @@ use crate::layout::{page_image_path, page_render_path, plan_path, DECISIONS_DIR,
 use crate::ocr::{load_ocr_pages, LoadOcrError};
 
 /// Result of applying a policy.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct ApplySummary {
     pub page_count: u16,
     pub edit_count: usize,

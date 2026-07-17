@@ -36,7 +36,7 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
 }
 
 /// Findings of one page, keyed by 0-based page index.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct PageFindings {
     pub page_index: u16,
     pub findings: Vec<Finding>,
