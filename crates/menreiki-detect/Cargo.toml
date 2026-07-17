@@ -1,0 +1,8 @@
+[package]
+name = "menreiki-detect"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+menreiki-core.workspace = true
+regex.workspace = true

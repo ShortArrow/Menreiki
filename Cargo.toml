@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/menreiki-core",
     "crates/menreiki-project",
+    "crates/menreiki-detect",
     "crates/menreiki-ocr",
     "crates/menreiki-render",
     "crates/menreiki-test-support",
@@ -18,7 +19,9 @@ edition = "2021"
 [workspace.dependencies]
 menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
+menreiki-detect = { path = "crates/menreiki-detect" }
 menreiki-ocr = { path = "crates/menreiki-ocr" }
+regex = "1"
 menreiki-render = { path = "crates/menreiki-render" }
 menreiki-test-support = { path = "crates/menreiki-test-support" }
 menreiki-adapter-pdfium = { path = "adapters/pdfium" }
@@ -39,3 +42,4 @@ thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 tempfile = "3"
 assert_cmd = "2"
+predicates = "3"

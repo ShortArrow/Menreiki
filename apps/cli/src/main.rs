@@ -34,6 +34,11 @@ enum Command {
         #[arg(long, default_value_t = 300)]
         dpi: u32,
     },
+    /// List the findings detected in a project
+    Findings {
+        /// Project directory created by `import`
+        project: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -78,6 +83,36 @@ fn run(cli: Cli) -> Result<(), String> {
                 "recognized text on {ocr_count} pages into {}",
                 project.join(menreiki_project::OCR_DIR).display()
             );
+
+            menreiki_project::detect_pages(&project, &menreiki_detect::builtin_rules())
+                .map_err(|error| error.to_string())?;
+            let total_findings: usize = menreiki_project::load_findings(&project)
+                .map_err(|error| error.to_string())?
+                .iter()
+                .map(|page| page.findings.len())
+                .sum();
+            println!(
+                "detected {total_findings} findings into {}",
+                project.join(menreiki_project::FINDINGS_DIR).display()
+            );
+            Ok(())
+        }
+        Command::Findings { project } => {
+            let pages = menreiki_project::load_findings(&project)
+                .map_err(|error| error.to_string())?;
+            let mut total = 0;
+            for page in &pages {
+                for finding in &page.findings {
+                    total += 1;
+                    println!(
+                        "page {:>3}  [{}]  {}",
+                        page.page_index + 1,
+                        finding.category,
+                        finding.text
+                    );
+                }
+            }
+            println!("{total} findings");
             Ok(())
         }
     }

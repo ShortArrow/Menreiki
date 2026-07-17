@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 menreiki-core.workspace = true
+menreiki-detect.workspace = true
 menreiki-ocr.workspace = true
 menreiki-render.workspace = true
 serde.workspace = true
