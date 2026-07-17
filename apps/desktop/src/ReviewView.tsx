@@ -380,6 +380,11 @@ export default function ReviewView(props: {
   function runExport() {
     void run("PDFを再構築中…", async () => {
       setExportPath(await exportProject(project.projectDir));
+      if (undecidedCount > 0) {
+        setNotice(
+          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+        );
+      }
     });
   }
 
@@ -435,6 +440,15 @@ export default function ReviewView(props: {
   const visibleRegions = regionRules
     .map((rule, index) => ({ ...rule, index }))
     .filter((rule) => rule.scope === "all" || rule.scope === page);
+
+  const uniqueFindingKeys = useMemo(
+    () => new Set(flatFindings.map(({ finding }) => findingKey(finding))),
+    [flatFindings],
+  );
+  const decidedCount = [...uniqueFindingKeys].filter(
+    (key) => decisions[key],
+  ).length;
+  const undecidedCount = uniqueFindingKeys.size - decidedCount;
 
   const currentPageSearchHits =
     searchHits?.find((entry) => entry.page_index === page)?.findings ?? [];
@@ -930,6 +944,19 @@ export default function ReviewView(props: {
                     : "解析を実行すると候補が表示されます"}
                 </p>
               )}
+            </div>
+          </section>
+
+          <section>
+            <h2>出力前確認</h2>
+            <div
+              className={
+                undecidedCount > 0 ? "precheck warn" : "precheck ok"
+              }
+            >
+              <span>未判断の候補: {undecidedCount} 種類</span>
+              <span>判断済み: {decidedCount} 種類</span>
+              <span>適用予定ルール: {policy.rules.length} 件</span>
             </div>
           </section>
 

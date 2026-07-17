@@ -643,6 +643,27 @@ button.rule-target:hover {
   width: 110px;
 }
 
+/* ---- Pre-export check ---- */
+
+.precheck {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.precheck.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+
+.precheck.ok {
+  background: var(--pass-bg);
+  border: 1px solid var(--pass-border);
+}
+
 /* ---- Results ---- */
 
 .export-path {
