@@ -8,4 +8,5 @@ menreiki-core.workspace = true
 image.workspace = true
 imageproc.workspace = true
 ab_glyph.workspace = true
+flate2.workspace = true
 thiserror.workspace = true

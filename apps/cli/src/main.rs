@@ -57,6 +57,25 @@ enum Command {
         #[arg(long, default_value = r"C:\Windows\Fonts\msgothic.ttc")]
         font: PathBuf,
     },
+    /// Rebuild a PDF from the (transformed) page images
+    Export {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// Resolution the page images were rendered at
+        #[arg(long, default_value_t = 300)]
+        dpi: u32,
+    },
+    /// Re-inspect the transformed pages for residual identifying text
+    Audit {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// Policy whose transformed texts must no longer appear
+        #[arg(long)]
+        policy: Option<PathBuf>,
+        /// File with one additional forbidden term per line
+        #[arg(long)]
+        deny_wordlist: Option<PathBuf>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -167,6 +186,57 @@ fn run(cli: Cli) -> Result<(), String> {
                 project.join(menreiki_project::RENDERS_DIR).display()
             );
             Ok(())
+        }
+        Command::Export { project, dpi } => {
+            let output = menreiki_project::export_pdf(&project, dpi)
+                .map_err(|error| error.to_string())?;
+            println!("exported {}", output.display());
+            Ok(())
+        }
+        Command::Audit {
+            project,
+            policy,
+            deny_wordlist,
+        } => {
+            let policy = policy
+                .map(|path| menreiki_policy::load_policy(&path))
+                .transpose()
+                .map_err(|error| error.to_string())?;
+            let extra_terms = deny_wordlist
+                .map(|path| {
+                    std::fs::read_to_string(&path)
+                        .map(|text| text.lines().map(str::to_string).collect::<Vec<_>>())
+                })
+                .transpose()
+                .map_err(|error| error.to_string())?
+                .unwrap_or_default();
+            let engine =
+                menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
+                    .map_err(|error| error.to_string())?;
+
+            let report =
+                menreiki_project::audit_output(&project, policy.as_ref(), &extra_terms, &engine)
+                    .map_err(|error| error.to_string())?;
+            for residual in &report.residuals {
+                println!(
+                    "page {:>3}  residual [{}]  {}",
+                    residual.page, residual.term, residual.text
+                );
+            }
+            println!(
+                "audit: {:?} ({} terms checked on {} pages), report at {}",
+                report.verdict,
+                report.checked_terms,
+                report.page_count,
+                menreiki_project::audit_report_path(&project).display()
+            );
+            match report.verdict {
+                menreiki_audit::Verdict::Pass => Ok(()),
+                menreiki_audit::Verdict::Fail => Err(format!(
+                    "{} residual(s) found; the output must not be shared",
+                    report.residuals.len()
+                )),
+            }
         }
     }
 }

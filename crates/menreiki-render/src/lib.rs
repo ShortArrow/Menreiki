@@ -7,9 +7,11 @@
 //! mask, replacement text) to rendered pages.
 
 mod edit;
+mod pdf;
 mod raster;
 
 pub use edit::{apply_edits, load_font, EditError};
+pub use pdf::{build_image_pdf, PdfBuildError};
 pub use raster::{DocumentRasterizer, PageImage, PageSink, RasterError};
 
 pub use ab_glyph::FontVec;

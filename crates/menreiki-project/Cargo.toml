@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+menreiki-audit.workspace = true
 menreiki-core.workspace = true
 menreiki-detect.workspace = true
 menreiki-ocr.workspace = true

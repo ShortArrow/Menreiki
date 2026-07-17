@@ -1,0 +1,9 @@
+[package]
+name = "menreiki-audit"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+menreiki-core.workspace = true
+menreiki-detect.workspace = true
+serde.workspace = true

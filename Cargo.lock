@@ -966,6 +966,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "menreiki-audit"
+version = "0.1.0"
+dependencies = [
+ "menreiki-core",
+ "menreiki-detect",
+ "serde",
+]
+
+[[package]]
 name = "menreiki-cli"
 version = "0.1.0"
 dependencies = [
@@ -973,6 +982,7 @@ dependencies = [
  "clap",
  "menreiki-adapter-pdfium",
  "menreiki-adapter-windows-ocr",
+ "menreiki-audit",
  "menreiki-detect",
  "menreiki-policy",
  "menreiki-project",
@@ -1021,6 +1031,7 @@ name = "menreiki-project"
 version = "0.1.0"
 dependencies = [
  "image",
+ "menreiki-audit",
  "menreiki-core",
  "menreiki-detect",
  "menreiki-ocr",
@@ -1037,6 +1048,7 @@ name = "menreiki-render"
 version = "0.1.0"
 dependencies = [
  "ab_glyph",
+ "flate2",
  "image",
  "imageproc",
  "menreiki-core",

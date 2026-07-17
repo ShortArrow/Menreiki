@@ -11,3 +11,4 @@ thiserror.workspace = true
 
 [dev-dependencies]
 menreiki-test-support.workspace = true
+image.workspace = true

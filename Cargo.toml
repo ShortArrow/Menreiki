@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/menreiki-audit",
     "crates/menreiki-core",
     "crates/menreiki-project",
     "crates/menreiki-detect",
@@ -18,6 +19,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace.dependencies]
+menreiki-audit = { path = "crates/menreiki-audit" }
 menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
@@ -25,6 +27,7 @@ menreiki-ocr = { path = "crates/menreiki-ocr" }
 menreiki-policy = { path = "crates/menreiki-policy" }
 regex = "1"
 serde_yaml = "0.9"
+flate2 = "1"
 imageproc = "0.25"
 ab_glyph = "0.2"
 menreiki-render = { path = "crates/menreiki-render" }
