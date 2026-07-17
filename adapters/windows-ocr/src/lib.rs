@@ -7,8 +7,10 @@
 //! original image, so callers always receive original-image coordinates.
 
 use image::imageops::FilterType;
-use menreiki_core::{OcrLine, PageOcr, Rect, Span};
+use menreiki_core::{compose_line_text, OcrLine, PageOcr, Rect, Span};
 use menreiki_ocr::{OcrEngine, OcrError};
+use windows::core::HSTRING;
+use windows::Globalization::Language;
 use windows::Graphics::Imaging::{BitmapPixelFormat, SoftwareBitmap};
 use windows::Media::Ocr::OcrEngine as NativeOcrEngine;
 use windows::Storage::Streams::DataWriter;
@@ -19,8 +21,22 @@ pub struct WindowsOcrEngine {
 
 impl WindowsOcrEngine {
     /// Creates an engine for the languages installed in the user's profile.
+    ///
+    /// The profile's first OCR-capable language wins, which is often wrong
+    /// for documents in another language — prefer [`Self::from_language`]
+    /// when the document language is known.
     pub fn from_user_profile_languages() -> Result<Self, OcrError> {
         let engine = NativeOcrEngine::TryCreateFromUserProfileLanguages()
+            .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
+        Ok(Self { engine })
+    }
+
+    /// Creates an engine for a BCP-47 language tag (e.g. "ja"). Fails when
+    /// that language's OCR pack is not installed on this Windows.
+    pub fn from_language(tag: &str) -> Result<Self, OcrError> {
+        let language = Language::CreateLanguage(&HSTRING::from(tag))
+            .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
+        let engine = NativeOcrEngine::TryCreateFromLanguage(&language)
             .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
         Ok(Self { engine })
     }
@@ -79,7 +95,7 @@ impl WindowsOcrEngine {
                 });
             }
             lines.push(OcrLine {
-                text: line.Text()?.to_string(),
+                text: compose_line_text(&words),
                 words,
             });
         }

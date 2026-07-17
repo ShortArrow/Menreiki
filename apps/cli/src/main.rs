@@ -33,6 +33,9 @@ enum Command {
         /// Render resolution in dots per inch
         #[arg(long, default_value_t = 300)]
         dpi: u32,
+        /// BCP-47 tag of the OCR language (falls back to profile languages)
+        #[arg(long, default_value = "ja")]
+        ocr_language: String,
     },
     /// List the findings detected in a project
     Findings {
@@ -75,6 +78,9 @@ enum Command {
         /// File with one additional forbidden term per line
         #[arg(long)]
         deny_wordlist: Option<PathBuf>,
+        /// BCP-47 tag of the OCR language (falls back to profile languages)
+        #[arg(long, default_value = "ja")]
+        ocr_language: String,
     },
 }
 
@@ -101,7 +107,11 @@ fn run(cli: Cli) -> Result<(), String> {
             );
             Ok(())
         }
-        Command::Analyze { project, dpi } => {
+        Command::Analyze {
+            project,
+            dpi,
+            ocr_language,
+        } => {
             let rasterizer = menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
                 .map_err(|error| error.to_string())?;
             let page_count = menreiki_project::analyze(&project, &rasterizer, dpi)
@@ -111,9 +121,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 project.join(menreiki_project::PAGES_DIR).display()
             );
 
-            let ocr_engine =
-                menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
-                    .map_err(|error| error.to_string())?;
+            let ocr_engine = ocr_engine(&ocr_language)?;
             let ocr_count = menreiki_project::ocr_pages(&project, &ocr_engine)
                 .map_err(|error| error.to_string())?;
             println!(
@@ -197,6 +205,7 @@ fn run(cli: Cli) -> Result<(), String> {
             project,
             policy,
             deny_wordlist,
+            ocr_language,
         } => {
             let policy = policy
                 .map(|path| menreiki_policy::load_policy(&path))
@@ -210,9 +219,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 .transpose()
                 .map_err(|error| error.to_string())?
                 .unwrap_or_default();
-            let engine =
-                menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
-                    .map_err(|error| error.to_string())?;
+            let engine = ocr_engine(&ocr_language)?;
 
             let report =
                 menreiki_project::audit_output(&project, policy.as_ref(), &extra_terms, &engine)
@@ -243,6 +250,19 @@ fn run(cli: Cli) -> Result<(), String> {
 
 fn default_project_dir(input: &Path) -> PathBuf {
     input.with_extension("menreiki")
+}
+
+/// The requested OCR language, or the profile languages (with a warning)
+/// when that language pack is not installed.
+fn ocr_engine(language: &str) -> Result<menreiki_adapter_windows_ocr::WindowsOcrEngine, String> {
+    menreiki_adapter_windows_ocr::WindowsOcrEngine::from_language(language).or_else(|error| {
+        eprintln!(
+            "warning: OCR language '{language}' is unavailable ({error}); \
+             falling back to the profile languages"
+        );
+        menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
+            .map_err(|error| error.to_string())
+    })
 }
 
 /// Directory holding the pdfium dynamic library: `MENREIKI_PDFIUM_PATH` if

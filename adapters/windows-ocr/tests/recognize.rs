@@ -31,6 +31,19 @@ fn recognizes_text_in_fixture_image() {
 }
 
 #[test]
+fn japanese_engine_recognizes_japanese_text() {
+    let png = std::fs::read(fixture("ocr-japanese.png"))
+        .expect("fixture missing; run scripts/make-test-documents.ps1 first");
+    let engine = WindowsOcrEngine::from_language("ja")
+        .expect("Japanese OCR language pack unavailable");
+
+    let page = engine.recognize(&png).unwrap();
+
+    let text = page.text();
+    assert!(text.contains("株式会社"), "recognized text was: {text}");
+}
+
+#[test]
 fn rejects_non_png_bytes() {
     let engine = WindowsOcrEngine::from_user_profile_languages()
         .expect("Windows OCR engine unavailable");

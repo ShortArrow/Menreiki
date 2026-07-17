@@ -24,29 +24,89 @@ impl RegexRule {
         })
     }
 
-    /// A rule matching `text` verbatim — the path for user-supplied strings
-    /// (search, dictionaries, policy text rules).
+    /// A rule matching `text` the way OCR may have read it — the path for
+    /// user-supplied strings (search, dictionaries, policy text rules,
+    /// audit deny terms).
+    ///
+    /// Tolerated OCR variations, applied per character of the term:
+    /// - spurious whitespace (CJK engines split lines into one-character
+    ///   words, scattering spaces)
+    /// - hiragana/katakana homoglyphs (ベ read as べ)
+    /// - dash-like character confusions (- read as ー)
     pub fn literal(category: &str, text: &str) -> Self {
-        Self::new(category, &regex::escape(text)).expect("escaped literal is a valid pattern")
+        let pattern = text
+            .chars()
+            .filter(|character| !character.is_whitespace())
+            .map(confusable_class)
+            .collect::<Vec<_>>()
+            .join(r"\s*");
+        Self::new(category, &pattern).expect("escaped literal is a valid pattern")
     }
 }
 
-/// Built-in rules for mechanically detectable identifiers.
+/// Dash-like characters OCR commonly confuses with each other, e.g. the
+/// katakana prolonged sound mark read from a hyphen in "045-123-4567".
+const DASH_CHARS: &str = "-‐‑–—−ー";
+
+/// A regex fragment matching `character` and everything OCR plausibly
+/// confuses it with.
+fn confusable_class(character: char) -> String {
+    let mut variants = vec![character];
+    let code = character as u32;
+    if let Some(counterpart) = match code {
+        0x30A1..=0x30F6 => char::from_u32(code - 0x60),
+        0x3041..=0x3096 => char::from_u32(code + 0x60),
+        _ => None,
+    } {
+        variants.push(counterpart);
+    }
+    if DASH_CHARS.contains(character) {
+        variants.extend(DASH_CHARS.chars().filter(|dash| *dash != character));
+    }
+
+    if variants.len() == 1 {
+        regex::escape(&character.to_string())
+    } else {
+        let mut class = String::from("[");
+        for variant in variants {
+            class.push_str(&regex::escape(&variant.to_string()));
+        }
+        class.push(']');
+        class
+    }
+}
+
+/// Built-in rules for mechanically detectable identifiers. Patterns accept
+/// common OCR confusions (dash variants, a lost colon in URLs) so that a
+/// recognizable identifier is still flagged.
 pub fn builtin_rules() -> Vec<RegexRule> {
     [
-        ("email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
-        ("url", r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+"),
-        ("ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
-        ("phone", r"\b0\d{1,4}-\d{1,4}-\d{4}\b"),
-        ("postal-code", r"(?:〒\s?)?\b\d{3}-\d{4}\b"),
+        (
+            "email",
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}".to_string(),
+        ),
+        (
+            "url",
+            r"https?\s?:?//[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+".to_string(),
+        ),
+        ("ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b".to_string()),
+        (
+            "phone",
+            format!(r"\b0\d{{1,4}}[{DASH_CHARS}]\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b"),
+        ),
+        (
+            "postal-code",
+            format!(r"(?:〒\s?)?\b\d{{3}}[{DASH_CHARS}]\d{{4}}\b"),
+        ),
         (
             "date",
-            r"\d{4}\s?年\s?\d{1,2}\s?月\s?\d{1,2}\s?日|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b",
+            r"\d{4}\s?年\s?\d{1,2}\s?月\s?\d{1,2}\s?日|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b"
+                .to_string(),
         ),
     ]
     .into_iter()
     .map(|(category, pattern)| {
-        RegexRule::new(category, pattern).expect("built-in pattern is valid")
+        RegexRule::new(category, &pattern).expect("built-in pattern is valid")
     })
     .collect()
 }
@@ -290,6 +350,45 @@ mod tests {
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].text, "(A+B)");
+    }
+
+    #[test]
+    fn literal_rule_tolerates_ocr_spacing() {
+        let page = page(&["宛先 株式会社アル フ ァ技研 御中"]);
+        let rules = vec![RegexRule::literal("organization", "株式会社アルファ技研")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "株式会社アル フ ァ技研");
+    }
+
+    #[test]
+    fn literal_rule_tolerates_kana_homoglyphs() {
+        let page = page(&["発注先は株式会社べータ電機とする"]);
+        let rules = vec![RegexRule::literal("organization", "株式会社ベータ電機")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "株式会社べータ電機");
+    }
+
+    #[test]
+    fn ocr_confused_dashes_and_lost_colons_still_match() {
+        let page = page(&[
+            "電話 045ー123ー4567 まで",
+            "参照 https //intra.example.co.jp/results",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let categories: Vec<&str> = findings
+            .iter()
+            .map(|finding| finding.category.as_str())
+            .collect();
+        assert!(categories.contains(&"phone"), "found: {categories:?}");
+        assert!(categories.contains(&"url"), "found: {categories:?}");
     }
 
     fn page_with_line_at(body: &str, footer: &str, footer_y: f32) -> PageOcr {

@@ -1,0 +1,38 @@
+# test-documents/dummy-spec.pdf 用の匿名化ポリシー例。
+#   menreiki apply <project> --policy examples/policy-dummy-spec.yaml
+rules:
+  - name: 発注元企業を仮名化する
+    match:
+      text: 株式会社アルファ技研
+    action:
+      type: replace
+      value: 開発会社A
+  - name: 供給元企業を仮名化する
+    match:
+      text: 株式会社ベータ電機
+    action:
+      type: replace
+      value: 供給会社B
+  - name: 担当者を汎用名称化する
+    match:
+      text: 田中太郎
+    action:
+      type: replace
+      value: 担当者A
+  - name: 連絡先を黒塗りする
+    match:
+      category: email
+    action:
+      type: mask
+  - match:
+      category: phone
+    action:
+      type: mask
+  - match:
+      category: postal-code
+    action:
+      type: mask
+  - match:
+      category: url
+    action:
+      type: mask

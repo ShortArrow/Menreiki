@@ -12,5 +12,5 @@ mod source;
 pub use edit::{EditStyle, PageEdit};
 pub use finding::Finding;
 pub use geometry::Rect;
-pub use ocr::{OcrLine, PageOcr, Span};
+pub use ocr::{compose_line_text, OcrLine, PageOcr, Span};
 pub use source::SourceDocument;
