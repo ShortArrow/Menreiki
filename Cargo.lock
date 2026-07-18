@@ -2368,6 +2368,7 @@ dependencies = [
  "menreiki-adapter-windows-ocr",
  "menreiki-audit",
  "menreiki-detect",
+ "menreiki-entity",
  "menreiki-policy",
  "menreiki-project",
  "menreiki-render",
@@ -2385,6 +2386,13 @@ version = "0.1.0"
 dependencies = [
  "menreiki-core",
  "regex",
+]
+
+[[package]]
+name = "menreiki-entity"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2414,6 +2422,7 @@ dependencies = [
  "menreiki-audit",
  "menreiki-core",
  "menreiki-detect",
+ "menreiki-entity",
  "menreiki-ocr",
  "menreiki-policy",
  "menreiki-render",

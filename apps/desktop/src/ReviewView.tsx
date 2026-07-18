@@ -6,15 +6,19 @@ import {
   applyPolicy,
   auditProject,
   cancelAnalysis,
+  countMatches,
   exportMarkdown,
   exportProject,
   listDictionary,
+  listEntities,
   listFindings,
   loadReviewDecisions,
   pageImageUrl,
   removeDictionaryEntry,
+  saveEntities,
   saveReviewDecisions,
   searchProject,
+  suggestEntityVariants,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
@@ -23,6 +27,7 @@ import type {
   ApplySummary,
   AuditReport,
   DictionaryEntry,
+  Entity,
   Finding,
   PageFindings,
   Policy,
@@ -61,6 +66,14 @@ const ACTION_LABELS: Record<Exclude<DecisionAction, "keep">, string> = {
   erase: "消去",
   mask: "マスク",
   replace: "置換",
+};
+
+const ALIAS_LABELS: Record<string, string> = {
+  organization: "組織",
+  department: "部署",
+  person: "人物",
+  product: "製品",
+  place: "地名",
 };
 
 interface AnalyzeProgress {
@@ -137,6 +150,16 @@ export default function ReviewView(props: {
   const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
   const [dictionaryCategory, setDictionaryCategory] = useState("organization");
   const [dictionaryNote, setDictionaryNote] = useState<string | null>(null);
+  const [entities, setEntities] = useState<Entity[]>([]);
+  const [entitiesHydrated, setEntitiesHydrated] = useState(false);
+  const [entitySuggestions, setEntitySuggestions] = useState<
+    Record<string, string[]>
+  >({});
+  const [entityCounts, setEntityCounts] = useState<Record<string, number>>({});
+  const [assignTarget, setAssignTarget] = useState<{
+    category: string;
+    text: string;
+  } | null>(null);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
@@ -245,10 +268,86 @@ export default function ReviewView(props: {
         if (!cancelled) setDictionary(entries);
       })
       .catch(() => {});
+    listEntities(project.projectDir)
+      .then((loaded) => {
+        if (cancelled) return;
+        setEntities(loaded);
+        setEntitiesHydrated(true);
+        for (const entity of loaded) void refreshEntityMeta(entity);
+      })
+      .catch(() => {
+        if (!cancelled) setEntitiesHydrated(true);
+      });
     return () => {
       cancelled = true;
     };
   }, [project.projectDir]);
+
+  useEffect(() => {
+    if (!entitiesHydrated) return;
+    const timer = setTimeout(() => {
+      void saveEntities(project.projectDir, entities).catch(() => {});
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [entities, entitiesHydrated, project.projectDir]);
+
+  async function refreshEntityMeta(entity: Entity) {
+    try {
+      const [suggestions, counts] = await Promise.all([
+        suggestEntityVariants(project.projectDir, entity),
+        countMatches(project.projectDir, entity.variants),
+      ]);
+      setEntitySuggestions((current) => ({
+        ...current,
+        [entity.id]: suggestions,
+      }));
+      setEntityCounts((current) => {
+        const next = { ...current };
+        entity.variants.forEach((variant, index) => {
+          next[variant] = counts[index];
+        });
+        return next;
+      });
+    } catch {
+      // meta is best-effort; the entity itself is already saved
+    }
+  }
+
+  function createEntity(category: string, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    const label = ALIAS_LABELS[category] ?? "対象";
+    const sameCategory = entities.filter(
+      (entity) => entity.category === category,
+    ).length;
+    const suffix =
+      sameCategory < 26
+        ? String.fromCharCode(65 + sameCategory)
+        : String(sameCategory + 1);
+    const entity: Entity = {
+      id: `${category}-${Date.now()}`,
+      category,
+      alias: `${label}${suffix}`,
+      variants: [trimmed],
+    };
+    setEntities((current) => [...current, entity]);
+    setAssignTarget(null);
+    void refreshEntityMeta(entity);
+  }
+
+  function addVariant(entityId: string, text: string) {
+    const target = entities.find((entity) => entity.id === entityId);
+    if (!target || target.variants.includes(text)) {
+      setAssignTarget(null);
+      return;
+    }
+    const updated = { ...target, variants: [...target.variants, text] };
+    setEntities((current) =>
+      current.map((entity) => (entity.id === entityId ? updated : entity)),
+    );
+    setAssignTarget(null);
+    void refreshEntityMeta(updated);
+  }
 
   useEffect(() => {
     const unlisten = listen<AnalyzeProgress>("analyze-progress", (event) => {
@@ -347,6 +446,11 @@ export default function ReviewView(props: {
               : { type: "remove" },
       });
     };
+    for (const entity of entities) {
+      for (const variant of entity.variants) {
+        pushTextRule(variant, "replace", entity.alias);
+      }
+    }
     for (const entry of decidedEntries) {
       pushTextRule(
         entry.finding.text,
@@ -368,7 +472,7 @@ export default function ReviewView(props: {
       });
     }
     return { rules };
-  }, [decidedEntries, textRules, regionRules]);
+  }, [entities, decidedEntries, textRules, regionRules]);
 
   function runApply() {
     void run("変換を適用中…", async () => {
@@ -693,6 +797,13 @@ export default function ReviewView(props: {
                 <p>{searchHitCount} 件見つかりました</p>
                 {searchHitCount > 0 && (
                   <div className="search-actions">
+                    <button
+                      onClick={() =>
+                        createEntity(dictionaryCategory, searchInput)
+                      }
+                    >
+                      Entityとして登録
+                    </button>
                     <button onClick={() => addSearchRule("replace")}>
                       置換ルールに追加
                     </button>
@@ -780,6 +891,19 @@ export default function ReviewView(props: {
           <section>
             <h2>適用予定ルール（{policy.rules.length}件）</h2>
             <div className="rule-list">
+              {entities
+                .filter((entity) => entity.variants.length > 0)
+                .map((entity) => (
+                  <div key={entity.id} className="rule-entry">
+                    <span className="chip-action">置換</span>
+                    <span className="rule-target" title={entity.variants.join("、")}>
+                      <span className="category-tag">Entity</span>
+                      <span className="finding-text">
+                        {entity.variants.length}表記 → {entity.alias || "（仮称未設定）"}
+                      </span>
+                    </span>
+                  </div>
+                ))}
               {decidedEntries.map((entry) => (
                 <div key={entry.key} className="rule-entry">
                   <span className="chip-action">
@@ -912,6 +1036,118 @@ export default function ReviewView(props: {
             </div>
           </section>
 
+          <section>
+            <h2>Entity（{entities.length}件）</h2>
+            {assignTarget && (
+              <div className="assign-bar">
+                <span className="finding-text" title={assignTarget.text}>
+                  「{assignTarget.text}」を追加:
+                </span>
+                <button
+                  onClick={() =>
+                    createEntity(assignTarget.category, assignTarget.text)
+                  }
+                >
+                  新規Entity
+                </button>
+                {entities.map((entity) => (
+                  <button
+                    key={entity.id}
+                    onClick={() => addVariant(entity.id, assignTarget.text)}
+                  >
+                    → {entity.alias || entity.variants[0]}
+                  </button>
+                ))}
+                <button onClick={() => setAssignTarget(null)}>×</button>
+              </div>
+            )}
+            <div className="entity-list">
+              {entities.map((entity) => (
+                <div key={entity.id} className="entity-card">
+                  <div className="entity-head">
+                    <span className="category-tag">{entity.category}</span>
+                    <input
+                      className="alias-input"
+                      value={entity.alias}
+                      placeholder="仮称"
+                      onChange={(event) =>
+                        setEntities((current) =>
+                          current.map((candidate) =>
+                            candidate.id === entity.id
+                              ? { ...candidate, alias: event.target.value }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    />
+                    <button
+                      onClick={() =>
+                        setEntities((current) =>
+                          current.filter(
+                            (candidate) => candidate.id !== entity.id,
+                          ),
+                        )
+                      }
+                    >
+                      削除
+                    </button>
+                  </div>
+                  <div className="entity-variants">
+                    {entity.variants.map((variant) => (
+                      <span key={variant} className="variant-chip">
+                        <span title={variant}>{variant}</span>
+                        {entityCounts[variant] !== undefined && (
+                          <span className="variant-count">
+                            ×{entityCounts[variant]}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => {
+                            const updated = {
+                              ...entity,
+                              variants: entity.variants.filter(
+                                (candidate) => candidate !== variant,
+                              ),
+                            };
+                            setEntities((current) =>
+                              current.map((candidate) =>
+                                candidate.id === entity.id
+                                  ? updated
+                                  : candidate,
+                              ),
+                            );
+                            void refreshEntityMeta(updated);
+                          }}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  {(entitySuggestions[entity.id]?.length ?? 0) > 0 && (
+                    <div className="entity-suggestions">
+                      <span className="hint">類似表記の候補:</span>
+                      {entitySuggestions[entity.id].map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          className="variant-chip suggest"
+                          onClick={() => addVariant(entity.id, suggestion)}
+                        >
+                          ＋ {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {entities.length === 0 && (
+                <p className="status">
+                  検索結果の「Entityとして登録」や候補行の「E」から、表記揺れを1つの仮称へまとめられます
+                </p>
+              )}
+            </div>
+          </section>
+
           <section className="findings-section">
             <h2>検出候補（{flatFindings.length}件）</h2>
             <div className="findings-list">
@@ -939,6 +1175,18 @@ export default function ReviewView(props: {
                         {finding.category}
                       </span>
                       <span className="finding-text">{finding.text}</span>
+                    </button>
+                    <button
+                      className="mini"
+                      title="Entityへ追加（表記揺れの統合）"
+                      onClick={() =>
+                        setAssignTarget({
+                          category: finding.category,
+                          text: finding.text,
+                        })
+                      }
+                    >
+                      E
                     </button>
                     <select
                       value={decision?.action ?? "undecided"}

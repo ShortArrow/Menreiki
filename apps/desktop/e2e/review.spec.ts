@@ -108,6 +108,14 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await page.getByRole("button", { name: "置換ルールに追加" }).click();
   await page.getByPlaceholder("置換後").last().fill("開発会社A");
 
+  await page
+    .getByPlaceholder("例: 株式会社アルファ技研")
+    .fill("株式会社ベータ電機");
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await page.getByRole("button", { name: "Entityとして登録" }).click();
+  await expect(page.getByText("Entity（1件）")).toBeVisible();
+  await expect(page.getByPlaceholder("仮称")).toHaveValue("組織A");
+
   const applyButton = page.getByRole("button", { name: /適用（\d+ルール）/ });
   await expect(applyButton).toBeEnabled();
   await applyButton.click();

@@ -5,6 +5,7 @@ members = [
     "crates/menreiki-core",
     "crates/menreiki-project",
     "crates/menreiki-detect",
+    "crates/menreiki-entity",
     "crates/menreiki-ocr",
     "crates/menreiki-policy",
     "crates/menreiki-render",
@@ -25,6 +26,7 @@ menreiki-audit = { path = "crates/menreiki-audit" }
 menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
+menreiki-entity = { path = "crates/menreiki-entity" }
 menreiki-ocr = { path = "crates/menreiki-ocr" }
 menreiki-policy = { path = "crates/menreiki-policy" }
 regex = "1"

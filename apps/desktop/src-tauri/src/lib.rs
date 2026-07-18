@@ -278,6 +278,61 @@ fn save_review_decisions(
 }
 
 #[tauri::command]
+fn list_entities(project: String) -> Result<Vec<menreiki_entity::Entity>, String> {
+    menreiki_project::load_entities(Path::new(&project)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_entities(
+    project: String,
+    entities: Vec<menreiki_entity::Entity>,
+) -> Result<(), String> {
+    menreiki_project::save_entities(Path::new(&project), &entities)
+        .map_err(|error| error.to_string())
+}
+
+/// Spellings among the detected findings that plausibly belong to the
+/// entity but are not registered as variants yet.
+#[tauri::command]
+fn suggest_entity_variants(
+    project: String,
+    entity: menreiki_entity::Entity,
+) -> Result<Vec<String>, String> {
+    let findings =
+        menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())?;
+    let mut texts: Vec<String> = findings
+        .into_iter()
+        .flat_map(|page| page.findings)
+        .map(|finding| finding.text)
+        .collect();
+    texts.sort();
+    texts.dedup();
+    Ok(menreiki_entity::suggest_variants(
+        &entity,
+        texts.iter().map(String::as_str),
+    ))
+}
+
+/// Document-wide occurrence count for each text, using the same
+/// OCR-tolerant matching as search.
+#[tauri::command]
+fn count_matches(project: String, texts: Vec<String>) -> Result<Vec<u32>, String> {
+    let project_dir = Path::new(&project);
+    let mut counts = Vec::new();
+    for text in &texts {
+        let pages = menreiki_project::search_text(project_dir, text)
+            .map_err(|error| error.to_string())?;
+        counts.push(
+            pages
+                .iter()
+                .map(|page| page.findings.len() as u32)
+                .sum::<u32>(),
+        );
+    }
+    Ok(counts)
+}
+
+#[tauri::command]
 fn list_dictionary(
     project: String,
 ) -> Result<Vec<menreiki_project::DictionaryEntry>, String> {
@@ -460,6 +515,10 @@ pub fn run() {
             initial_project,
             load_review_decisions,
             save_review_decisions,
+            list_entities,
+            save_entities,
+            suggest_entity_variants,
+            count_matches,
             list_dictionary,
             add_dictionary_entry,
             remove_dictionary_entry,

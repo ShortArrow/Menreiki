@@ -11,6 +11,7 @@ mod audit;
 mod decisions;
 mod detect;
 mod dictionary;
+mod entities;
 mod export;
 mod import;
 mod layout;
@@ -32,13 +33,15 @@ pub use dictionary::{
     add_dictionary_entry, dictionary_rules, load_dictionary, remove_dictionary_entry,
     DictionaryEntry, DictionaryError,
 };
+pub use entities::{load_entities, save_entities, EntitiesError};
 pub use export::{export_pdf, ExportError};
 pub use import::{import, ImportError};
 pub use layout::{
-    audit_report_path, decisions_path, dictionary_path, page_findings_path, page_image_path,
+    audit_report_path, decisions_path, dictionary_path, entities_path, page_findings_path,
+    page_image_path,
     page_ocr_path, page_render_path, plan_path, sanitized_markdown_path, sanitized_pdf_path,
-    AUDIT_DIR, DECISIONS_DIR, FINDINGS_DIR, MANIFEST_FILE_NAME, OCR_DIR, OUTPUT_DIR, PAGES_DIR,
-    RENDERS_DIR, RULES_DIR, SOURCE_DIR,
+    AUDIT_DIR, DECISIONS_DIR, ENTITIES_DIR, FINDINGS_DIR, MANIFEST_FILE_NAME, OCR_DIR,
+    OUTPUT_DIR, PAGES_DIR, RENDERS_DIR, RULES_DIR, SOURCE_DIR,
 };
 pub use maintenance::clear_analysis;
 pub use manifest::{load_manifest, LoadError, ProjectManifest, SCHEMA_VERSION};

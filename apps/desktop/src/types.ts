@@ -46,6 +46,13 @@ export interface DictionaryEntry {
   text: string;
 }
 
+export interface Entity {
+  id: string;
+  category: string;
+  alias: string;
+  variants: string[];
+}
+
 export interface ReviewDecisions {
   findings: { category: string; text: string; action: string; value: string }[];
   texts: { text: string; action: string; value: string }[];

@@ -6,6 +6,7 @@ import type {
   ApplySummary,
   AuditReport,
   DictionaryEntry,
+  Entity,
   PageFindings,
   Policy,
   ProjectInfo,
@@ -66,6 +67,22 @@ export function saveReviewDecisions(
   decisions: ReviewDecisions,
 ) {
   return invoke<void>("save_review_decisions", { project, decisions });
+}
+
+export function listEntities(project: string) {
+  return invoke<Entity[]>("list_entities", { project });
+}
+
+export function saveEntities(project: string, entities: Entity[]) {
+  return invoke<void>("save_entities", { project, entities });
+}
+
+export function suggestEntityVariants(project: string, entity: Entity) {
+  return invoke<string[]>("suggest_entity_variants", { project, entity });
+}
+
+export function countMatches(project: string, texts: string[]) {
+  return invoke<number[]>("count_matches", { project, texts });
 }
 
 export function listDictionary(project: string) {

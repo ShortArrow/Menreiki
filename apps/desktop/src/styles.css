@@ -643,6 +643,103 @@ button.rule-target:hover {
   width: 110px;
 }
 
+/* ---- Entities ---- */
+
+.assign-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  background: var(--highlight-bg);
+  border-radius: 6px;
+}
+
+.assign-bar .finding-text {
+  max-width: 160px;
+}
+
+.entity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.entity-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entity-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.alias-input {
+  flex: 1;
+  min-width: 90px;
+  font-weight: 600;
+}
+
+.entity-variants,
+.entity-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.variant-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  background: var(--chip-bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.variant-chip > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.variant-chip button {
+  border: none;
+  background: transparent;
+  padding: 0 2px;
+}
+
+.variant-chip.suggest {
+  background: transparent;
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.variant-chip.suggest:hover {
+  background: var(--hover);
+}
+
+.variant-count {
+  color: var(--muted-soft);
+}
+
+button.mini {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
 /* ---- Pre-export check ---- */
 
 .precheck {
