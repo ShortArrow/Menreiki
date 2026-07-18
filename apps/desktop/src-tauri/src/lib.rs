@@ -340,6 +340,35 @@ async fn export_project(project: String, dpi: u32) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn export_markdown(
+    app: tauri::AppHandle,
+    project: String,
+    ocr_language: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let engine = ocr_engine(&ocr_language)?;
+        menreiki_project::export_markdown(
+            Path::new(&project),
+            &engine,
+            &mut |page_index, total| {
+                let _ = app.emit(
+                    "analyze-progress",
+                    serde_json::json!({
+                        "stage": "markdown",
+                        "page": page_index + 1,
+                        "total": total,
+                    }),
+                );
+            },
+        )
+        .map(|path| path.display().to_string())
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 async fn audit_project(
     project: String,
     policy: Option<serde_json::Value>,
@@ -426,6 +455,7 @@ pub fn run() {
             page_image,
             apply_policy,
             export_project,
+            export_markdown,
             audit_project,
         ])
         .run(tauri::generate_context!())

@@ -120,6 +120,11 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 60_000,
   });
 
+  await page.getByRole("button", { name: "Markdown出力" }).click();
+  await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
+    timeout: 120_000,
+  });
+
   await page.getByRole("button", { name: "監査", exact: true }).click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
 });

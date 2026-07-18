@@ -55,6 +55,11 @@ pub fn sanitized_pdf_path(project_dir: &Path) -> PathBuf {
     project_dir.join(OUTPUT_DIR).join("sanitized.pdf")
 }
 
+/// Location of the Markdown rendition: `output/sanitized.md`.
+pub fn sanitized_markdown_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(OUTPUT_DIR).join("sanitized.md")
+}
+
 /// Location of the audit report: `audit/report.json`.
 pub fn audit_report_path(project_dir: &Path) -> PathBuf {
     project_dir.join(AUDIT_DIR).join("report.json")

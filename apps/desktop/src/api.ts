@@ -116,6 +116,10 @@ export function exportProject(project: string, dpi = 300) {
   return invoke<string>("export_project", { project, dpi });
 }
 
+export function exportMarkdown(project: string, ocrLanguage = "ja") {
+  return invoke<string>("export_markdown", { project, ocrLanguage });
+}
+
 export function auditProject(
   project: string,
   policy: Policy | null,

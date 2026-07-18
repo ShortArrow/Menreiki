@@ -6,6 +6,7 @@ import {
   applyPolicy,
   auditProject,
   cancelAnalysis,
+  exportMarkdown,
   exportProject,
   listDictionary,
   listFindings,
@@ -82,6 +83,8 @@ function progressLabel(progress: AnalyzeProgress): string {
       return `OCRを実行しています…${pages}`;
     case "detect":
       return "機密候補を検出しています…";
+    case "markdown":
+      return `Markdownを生成しています…${pages}`;
     case "done":
       return "解析が完了しました";
     default:
@@ -148,6 +151,7 @@ export default function ReviewView(props: {
   const [notice, setNotice] = useState<string | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
   const [exportPath, setExportPath] = useState<string | null>(null);
+  const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -388,6 +392,17 @@ export default function ReviewView(props: {
     });
   }
 
+  function runExportMarkdown() {
+    void run("Markdownを生成中…", async () => {
+      setMarkdownPath(await exportMarkdown(project.projectDir));
+      if (undecidedCount > 0) {
+        setNotice(
+          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+        );
+      }
+    });
+  }
+
   function runAudit() {
     void run("再検査中…", async () => {
       setAudit(await auditProject(project.projectDir, policy));
@@ -553,6 +568,12 @@ export default function ReviewView(props: {
         </button>
         <button onClick={runExport} disabled={busy !== null || !hasRenders}>
           PDF出力
+        </button>
+        <button
+          onClick={runExportMarkdown}
+          disabled={busy !== null || !hasRenders}
+        >
+          Markdown出力
         </button>
         <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
           監査
@@ -971,6 +992,11 @@ export default function ReviewView(props: {
             {exportPath && (
               <p className="export-path" title={exportPath}>
                 出力: {exportPath}
+              </p>
+            )}
+            {markdownPath && (
+              <p className="export-path" title={markdownPath}>
+                出力: {markdownPath}
               </p>
             )}
             {audit && (

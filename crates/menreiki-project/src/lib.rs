@@ -16,6 +16,7 @@ mod import;
 mod layout;
 mod maintenance;
 mod manifest;
+mod markdown;
 mod ocr;
 mod search;
 
@@ -35,11 +36,12 @@ pub use export::{export_pdf, ExportError};
 pub use import::{import, ImportError};
 pub use layout::{
     audit_report_path, decisions_path, dictionary_path, page_findings_path, page_image_path,
-    page_ocr_path, page_render_path, plan_path, sanitized_pdf_path, AUDIT_DIR, DECISIONS_DIR,
-    FINDINGS_DIR, MANIFEST_FILE_NAME, OCR_DIR, OUTPUT_DIR, PAGES_DIR, RENDERS_DIR, RULES_DIR,
-    SOURCE_DIR,
+    page_ocr_path, page_render_path, plan_path, sanitized_markdown_path, sanitized_pdf_path,
+    AUDIT_DIR, DECISIONS_DIR, FINDINGS_DIR, MANIFEST_FILE_NAME, OCR_DIR, OUTPUT_DIR, PAGES_DIR,
+    RENDERS_DIR, RULES_DIR, SOURCE_DIR,
 };
 pub use maintenance::clear_analysis;
 pub use manifest::{load_manifest, LoadError, ProjectManifest, SCHEMA_VERSION};
+pub use markdown::{export_markdown, render_markdown, MarkdownError};
 pub use ocr::{load_ocr_pages, ocr_pages, LoadOcrError, OcrPagesError};
 pub use search::search_text;

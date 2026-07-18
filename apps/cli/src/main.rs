@@ -67,13 +67,19 @@ enum Command {
         #[arg(long, default_value = r"C:\Windows\Fonts\msgothic.ttc")]
         font: PathBuf,
     },
-    /// Rebuild a PDF from the (transformed) page images
+    /// Rebuild the sanitized outputs from the (transformed) page images
     Export {
         /// Project directory created by `import`
         project: PathBuf,
         /// Resolution the page images were rendered at
         #[arg(long, default_value_t = 300)]
         dpi: u32,
+        /// Output to produce
+        #[arg(long, default_value = "pdf", value_parser = ["pdf", "markdown", "all"])]
+        format: String,
+        /// BCP-47 tag of the OCR language used for the Markdown rendition
+        #[arg(long, default_value = "ja")]
+        ocr_language: String,
     },
     /// Re-inspect the transformed pages for residual identifying text
     Audit {
@@ -239,10 +245,31 @@ fn run(cli: Cli) -> Result<(), String> {
             );
             Ok(())
         }
-        Command::Export { project, dpi } => {
-            let output = menreiki_project::export_pdf(&project, dpi)
+        Command::Export {
+            project,
+            dpi,
+            format,
+            ocr_language,
+        } => {
+            let wants = |kind: &str| format == kind || format == "all";
+            if wants("pdf") {
+                let output = menreiki_project::export_pdf(&project, dpi)
+                    .map_err(|error| error.to_string())?;
+                println!("exported {}", output.display());
+            }
+            if wants("markdown") {
+                let engine = ocr_engine(&ocr_language)?;
+                let output = menreiki_project::export_markdown(
+                    &project,
+                    &engine,
+                    &mut |page_index, total| {
+                        eprint!("\rrecognizing page {} / {total}...", page_index + 1);
+                    },
+                )
                 .map_err(|error| error.to_string())?;
-            println!("exported {}", output.display());
+                eprintln!();
+                println!("exported {}", output.display());
+            }
             Ok(())
         }
         Command::Audit {
