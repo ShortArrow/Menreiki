@@ -32,6 +32,7 @@ $bitmapJp.Dispose()
 
 if (Get-Command typst -ErrorAction SilentlyContinue) {
     typst compile (Join-Path $outDir 'typst' 'dummy-spec.typ') (Join-Path $outDir 'dummy-spec.pdf')
+    typst compile (Join-Path $outDir 'typst' 'dummy-spec.typ') (Join-Path $outDir 'dummy-page.png') --format png --pages 1 --ppi 144
 } else {
     Write-Warning 'typst not found; skipping dummy PDF generation'
 }

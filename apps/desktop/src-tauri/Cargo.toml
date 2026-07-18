@@ -23,3 +23,4 @@ menreiki-audit.workspace = true
 menreiki-detect.workspace = true
 menreiki-policy.workspace = true
 menreiki-project.workspace = true
+menreiki-render.workspace = true

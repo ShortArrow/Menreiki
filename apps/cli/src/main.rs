@@ -133,12 +133,10 @@ fn run(cli: Cli) -> Result<(), String> {
             }
 
             if stage("render") {
-                let rasterizer =
-                    menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
-                        .map_err(|error| error.to_string())?;
+                let rasterizer = rasterizer_for(&project)?;
                 let page_count = menreiki_project::analyze(
                     &project,
-                    &rasterizer,
+                    rasterizer.as_ref(),
                     dpi,
                     resume,
                     &mut |page_index, total| {
@@ -321,6 +319,24 @@ fn run(cli: Cli) -> Result<(), String> {
 
 fn default_project_dir(input: &Path) -> PathBuf {
     input.with_extension("menreiki")
+}
+
+/// The rasterizer matching the project's source document: single images
+/// (PNG, JPEG) pass through as one-page documents, everything else goes
+/// through pdfium.
+fn rasterizer_for(
+    project: &Path,
+) -> Result<Box<dyn menreiki_render::DocumentRasterizer>, String> {
+    let manifest = menreiki_project::load_manifest(project).map_err(|error| error.to_string())?;
+    let name = manifest.source().file_name().to_lowercase();
+    if name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") {
+        Ok(Box::new(menreiki_render::ImageRasterizer))
+    } else {
+        Ok(Box::new(
+            menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+                .map_err(|error| error.to_string())?,
+        ))
+    }
 }
 
 /// The requested OCR language, or the profile languages (with a warning)

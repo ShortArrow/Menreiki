@@ -12,6 +12,7 @@ path = "src/main.rs"
 menreiki-project.workspace = true
 menreiki-detect.workspace = true
 menreiki-policy.workspace = true
+menreiki-render.workspace = true
 menreiki-audit.workspace = true
 menreiki-adapter-pdfium.workspace = true
 menreiki-adapter-windows-ocr.workspace = true

@@ -7,10 +7,12 @@
 //! mask, replacement text) to rendered pages.
 
 mod edit;
+mod image_source;
 mod pdf;
 mod raster;
 
 pub use edit::{apply_edits, load_font, EditError};
+pub use image_source::ImageRasterizer;
 pub use pdf::{build_image_pdf, PdfBuildError};
 pub use raster::{DocumentRasterizer, PageImage, RasterError};
 

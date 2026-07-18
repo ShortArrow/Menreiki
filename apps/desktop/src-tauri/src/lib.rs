@@ -67,6 +67,25 @@ fn pdfium_library_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("vendor/pdfium"))
 }
 
+/// The rasterizer matching the project's source document: single images
+/// (PNG, JPEG) pass through as one-page documents, everything else goes
+/// through pdfium.
+fn rasterizer_for(
+    project_dir: &Path,
+) -> Result<Box<dyn menreiki_render::DocumentRasterizer>, String> {
+    let manifest =
+        menreiki_project::load_manifest(project_dir).map_err(|error| error.to_string())?;
+    let name = manifest.source().file_name().to_lowercase();
+    if name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") {
+        Ok(Box::new(menreiki_render::ImageRasterizer))
+    } else {
+        Ok(Box::new(
+            menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+                .map_err(|error| error.to_string())?,
+        ))
+    }
+}
+
 /// The requested OCR language, or the profile languages when that language
 /// pack is not installed.
 fn ocr_engine(
@@ -190,12 +209,10 @@ async fn analyze_project(
 
         if render {
             emit("render", None, None);
-            let rasterizer =
-                menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
-                    .map_err(|error| error.to_string())?;
+            let rasterizer = rasterizer_for(&project_dir)?;
             let result = menreiki_project::analyze(
                 &project_dir,
-                &rasterizer,
+                rasterizer.as_ref(),
                 dpi,
                 resume,
                 &mut |page_index, total| {
