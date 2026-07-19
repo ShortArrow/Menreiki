@@ -52,6 +52,32 @@ menreiki audit   <project> --policy policy.yaml [--deny-wordlist words.txt]
 
 ポリシーの例は [examples/policy-dummy-spec.yaml](examples/policy-dummy-spec.yaml) を参照してください。
 
+## ローカルLLM / VLM（任意）
+
+ローカルの言語モデルを接続すると、次の補助機能が使えます。いずれもモデルの出力は候補・提案（参考情報）であり、レビュアーが採用しない限り何も適用されません。
+
+- **LLM検出** — OCRテキストから文脈依存の機密候補を抽出（GUI: 再解析…→LLM検出、CLI: `menreiki analyze <project> --only llm --llm-model <モデル>`）
+- **VLM検出** — ページ画像を確認し、図表・スクリーンショット・ロゴ内の候補も抽出。OCRに写っていない候補は「位置未特定」のページ全体候補として残ります（visionモデルが必要）
+- **仮称・一般化の提案** — Entityの仮称欄と置換値欄の✨ボタンで、「特定の型式 → Cortex-M7系マイクロコントローラA」のように意味を残した置換候補を提案
+
+設定は `~/.config/menreiki/config.toml`:
+
+```toml
+[inference]
+base_url = "http://localhost:11434/v1"   # OpenAI互換エンドポイント（既定はOllama）
+model = "qwen3"                           # 使用するモデル（VLM検出はvisionモデルを指定）
+```
+
+llama.cpp server / Ollama / LM Studio / mistral.rs はいずれもこのAPI形式で接続できます。
+
+**接続先はこのマシン（localhost / 127.0.0.1 / ::1）に限定されています。** 機密文書のテキストが外部へ送信されない性質をクライアントの構造で保証するためで、リモートのURLは設定しても拒否されます。GPUサーバー（NVIDIA DGX Spark等）でモデルを動かす場合は、SSHポートフォワードで接続してください:
+
+```powershell
+ssh -N -L 11434:localhost:11434 user@gpu-server
+```
+
+これによりリモートのモデルがこのPCのlocalhostとして見え、原文は暗号化されたトンネルの中だけを通ります。hostsファイルの書き換えや平文のポート転送は、機密テキストが平文でネットワークを流れるため使わないでください。
+
 ## テスト
 
 ```powershell
