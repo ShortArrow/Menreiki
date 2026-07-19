@@ -399,10 +399,24 @@ h2 {
 .rule-entry {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 4px;
   border: 1px solid var(--border-soft);
   border-radius: 6px;
+}
+
+.suggest-wrap {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.suggest-error {
+  font-size: 11px;
+  max-width: 100%;
 }
 
 .rule-entry.region {
@@ -687,6 +701,7 @@ button.rule-target:hover {
 .entity-head {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 

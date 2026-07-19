@@ -77,6 +77,28 @@ fn image_chat_sends_a_data_url_in_the_vision_content_format() {
 }
 
 #[test]
+fn replacement_suggestions_round_trip() {
+    let (server, port) =
+        serve_one(r#"["Cortex-M7系マイクロコントローラA", "制御用マイコンA"]"#);
+    let client =
+        InferenceClient::new(&format!("http://127.0.0.1:{port}/v1"), "test-model").unwrap();
+
+    let suggestions = menreiki_inference::suggest_replacements(
+        &client,
+        "STM32H750VBT6",
+        "product",
+        "FDCAN1を使用して1 Mbpsで通信する",
+    )
+    .unwrap();
+
+    assert_eq!(suggestions.len(), 2);
+    assert_eq!(suggestions[0], "Cortex-M7系マイクロコントローラA");
+    let request = server.join().unwrap();
+    assert!(request.contains("STM32H750VBT6"));
+    assert!(request.contains("FDCAN1"));
+}
+
+#[test]
 fn candidate_detection_parses_the_model_answer() {
     use menreiki_inference::CandidateDetector;
 

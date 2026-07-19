@@ -14,8 +14,8 @@ use serde::Deserialize;
 mod assist;
 
 pub use assist::{
-    detect_candidates, detect_candidates_in_image, parse_candidates, CandidateDetector,
-    ImageCandidateDetector, LlmCandidate,
+    detect_candidates, detect_candidates_in_image, parse_candidates, parse_suggestions,
+    suggest_replacements, CandidateDetector, ImageCandidateDetector, LlmCandidate,
 };
 
 #[derive(Debug, thiserror::Error)]

@@ -92,9 +92,73 @@ pub fn parse_candidates(content: &str) -> Result<Vec<LlmCandidate>, InferenceErr
         .collect())
 }
 
+const REPLACEMENT_SYSTEM_PROMPT: &str = "あなたは機密文書の匿名化を補助するアシスタントです。\
+与えられた表現の代わりに使える置換候補を提案してください。置換候補は、元の対象を特定\
+できないようにしつつ、文書の技術的・役割的な意味を保つものにします。\
+例: 特定のマイコン型式には「Cortex-M7系マイクロコントローラA」のように技術分類を残す。\
+社名には「発注元企業A」「供給会社B」のように役割を残す。施設名には「試験施設A」のように\
+種類を残す。JSON配列（文字列のみ、2〜4件）だけを出力し、それ以外の文字を出力しないで\
+ください。";
+
+/// Asks the local model for replacement expressions that strip identity
+/// while keeping technical or role meaning (pseudonymization and
+/// generalization suggestions). `context` may carry surrounding text.
+pub fn suggest_replacements(
+    client: &InferenceClient,
+    text: &str,
+    category: &str,
+    context: &str,
+) -> Result<Vec<String>, InferenceError> {
+    let user = if context.trim().is_empty() {
+        format!("分類: {category}\n表現: {text}")
+    } else {
+        format!("分類: {category}\n表現: {text}\n文脈: {context}")
+    };
+    let content = client.chat(REPLACEMENT_SYSTEM_PROMPT, &user)?;
+    parse_suggestions(&content)
+}
+
+/// Parses a JSON array of strings from the model output, with the same
+/// tolerance for fences and prose as candidate parsing.
+pub fn parse_suggestions(content: &str) -> Result<Vec<String>, InferenceError> {
+    let start = content
+        .find('[')
+        .ok_or_else(|| InferenceError::Response("no JSON array in model output".to_string()))?;
+    let end = content
+        .rfind(']')
+        .ok_or_else(|| InferenceError::Response("unterminated JSON array".to_string()))?;
+    if end < start {
+        return Err(InferenceError::Response(
+            "malformed JSON array in model output".to_string(),
+        ));
+    }
+    let suggestions: Vec<String> = serde_json::from_str(&content[start..=end])
+        .map_err(|error| InferenceError::Response(error.to_string()))?;
+    Ok(suggestions
+        .into_iter()
+        .map(|suggestion| suggestion.trim().to_string())
+        .filter(|suggestion| !suggestion.is_empty())
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_replacement_suggestions_with_fences() {
+        let output = "```json\n[\"Cortex-M7系マイクロコントローラA\", \"制御用マイコンA\", \" \"]\n```";
+
+        let suggestions = parse_suggestions(output).unwrap();
+
+        assert_eq!(
+            suggestions,
+            vec![
+                "Cortex-M7系マイクロコントローラA".to_string(),
+                "制御用マイコンA".to_string(),
+            ]
+        );
+    }
 
     #[test]
     fn parses_a_bare_json_array() {

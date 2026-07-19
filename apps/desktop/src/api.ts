@@ -62,6 +62,14 @@ export function llmDetect(project: string, useImage = false) {
   return invoke<number>("llm_detect_project", { project, useImage });
 }
 
+export function suggestReplacements(
+  text: string,
+  category: string,
+  context = "",
+) {
+  return invoke<string[]>("suggest_replacements", { text, category, context });
+}
+
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
 }

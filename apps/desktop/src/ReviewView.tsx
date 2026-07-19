@@ -20,6 +20,7 @@ import {
   saveReviewDecisions,
   searchProject,
   suggestEntityVariants,
+  suggestReplacements,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
@@ -135,6 +136,52 @@ function PageThumb(props: {
     return <span className="thumb-placeholder" />;
   }
   return <img className="thumb" src={url} loading="lazy" alt="" />;
+}
+
+function AliasSuggest(props: {
+  text: string;
+  category: string;
+  onPick: (value: string) => void;
+}) {
+  const [items, setItems] = useState<string[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function fetchSuggestions() {
+    setLoading(true);
+    setError(null);
+    setItems(null);
+    suggestReplacements(props.text, props.category)
+      .then((loaded) => setItems(loaded))
+      .catch((failure) => setError(String(failure)))
+      .finally(() => setLoading(false));
+  }
+
+  return (
+    <span className="suggest-wrap">
+      <button
+        className="mini"
+        title="ローカルLLMに置換候補を提案させる（意味を残した仮称・一般化）"
+        disabled={loading}
+        onClick={fetchSuggestions}
+      >
+        {loading ? "…" : "✨"}
+      </button>
+      {items?.map((suggestion) => (
+        <button
+          key={suggestion}
+          className="variant-chip suggest"
+          onClick={() => {
+            props.onPick(suggestion);
+            setItems(null);
+          }}
+        >
+          {suggestion}
+        </button>
+      ))}
+      {error && <span className="error suggest-error">{error}</span>}
+    </span>
+  );
 }
 
 export default function ReviewView(props: {
@@ -945,14 +992,21 @@ export default function ReviewView(props: {
                     <span className="finding-text">{entry.finding.text}</span>
                   </button>
                   {entry.decision.action === "replace" && (
-                    <input
-                      className="replace-input"
-                      placeholder="置換後"
-                      value={entry.decision.value}
-                      onChange={(event) =>
-                        setDecisionValue(entry.key, event.target.value)
-                      }
-                    />
+                    <>
+                      <input
+                        className="replace-input"
+                        placeholder="置換後"
+                        value={entry.decision.value}
+                        onChange={(event) =>
+                          setDecisionValue(entry.key, event.target.value)
+                        }
+                      />
+                      <AliasSuggest
+                        text={entry.finding.text}
+                        category={entry.finding.category}
+                        onPick={(value) => setDecisionValue(entry.key, value)}
+                      />
+                    </>
                   )}
                   <button onClick={() => setDecision(entry.key, "undecided")}>
                     解除
@@ -970,20 +1024,33 @@ export default function ReviewView(props: {
                     <span className="finding-text">{rule.text}</span>
                   </span>
                   {rule.action === "replace" && (
-                    <input
-                      className="replace-input"
-                      placeholder="置換後"
-                      value={rule.value}
-                      onChange={(event) =>
-                        setTextRules((current) =>
-                          current.map((entry, i) =>
-                            i === index
-                              ? { ...entry, value: event.target.value }
-                              : entry,
-                          ),
-                        )
-                      }
-                    />
+                    <>
+                      <input
+                        className="replace-input"
+                        placeholder="置換後"
+                        value={rule.value}
+                        onChange={(event) =>
+                          setTextRules((current) =>
+                            current.map((entry, i) =>
+                              i === index
+                                ? { ...entry, value: event.target.value }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                      <AliasSuggest
+                        text={rule.text}
+                        category="other"
+                        onPick={(value) =>
+                          setTextRules((current) =>
+                            current.map((entry, i) =>
+                              i === index ? { ...entry, value } : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </>
                   )}
                   <button
                     onClick={() =>
@@ -1091,6 +1158,19 @@ export default function ReviewView(props: {
                           current.map((candidate) =>
                             candidate.id === entity.id
                               ? { ...candidate, alias: event.target.value }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    />
+                    <AliasSuggest
+                      text={entity.variants[0] ?? entity.alias}
+                      category={entity.category}
+                      onPick={(value) =>
+                        setEntities((current) =>
+                          current.map((candidate) =>
+                            candidate.id === entity.id
+                              ? { ...candidate, alias: value }
                               : candidate,
                           ),
                         )

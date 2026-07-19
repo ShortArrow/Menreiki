@@ -337,6 +337,32 @@ async fn llm_detect_project(
     .map_err(|error| error.to_string())?
 }
 
+/// Asks the configured local model for replacement suggestions (alias or
+/// generalization) for one expression. Advisory only — the reviewer picks.
+#[tauri::command]
+async fn suggest_replacements(
+    text: String,
+    category: String,
+    context: String,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = settings::load_config();
+        let client = menreiki_inference::InferenceClient::new(
+            &config.inference.base_url,
+            &config.inference.model,
+        )
+        .map_err(|error| {
+            format!(
+                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
+            )
+        })?;
+        menreiki_inference::suggest_replacements(&client, &text, &category, &context)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>, String> {
     menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())
@@ -609,6 +635,7 @@ pub fn run() {
             analyze_project,
             cancel_analysis,
             llm_detect_project,
+            suggest_replacements,
             list_findings,
             search_project,
             page_image,
