@@ -14,3 +14,4 @@ Menreikiのアーキテクチャ決定の記録。運用ルールは [ADR-000](0
 | [007](007-dual-license.md) | MIT OR Apache-2.0のデュアルライセンスで公開する | 2026-07-18 |
 | [008](008-project-format-folder-with-mnrk.md) | プロジェクトはフォルダ形式とし、project.mnrkを開く入口にする | 2026-07-19 |
 | [009](009-portable-single-binary.md) | ポータブル単一バイナリを主配布形態とし、pdfiumを埋め込む | 2026-07-19 |
+| [010](010-remote-inference-via-ssh-tunnel.md) | リモート推論はSSHトンネルで接続し、TLSは強制しない | 2026-07-19 |
