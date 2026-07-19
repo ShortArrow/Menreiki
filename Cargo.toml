@@ -33,6 +33,7 @@ regex = "1"
 serde_yaml = "0.9"
 flate2 = "1"
 toml = "0.8"
+winreg = "0.52"
 imageproc = "0.25"
 ab_glyph = "0.2"
 menreiki-render = { path = "crates/menreiki-render" }

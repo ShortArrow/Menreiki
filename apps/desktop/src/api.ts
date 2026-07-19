@@ -17,6 +17,10 @@ export function getConfig() {
   return invoke<AppConfig>("get_config");
 }
 
+export function registerFileAssociation() {
+  return invoke<void>("register_file_association");
+}
+
 export function setConfig(config: AppConfig) {
   return invoke<void>("set_config", { config });
 }

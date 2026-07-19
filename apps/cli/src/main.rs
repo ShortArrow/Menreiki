@@ -327,6 +327,11 @@ fn default_project_dir(input: &Path) -> PathBuf {
     input.with_extension("menreiki")
 }
 
+/// The pdfium build embedded at compile time, so the CLI works as a single
+/// file with no installation step.
+static EMBEDDED_PDFIUM: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../vendor/pdfium/pdfium.dll"));
+
 /// The rasterizer matching the project's source document: single images
 /// (PNG, JPEG) pass through as one-page documents, everything else goes
 /// through pdfium.
@@ -338,8 +343,10 @@ fn rasterizer_for(
     if name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") {
         Ok(Box::new(menreiki_render::ImageRasterizer))
     } else {
+        let library_dir = menreiki_adapter_pdfium::library_dir(Some(EMBEDDED_PDFIUM))
+            .map_err(|error| error.to_string())?;
         Ok(Box::new(
-            menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+            menreiki_adapter_pdfium::PdfiumRasterizer::new(&library_dir)
                 .map_err(|error| error.to_string())?,
         ))
     }
@@ -358,10 +365,3 @@ fn ocr_engine(language: &str) -> Result<menreiki_adapter_windows_ocr::WindowsOcr
     })
 }
 
-/// Directory holding the pdfium dynamic library: `MENREIKI_PDFIUM_PATH` if
-/// set, otherwise `vendor/pdfium` relative to the working directory.
-fn pdfium_library_dir() -> PathBuf {
-    std::env::var_os("MENREIKI_PDFIUM_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("vendor/pdfium"))
-}

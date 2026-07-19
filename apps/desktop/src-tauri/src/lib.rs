@@ -43,29 +43,10 @@ fn project_info(project_dir: &Path) -> Result<ProjectInfo, String> {
     })
 }
 
-/// Directory holding the pdfium dynamic library: the env override, the
-/// executable's directory, or a `vendor/pdfium` in any ancestor of the
-/// working directory (the development layout).
-fn pdfium_library_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("MENREIKI_PDFIUM_PATH") {
-        return PathBuf::from(dir);
-    }
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.to_path_buf());
-        }
-    }
-    if let Ok(cwd) = std::env::current_dir() {
-        for ancestor in cwd.ancestors() {
-            candidates.push(ancestor.join("vendor").join("pdfium"));
-        }
-    }
-    candidates
-        .into_iter()
-        .find(|dir| dir.join("pdfium.dll").exists())
-        .unwrap_or_else(|| PathBuf::from("vendor/pdfium"))
-}
+/// The pdfium build embedded at compile time, so the desktop app works as
+/// a single portable file with no installation step.
+static EMBEDDED_PDFIUM: &[u8] =
+    include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../vendor/pdfium/pdfium.dll"));
 
 /// The rasterizer matching the project's source document: single images
 /// (PNG, JPEG) pass through as one-page documents, everything else goes
@@ -79,8 +60,10 @@ fn rasterizer_for(
     if name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") {
         Ok(Box::new(menreiki_render::ImageRasterizer))
     } else {
+        let library_dir = menreiki_adapter_pdfium::library_dir(Some(EMBEDDED_PDFIUM))
+            .map_err(|error| error.to_string())?;
         Ok(Box::new(
-            menreiki_adapter_pdfium::PdfiumRasterizer::new(&pdfium_library_dir())
+            menreiki_adapter_pdfium::PdfiumRasterizer::new(&library_dir)
                 .map_err(|error| error.to_string())?,
         ))
     }
@@ -99,6 +82,53 @@ fn ocr_engine(
 
 fn default_font_path() -> PathBuf {
     PathBuf::from(r"C:\Windows\Fonts\msgothic.ttc")
+}
+
+/// Registers the `.mnrk` file association for the current user (no
+/// administrator rights needed) — the portable single-file distribution
+/// has no installer to do it.
+#[tauri::command]
+fn register_file_association() -> Result<(), String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let exe = std::env::current_exe()
+        .map_err(|error| error.to_string())?
+        .display()
+        .to_string();
+    let classes = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey("Software\\Classes")
+        .map_err(|error| error.to_string())?
+        .0;
+
+    let extension = classes
+        .create_subkey(".mnrk")
+        .map_err(|error| error.to_string())?
+        .0;
+    extension
+        .set_value("", &"Menreiki.Project")
+        .map_err(|error| error.to_string())?;
+
+    let prog_id = classes
+        .create_subkey("Menreiki.Project")
+        .map_err(|error| error.to_string())?
+        .0;
+    prog_id
+        .set_value("", &"Menreiki Project")
+        .map_err(|error| error.to_string())?;
+    prog_id
+        .create_subkey("DefaultIcon")
+        .map_err(|error| error.to_string())?
+        .0
+        .set_value("", &format!("\"{exe}\",0"))
+        .map_err(|error| error.to_string())?;
+    prog_id
+        .create_subkey("shell\\open\\command")
+        .map_err(|error| error.to_string())?
+        .0
+        .set_value("", &format!("\"{exe}\" \"%1\""))
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -510,6 +540,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            register_file_association,
             get_config,
             set_config,
             initial_project,

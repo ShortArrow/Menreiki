@@ -168,6 +168,15 @@ h2 {
   font-size: 12px;
 }
 
+.link-button {
+  border: none;
+  background: transparent;
+  color: var(--muted-soft);
+  text-decoration: underline;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
 /* ---- Review layout ---- */
 
 .review {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { importDocument, openProject } from "./api";
+import { importDocument, openProject, registerFileAssociation } from "./api";
 import type { ProjectInfo } from "./types";
 
 export default function HomeView(props: {
@@ -8,6 +8,7 @@ export default function HomeView(props: {
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function run(label: string, action: () => Promise<ProjectInfo | null>) {
     setBusy(label);
@@ -68,6 +69,19 @@ export default function HomeView(props: {
       <p className="note">
         すべての処理はローカルで実行されます。ネットワークへは接続しません。
       </p>
+      <button
+        className="link-button"
+        onClick={() => {
+          setError(null);
+          setNotice(null);
+          registerFileAssociation()
+            .then(() => setNotice(".mnrk をこのアプリに関連付けました。"))
+            .catch((failure) => setError(String(failure)));
+        }}
+      >
+        .mnrk をこのアプリに関連付ける（ポータブル利用時）
+      </button>
+      {notice && <p className="status">{notice}</p>}
     </div>
   );
 }

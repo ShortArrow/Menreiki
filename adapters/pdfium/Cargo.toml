@@ -8,8 +8,10 @@ license.workspace = true
 menreiki-render.workspace = true
 pdfium-render.workspace = true
 image.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
 menreiki-test-support.workspace = true
 image.workspace = true
+tempfile.workspace = true

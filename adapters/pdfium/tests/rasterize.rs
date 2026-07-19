@@ -56,3 +56,17 @@ fn rejects_out_of_range_page_index() {
 
     assert!(rasterizer().rasterize_page(&document, 5, 300).is_err());
 }
+
+#[test]
+fn embedded_library_extracts_once_into_a_content_addressed_dir() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bytes = b"not a real dll, but content is content";
+
+    let first = menreiki_adapter_pdfium::install_embedded(bytes, tmp.path()).unwrap();
+    let second = menreiki_adapter_pdfium::install_embedded(bytes, tmp.path()).unwrap();
+
+    assert_eq!(first, second);
+    assert_eq!(std::fs::read(first.join("pdfium.dll")).unwrap(), bytes);
+    let other = menreiki_adapter_pdfium::install_embedded(b"different", tmp.path()).unwrap();
+    assert_ne!(first, other);
+}
