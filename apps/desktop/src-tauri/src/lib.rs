@@ -286,6 +286,54 @@ async fn analyze_project(
     .map_err(|error| error.to_string())?
 }
 
+/// Asks the configured local model for extra candidates on every page.
+/// Requires `[inference]` in the user config; the endpoint is restricted
+/// to this machine by the inference client itself.
+#[tauri::command]
+async fn llm_detect_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AnalysisCancel>,
+    project: String,
+) -> Result<u16, String> {
+    let cancel = state.0.clone();
+    cancel.store(false, Ordering::Relaxed);
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = settings::load_config();
+        let client = menreiki_inference::InferenceClient::new(
+            &config.inference.base_url,
+            &config.inference.model,
+        )
+        .map_err(|error| {
+            format!(
+                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
+            )
+        })?;
+        let project_dir = PathBuf::from(&project);
+        let result = menreiki_project::llm_detect_pages(
+            &project_dir,
+            &client,
+            &mut |page_index, total| {
+                let _ = app.emit(
+                    "analyze-progress",
+                    serde_json::json!({
+                        "stage": "llm",
+                        "page": page_index + 1,
+                        "total": total,
+                    }),
+                );
+                !cancel.load(Ordering::Relaxed)
+            },
+        );
+        match result {
+            Ok(pages) => Ok(pages),
+            Err(menreiki_project::LlmDetectError::Cancelled) => Ok(0),
+            Err(error) => Err(error.to_string()),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>, String> {
     menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())
@@ -557,6 +605,7 @@ pub fn run() {
             open_project,
             analyze_project,
             cancel_analysis,
+            llm_detect_project,
             list_findings,
             search_project,
             page_image,

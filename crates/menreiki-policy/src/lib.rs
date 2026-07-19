@@ -191,6 +191,7 @@ mod tests {
                 height: 20.0,
             },
             detector: "regex".to_string(),
+            note: None,
         }
     }
 

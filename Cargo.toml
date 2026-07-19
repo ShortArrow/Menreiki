@@ -6,6 +6,7 @@ members = [
     "crates/menreiki-project",
     "crates/menreiki-detect",
     "crates/menreiki-entity",
+    "crates/menreiki-inference",
     "crates/menreiki-ocr",
     "crates/menreiki-policy",
     "crates/menreiki-render",
@@ -27,6 +28,7 @@ menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
 menreiki-entity = { path = "crates/menreiki-entity" }
+menreiki-inference = { path = "crates/menreiki-inference" }
 menreiki-ocr = { path = "crates/menreiki-ocr" }
 menreiki-policy = { path = "crates/menreiki-policy" }
 regex = "1"
@@ -34,6 +36,7 @@ serde_yaml = "0.9"
 flate2 = "1"
 toml = "0.8"
 winreg = "0.52"
+ureq = { version = "2", features = ["json"] }
 imageproc = "0.25"
 ab_glyph = "0.2"
 menreiki-render = { path = "crates/menreiki-render" }

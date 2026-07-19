@@ -192,6 +192,7 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
                     text: matched.as_str().to_string(),
                     rect,
                     detector: rule.detector.clone(),
+                    note: None,
                 });
             }
         }
@@ -249,6 +250,7 @@ pub fn detect_repeated_lines(pages: &[PageOcr]) -> Vec<Vec<Finding>> {
                 text,
                 rect,
                 detector: "layout".to_string(),
+                note: None,
             });
         }
     }

@@ -28,6 +28,31 @@ pub enum Theme {
 pub struct Config {
     #[serde(default)]
     pub theme: Theme,
+    #[serde(default)]
+    pub inference: InferenceConfig,
+}
+
+/// Where the optional local model lives. `model` empty means the LLM
+/// features are unconfigured and stay off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct InferenceConfig {
+    #[serde(default = "default_inference_url")]
+    pub base_url: String,
+    #[serde(default)]
+    pub model: String,
+}
+
+fn default_inference_url() -> String {
+    "http://localhost:11434/v1".to_string()
+}
+
+impl Default for InferenceConfig {
+    fn default() -> Self {
+        Self {
+            base_url: default_inference_url(),
+            model: String::new(),
+        }
+    }
 }
 
 pub fn load_config() -> Config {
@@ -102,6 +127,20 @@ mod tests {
     #[test]
     fn broken_config_never_locks_the_user_out() {
         assert_eq!(parse_config("theme = 12345").theme, Theme::Light);
+    }
+
+    #[test]
+    fn inference_settings_round_trip_and_default_sanely() {
+        let config = parse_config("");
+        assert_eq!(config.inference.base_url, "http://localhost:11434/v1");
+        assert_eq!(config.inference.model, "");
+
+        let config =
+            parse_config("[inference]\nbase_url = \"http://localhost:1234/v1\"\nmodel = \"qwen\"\n");
+        assert_eq!(config.inference.base_url, "http://localhost:1234/v1");
+        assert_eq!(config.inference.model, "qwen");
+        let text = toml::to_string_pretty(&config).unwrap();
+        assert_eq!(parse_config(&text), config);
     }
 
     #[test]

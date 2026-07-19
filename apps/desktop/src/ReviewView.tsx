@@ -12,6 +12,7 @@ import {
   listDictionary,
   listEntities,
   listFindings,
+  llmDetect,
   loadReviewDecisions,
   pageImageUrl,
   removeDictionaryEntry,
@@ -98,6 +99,8 @@ function progressLabel(progress: AnalyzeProgress): string {
       return "機密候補を検出しています…";
     case "markdown":
       return `Markdownを生成しています…${pages}`;
+    case "llm":
+      return `ローカルLLMで候補を探しています…${pages}`;
     case "done":
       return "解析が完了しました";
     default:
@@ -513,6 +516,13 @@ export default function ReviewView(props: {
     });
   }
 
+  function runLlmDetect() {
+    void run("LLM検出中…", async () => {
+      await llmDetect(project.projectDir);
+      setFindings(await listFindings(project.projectDir));
+    });
+  }
+
   function runSearch() {
     const text = searchInput.trim();
     if (!text) return;
@@ -616,8 +626,9 @@ export default function ReviewView(props: {
             value=""
             disabled={busy !== null}
             onChange={(event) => {
-              const scope = event.target.value as AnalysisScope | "";
-              if (scope) runAnalyze(scope);
+              const value = event.target.value;
+              if (value === "llm-detect") runLlmDetect();
+              else if (value) runAnalyze(value as AnalysisScope);
             }}
           >
             <option value="">再解析…</option>
@@ -626,6 +637,7 @@ export default function ReviewView(props: {
             <option value="render-only">画像化のみ</option>
             <option value="ocr-only">OCRのみ＋検出</option>
             <option value="detect-only">検出のみ</option>
+            <option value="llm-detect">LLM検出（ローカルLLM・実験的）</option>
           </select>
         ) : project.pageCount > 0 ? (
           <>
@@ -687,7 +699,7 @@ export default function ReviewView(props: {
       {(busy || progress || error || notice) && (
         <div className="statusbar">
           {busy && <span className="status">{progress ?? busy}</span>}
-          {busy === "解析中…" && (
+          {(busy === "解析中…" || busy === "LLM検出中…") && (
             <button onClick={() => void cancelAnalysis()}>キャンセル</button>
           )}
           {notice && <span className="status">{notice}</span>}
@@ -1167,7 +1179,11 @@ export default function ReviewView(props: {
                   >
                     <button
                       className="finding-label"
-                      title={finding.text}
+                      title={
+                        finding.note
+                          ? `${finding.text}\n${finding.note}`
+                          : finding.text
+                      }
                       onClick={() => jumpTo(pageIndex, finding)}
                     >
                       <span className="page-tag">p.{pageIndex + 1}</span>

@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 menreiki-project.workspace = true
 menreiki-detect.workspace = true
+menreiki-inference.workspace = true
 menreiki-policy.workspace = true
 menreiki-render.workspace = true
 menreiki-audit.workspace = true

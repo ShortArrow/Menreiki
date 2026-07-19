@@ -58,6 +58,10 @@ export function cancelAnalysis() {
   return invoke<void>("cancel_analysis");
 }
 
+export function llmDetect(project: string) {
+  return invoke<number>("llm_detect_project", { project });
+}
+
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
 }

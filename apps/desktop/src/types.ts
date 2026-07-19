@@ -34,6 +34,7 @@ export interface Finding {
   text: string;
   rect: Rect;
   detector: string;
+  note?: string | null;
 }
 
 export interface PageFindings {

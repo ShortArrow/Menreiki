@@ -15,6 +15,7 @@ mod entities;
 mod export;
 mod import;
 mod layout;
+mod llm_detect;
 mod maintenance;
 mod manifest;
 mod markdown;
@@ -43,6 +44,7 @@ pub use layout::{
     AUDIT_DIR, DECISIONS_DIR, ENTITIES_DIR, FINDINGS_DIR, LEGACY_MANIFEST_FILE_NAME,
     MANIFEST_FILE_NAME, OCR_DIR, OUTPUT_DIR, PAGES_DIR, RENDERS_DIR, RULES_DIR, SOURCE_DIR,
 };
+pub use llm_detect::{llm_detect_pages, LlmDetectError};
 pub use maintenance::clear_analysis;
 pub use manifest::{load_manifest, LoadError, ProjectManifest, SCHEMA_VERSION};
 pub use markdown::{export_markdown, render_markdown, MarkdownError};

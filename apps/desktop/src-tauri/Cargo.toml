@@ -23,6 +23,7 @@ menreiki-adapter-windows-ocr.workspace = true
 menreiki-audit.workspace = true
 menreiki-detect.workspace = true
 menreiki-entity.workspace = true
+menreiki-inference.workspace = true
 menreiki-policy.workspace = true
 menreiki-project.workspace = true
 menreiki-render.workspace = true

@@ -40,9 +40,16 @@ enum Command {
         /// run stopped, instead of starting from a clean slate
         #[arg(long)]
         resume: bool,
-        /// Run a single stage only (render, ocr, or detect)
-        #[arg(long, value_parser = ["render", "ocr", "detect"])]
+        /// Run a single stage only. "llm" asks a local model for extra
+        /// candidates and never runs unless requested here
+        #[arg(long, value_parser = ["render", "ocr", "detect", "llm"])]
         only: Option<String>,
+        /// OpenAI-compatible local endpoint for the llm stage
+        #[arg(long, default_value = "http://localhost:11434/v1")]
+        llm_url: String,
+        /// Model name for the llm stage (e.g. an Ollama model tag)
+        #[arg(long, default_value = "")]
+        llm_model: String,
     },
     /// List the findings detected in a project
     Findings {
@@ -126,9 +133,12 @@ fn run(cli: Cli) -> Result<(), String> {
             ocr_language,
             resume,
             only,
+            llm_url,
+            llm_model,
         } => {
             let project = menreiki_project::resolve_project_dir(&project);
-            let stage = |name: &str| only.as_deref().map_or(true, |chosen| chosen == name);
+            let stage =
+                |name: &str| only.as_deref().map_or(name != "llm", |chosen| chosen == name);
             if !resume && only.is_none() {
                 menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
             }
@@ -188,6 +198,22 @@ fn run(cli: Cli) -> Result<(), String> {
                     "detected {total_findings} findings into {}",
                     project.join(menreiki_project::FINDINGS_DIR).display()
                 );
+            }
+
+            if stage("llm") {
+                let client = menreiki_inference::InferenceClient::new(&llm_url, &llm_model)
+                    .map_err(|error| error.to_string())?;
+                let pages = menreiki_project::llm_detect_pages(
+                    &project,
+                    &client,
+                    &mut |page_index, total| {
+                        eprint!("\rquerying model for page {} / {total}...", page_index + 1);
+                        true
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+                eprintln!();
+                println!("LLM detection updated findings on {pages} pages");
             }
             Ok(())
         }
