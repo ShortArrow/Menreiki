@@ -60,6 +60,23 @@ fn chat_round_trips_through_an_openai_compatible_server() {
 }
 
 #[test]
+fn image_chat_sends_a_data_url_in_the_vision_content_format() {
+    use menreiki_inference::ImageCandidateDetector;
+
+    let (server, port) = serve_one(r#"[{"category":"other","text":"社外秘","reason":"透かし"}]"#);
+    let client =
+        InferenceClient::new(&format!("http://127.0.0.1:{port}/v1"), "vision-model").unwrap();
+
+    let candidates = client.detect_image(b"fake png bytes").unwrap();
+
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].text, "社外秘");
+    let request = server.join().unwrap();
+    assert!(request.contains("image_url"));
+    assert!(request.contains("data:image/png;base64,"));
+}
+
+#[test]
 fn candidate_detection_parses_the_model_answer() {
     use menreiki_inference::CandidateDetector;
 

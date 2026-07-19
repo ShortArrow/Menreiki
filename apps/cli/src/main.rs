@@ -40,9 +40,10 @@ enum Command {
         /// run stopped, instead of starting from a clean slate
         #[arg(long)]
         resume: bool,
-        /// Run a single stage only. "llm" asks a local model for extra
-        /// candidates and never runs unless requested here
-        #[arg(long, value_parser = ["render", "ocr", "detect", "llm"])]
+        /// Run a single stage only. "llm" (text) and "vlm" (page images,
+        /// needs a vision model) ask a local model for extra candidates
+        /// and never run unless requested here
+        #[arg(long, value_parser = ["render", "ocr", "detect", "llm", "vlm"])]
         only: Option<String>,
         /// OpenAI-compatible local endpoint for the llm stage
         #[arg(long, default_value = "http://localhost:11434/v1")]
@@ -137,8 +138,10 @@ fn run(cli: Cli) -> Result<(), String> {
             llm_model,
         } => {
             let project = menreiki_project::resolve_project_dir(&project);
-            let stage =
-                |name: &str| only.as_deref().map_or(name != "llm", |chosen| chosen == name);
+            let stage = |name: &str| {
+                only.as_deref()
+                    .map_or(name != "llm" && name != "vlm", |chosen| chosen == name)
+            };
             if !resume && only.is_none() {
                 menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
             }
@@ -200,20 +203,21 @@ fn run(cli: Cli) -> Result<(), String> {
                 );
             }
 
-            if stage("llm") {
+            if stage("llm") || stage("vlm") {
                 let client = menreiki_inference::InferenceClient::new(&llm_url, &llm_model)
                     .map_err(|error| error.to_string())?;
-                let pages = menreiki_project::llm_detect_pages(
-                    &project,
-                    &client,
-                    &mut |page_index, total| {
-                        eprint!("\rquerying model for page {} / {total}...", page_index + 1);
-                        true
-                    },
-                )
+                let mut progress = |page_index: u16, total: u16| {
+                    eprint!("\rquerying model for page {} / {total}...", page_index + 1);
+                    true
+                };
+                let pages = if stage("vlm") {
+                    menreiki_project::vlm_detect_pages(&project, &client, &mut progress)
+                } else {
+                    menreiki_project::llm_detect_pages(&project, &client, &mut progress)
+                }
                 .map_err(|error| error.to_string())?;
                 eprintln!();
-                println!("LLM detection updated findings on {pages} pages");
+                println!("model-assisted detection updated findings on {pages} pages");
             }
             Ok(())
         }

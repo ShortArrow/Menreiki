@@ -33,12 +33,39 @@ categoryは organization / person / department / product / place / identifier / 
 いずれかを使ってください。textは本文からそのまま抜き出し、言い換えないでください。\
 確実でないものも候補として含めてかまいません。JSON以外の文字を出力しないでください。";
 
+/// Something that can propose candidates for a page image — implemented
+/// by [`InferenceClient`] (requires a vision model), and by test doubles.
+pub trait ImageCandidateDetector {
+    fn detect_image(&self, png: &[u8]) -> Result<Vec<LlmCandidate>, InferenceError>;
+}
+
+impl ImageCandidateDetector for InferenceClient {
+    fn detect_image(&self, png: &[u8]) -> Result<Vec<LlmCandidate>, InferenceError> {
+        detect_candidates_in_image(self, png)
+    }
+}
+
 /// Asks the local model for anonymization candidates in `page_text`.
 pub fn detect_candidates(
     client: &InferenceClient,
     page_text: &str,
 ) -> Result<Vec<LlmCandidate>, InferenceError> {
     let content = client.chat(SYSTEM_PROMPT, page_text)?;
+    parse_candidates(&content)
+}
+
+const IMAGE_USER_PROMPT: &str = "このページ画像を確認し、機密情報の可能性がある表現を\
+抽出してください。本文だけでなく、図表・グラフ・スクリーンショット・ロゴ・印影・\
+ヘッダーやフッターの中の文字列にも注意してください。";
+
+/// Asks the local vision model for anonymization candidates visible in a
+/// page image — including text inside figures and screenshots that OCR
+/// may have missed.
+pub fn detect_candidates_in_image(
+    client: &InferenceClient,
+    png: &[u8],
+) -> Result<Vec<LlmCandidate>, InferenceError> {
+    let content = client.chat_with_image(SYSTEM_PROMPT, IMAGE_USER_PROMPT, png)?;
     parse_candidates(&content)
 }
 

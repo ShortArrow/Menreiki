@@ -294,6 +294,7 @@ async fn llm_detect_project(
     app: tauri::AppHandle,
     state: tauri::State<'_, AnalysisCancel>,
     project: String,
+    use_image: bool,
 ) -> Result<u16, String> {
     let cancel = state.0.clone();
     cancel.store(false, Ordering::Relaxed);
@@ -309,21 +310,23 @@ async fn llm_detect_project(
             )
         })?;
         let project_dir = PathBuf::from(&project);
-        let result = menreiki_project::llm_detect_pages(
-            &project_dir,
-            &client,
-            &mut |page_index, total| {
-                let _ = app.emit(
-                    "analyze-progress",
-                    serde_json::json!({
-                        "stage": "llm",
-                        "page": page_index + 1,
-                        "total": total,
-                    }),
-                );
-                !cancel.load(Ordering::Relaxed)
-            },
-        );
+        let stage = if use_image { "vlm" } else { "llm" };
+        let mut progress = |page_index: u16, total: u16| {
+            let _ = app.emit(
+                "analyze-progress",
+                serde_json::json!({
+                    "stage": stage,
+                    "page": page_index + 1,
+                    "total": total,
+                }),
+            );
+            !cancel.load(Ordering::Relaxed)
+        };
+        let result = if use_image {
+            menreiki_project::vlm_detect_pages(&project_dir, &client, &mut progress)
+        } else {
+            menreiki_project::llm_detect_pages(&project_dir, &client, &mut progress)
+        };
         match result {
             Ok(pages) => Ok(pages),
             Err(menreiki_project::LlmDetectError::Cancelled) => Ok(0),

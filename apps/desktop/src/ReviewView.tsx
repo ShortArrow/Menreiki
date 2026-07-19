@@ -101,6 +101,8 @@ function progressLabel(progress: AnalyzeProgress): string {
       return `Markdownを生成しています…${pages}`;
     case "llm":
       return `ローカルLLMで候補を探しています…${pages}`;
+    case "vlm":
+      return `ローカルVLMがページ画像を確認しています…${pages}`;
     case "done":
       return "解析が完了しました";
     default:
@@ -516,9 +518,9 @@ export default function ReviewView(props: {
     });
   }
 
-  function runLlmDetect() {
+  function runLlmDetect(useImage: boolean) {
     void run("LLM検出中…", async () => {
-      await llmDetect(project.projectDir);
+      await llmDetect(project.projectDir, useImage);
       setFindings(await listFindings(project.projectDir));
     });
   }
@@ -627,7 +629,8 @@ export default function ReviewView(props: {
             disabled={busy !== null}
             onChange={(event) => {
               const value = event.target.value;
-              if (value === "llm-detect") runLlmDetect();
+              if (value === "llm-detect") runLlmDetect(false);
+              else if (value === "vlm-detect") runLlmDetect(true);
               else if (value) runAnalyze(value as AnalysisScope);
             }}
           >
@@ -637,7 +640,8 @@ export default function ReviewView(props: {
             <option value="render-only">画像化のみ</option>
             <option value="ocr-only">OCRのみ＋検出</option>
             <option value="detect-only">検出のみ</option>
-            <option value="llm-detect">LLM検出（ローカルLLM・実験的）</option>
+            <option value="llm-detect">LLM検出（テキスト・実験的）</option>
+            <option value="vlm-detect">VLM検出（ページ画像・実験的）</option>
           </select>
         ) : project.pageCount > 0 ? (
           <>

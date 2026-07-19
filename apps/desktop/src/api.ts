@@ -58,8 +58,8 @@ export function cancelAnalysis() {
   return invoke<void>("cancel_analysis");
 }
 
-export function llmDetect(project: string) {
-  return invoke<number>("llm_detect_project", { project });
+export function llmDetect(project: string, useImage = false) {
+  return invoke<number>("llm_detect_project", { project, useImage });
 }
 
 export function listFindings(project: string) {

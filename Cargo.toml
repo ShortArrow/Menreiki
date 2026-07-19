@@ -37,6 +37,7 @@ flate2 = "1"
 toml = "0.8"
 winreg = "0.52"
 ureq = { version = "2", features = ["json"] }
+base64 = "0.22"
 imageproc = "0.25"
 ab_glyph = "0.2"
 menreiki-render = { path = "crates/menreiki-render" }

@@ -13,7 +13,10 @@ use serde::Deserialize;
 
 mod assist;
 
-pub use assist::{detect_candidates, parse_candidates, CandidateDetector, LlmCandidate};
+pub use assist::{
+    detect_candidates, detect_candidates_in_image, parse_candidates, CandidateDetector,
+    ImageCandidateDetector, LlmCandidate,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InferenceError {
@@ -55,6 +58,35 @@ impl InferenceClient {
 
     /// One chat-completion round trip, returning the assistant's text.
     pub fn chat(&self, system: &str, user: &str) -> Result<String, InferenceError> {
+        self.complete(system, serde_json::Value::String(user.to_string()))
+    }
+
+    /// Like [`Self::chat`], with a PNG attached as vision input (data URL
+    /// in the OpenAI-compatible image content format). Requires the
+    /// configured model to be a vision model.
+    pub fn chat_with_image(
+        &self,
+        system: &str,
+        user: &str,
+        png: &[u8],
+    ) -> Result<String, InferenceError> {
+        use base64::Engine;
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        );
+        let content = serde_json::json!([
+            { "type": "text", "text": user },
+            { "type": "image_url", "image_url": { "url": data_url } },
+        ]);
+        self.complete(system, content)
+    }
+
+    fn complete(
+        &self,
+        system: &str,
+        user_content: serde_json::Value,
+    ) -> Result<String, InferenceError> {
         #[derive(Deserialize)]
         struct Completion {
             choices: Vec<Choice>,
@@ -72,7 +104,7 @@ impl InferenceClient {
             "model": self.model,
             "messages": [
                 { "role": "system", "content": system },
-                { "role": "user", "content": user },
+                { "role": "user", "content": user_content },
             ],
             "temperature": 0.1,
         });
