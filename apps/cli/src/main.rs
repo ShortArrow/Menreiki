@@ -127,6 +127,7 @@ fn run(cli: Cli) -> Result<(), String> {
             resume,
             only,
         } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let stage = |name: &str| only.as_deref().map_or(true, |chosen| chosen == name);
             if !resume && only.is_none() {
                 menreiki_project::clear_analysis(&project).map_err(|error| error.to_string())?;
@@ -191,6 +192,7 @@ fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         Command::Findings { project } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let pages = menreiki_project::load_findings(&project)
                 .map_err(|error| error.to_string())?;
             let mut total = 0;
@@ -209,6 +211,7 @@ fn run(cli: Cli) -> Result<(), String> {
             Ok(())
         }
         Command::Search { project, text } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let pages = menreiki_project::search_text(&project, &text)
                 .map_err(|error| error.to_string())?;
             let mut total = 0;
@@ -232,6 +235,7 @@ fn run(cli: Cli) -> Result<(), String> {
             policy,
             font,
         } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let policy = menreiki_policy::load_policy(&policy).map_err(|error| error.to_string())?;
             let summary = menreiki_project::apply(&project, &policy, &font)
                 .map_err(|error| error.to_string())?;
@@ -249,6 +253,7 @@ fn run(cli: Cli) -> Result<(), String> {
             format,
             ocr_language,
         } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let wants = |kind: &str| format == kind || format == "all";
             if wants("pdf") {
                 let output = menreiki_project::export_pdf(&project, dpi)
@@ -276,6 +281,7 @@ fn run(cli: Cli) -> Result<(), String> {
             deny_wordlist,
             ocr_language,
         } => {
+            let project = menreiki_project::resolve_project_dir(&project);
             let policy = policy
                 .map(|path| menreiki_policy::load_policy(&path))
                 .transpose()

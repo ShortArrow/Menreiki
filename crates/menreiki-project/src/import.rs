@@ -21,7 +21,7 @@ pub enum ImportError {
 /// Creates a new project directory from an input document.
 ///
 /// Copies the original into `source/` under its own file name and writes
-/// `project.json`. Refuses to touch a `project_dir` that already exists so
+/// `project.mnrk`. Refuses to touch a `project_dir` that already exists so
 /// an existing project can never be silently overwritten.
 pub fn import(input: &Path, project_dir: &Path) -> Result<ProjectManifest, ImportError> {
     let bytes = fs::read(input).map_err(ImportError::Input)?;

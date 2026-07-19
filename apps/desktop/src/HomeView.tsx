@@ -37,9 +37,17 @@ export default function HomeView(props: {
 
   function pickProject() {
     void run("読み込み中…", async () => {
-      const dir = await open({ directory: true });
-      if (typeof dir !== "string") return null;
-      return openProject(dir);
+      const file = await open({
+        multiple: false,
+        filters: [
+          {
+            name: "Menreikiプロジェクト",
+            extensions: ["mnrk", "json"],
+          },
+        ],
+      });
+      if (typeof file !== "string") return null;
+      return openProject(file);
     });
   }
 
@@ -52,7 +60,7 @@ export default function HomeView(props: {
           文書を取り込む（PDF / PNG / JPEG）
         </button>
         <button onClick={pickProject} disabled={busy !== null}>
-          既存のプロジェクトを開く
+          既存のプロジェクトを開く（project.mnrk）
         </button>
       </div>
       {busy && <p className="status">{busy}</p>}

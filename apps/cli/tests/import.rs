@@ -16,7 +16,7 @@ fn import_command_creates_project_directory() {
         .assert()
         .success();
 
-    assert!(project_dir.join("project.json").exists());
+    assert!(project_dir.join("project.mnrk").exists());
     assert!(project_dir.join("source").join("spec.pdf").exists());
 }
 
@@ -33,7 +33,7 @@ fn import_command_defaults_project_dir_beside_input() {
         .assert()
         .success();
 
-    assert!(tmp.path().join("spec.menreiki").join("project.json").exists());
+    assert!(tmp.path().join("spec.menreiki").join("project.mnrk").exists());
 }
 
 #[test]

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-pub const MANIFEST_FILE_NAME: &str = "project.json";
+pub const MANIFEST_FILE_NAME: &str = "project.mnrk";
+pub const LEGACY_MANIFEST_FILE_NAME: &str = "project.json";
 pub const SOURCE_DIR: &str = "source";
 pub const PAGES_DIR: &str = "pages";
 pub const OCR_DIR: &str = "ocr";
@@ -11,6 +12,19 @@ pub const OUTPUT_DIR: &str = "output";
 pub const AUDIT_DIR: &str = "audit";
 pub const RULES_DIR: &str = "rules";
 pub const ENTITIES_DIR: &str = "entities";
+
+/// Accepts what the user opened — the project directory itself, or the
+/// `project.mnrk` manifest inside it (file pickers and double-clicked file
+/// associations hand over the file) — and returns the project directory.
+pub fn resolve_project_dir(path: &Path) -> PathBuf {
+    if path.is_file() {
+        path.parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    }
+}
 
 /// Location of the rendered image for a 0-based page index: `pages/page-001.png`.
 pub fn page_image_path(project_dir: &Path, page_index: u16) -> PathBuf {

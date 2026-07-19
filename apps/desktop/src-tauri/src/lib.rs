@@ -116,7 +116,7 @@ fn set_config(config: settings::Config) -> Result<(), String> {
 #[tauri::command]
 fn initial_project() -> Option<ProjectInfo> {
     let arg = std::env::args().nth(1)?;
-    project_info(Path::new(&arg)).ok()
+    project_info(&menreiki_project::resolve_project_dir(Path::new(&arg))).ok()
 }
 
 #[tauri::command]
@@ -131,7 +131,7 @@ fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo
 
 #[tauri::command]
 fn open_project(project: String) -> Result<ProjectInfo, String> {
-    project_info(Path::new(&project))
+    project_info(&menreiki_project::resolve_project_dir(Path::new(&project)))
 }
 
 /// Which parts of the analysis pipeline a run executes.

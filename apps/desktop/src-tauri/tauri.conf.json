@@ -29,6 +29,14 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
+    "fileAssociations": [
+      {
+        "ext": ["mnrk"],
+        "name": "Menreiki Project",
+        "description": "Menreiki project",
+        "role": "Editor"
+      }
+    ],
     "resources": {
       "../../../vendor/pdfium/pdfium.dll": "pdfium.dll"
     }

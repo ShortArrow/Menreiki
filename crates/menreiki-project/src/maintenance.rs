@@ -10,7 +10,7 @@ use crate::layout::{
 /// reports, and the persisted edit plan — so a re-run starts from a clean
 /// slate. Analysis is not guaranteed to be idempotent (engines and models
 /// change, and a crash can leave partial results), so stale artifacts must
-/// never survive into the next run. The source snapshot and `project.json`
+/// never survive into the next run. The source snapshot and `project.mnrk`
 /// stay untouched.
 pub fn clear_analysis(project_dir: &Path) -> std::io::Result<()> {
     for dir in [
