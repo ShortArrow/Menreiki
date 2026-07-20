@@ -1,12 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageImageUrl } from "./api";
 import type { Finding, Rect } from "./types";
 
 export type DrawMode = "none" | "erase" | "mask";
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 8;
+
 interface Point {
   x: number;
   y: number;
+}
+
+function clampZoom(value: number): number {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
 
 export default function PageViewer(props: {
@@ -26,12 +33,71 @@ export default function PageViewer(props: {
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  const [zoom, setZoom] = useState(1);
   const [drag, setDrag] = useState<{ start: Point; current: Point } | null>(
     null,
   );
   const overlayRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  // Cursor anchor for zoom-to-cursor, in fit-normalized content units so it
+  // survives the pending width change; applied once the new zoom lays out.
+  const zoomAnchor = useRef<{
+    fitX: number;
+    fitY: number;
+    viewX: number;
+    viewY: number;
+  } | null>(null);
+
+  useEffect(() => {
+    setZoom(1);
+  }, [props.pageIndex]);
+
+  // Ctrl+wheel zooms (anchored at the cursor), Shift+wheel scrolls
+  // horizontally; a plain wheel keeps the browser's vertical scroll. The
+  // listener is non-passive so it can preventDefault the browser's own
+  // Ctrl+wheel page zoom.
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    function onWheel(event: WheelEvent) {
+      if (!wrap) return;
+      if (event.ctrlKey) {
+        event.preventDefault();
+        const rect = wrap.getBoundingClientRect();
+        const viewX = event.clientX - rect.left;
+        const viewY = event.clientY - rect.top;
+        setZoom((current) => {
+          const next = clampZoom(
+            current * (event.deltaY < 0 ? 1.15 : 1 / 1.15),
+          );
+          if (next !== current) {
+            zoomAnchor.current = {
+              fitX: (wrap.scrollLeft + viewX) / current,
+              fitY: (wrap.scrollTop + viewY) / current,
+              viewX,
+              viewY,
+            };
+          }
+          return next;
+        });
+      } else if (event.shiftKey) {
+        event.preventDefault();
+        wrap.scrollLeft += event.deltaY;
+      }
+    }
+    wrap.addEventListener("wheel", onWheel, { passive: false });
+    return () => wrap.removeEventListener("wheel", onWheel);
+  }, []);
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    const anchor = zoomAnchor.current;
+    if (!wrap || !anchor) return;
+    wrap.scrollLeft = anchor.fitX * zoom - anchor.viewX;
+    wrap.scrollTop = anchor.fitY * zoom - anchor.viewY;
+    zoomAnchor.current = null;
+  }, [zoom]);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,11 +162,30 @@ export default function PageViewer(props: {
   const dragRect = drag ? normalized(drag.start, drag.current) : null;
 
   return (
-    <div className="page-stage-wrap" ref={wrapRef}>
+    <div className="viewer-canvas">
+      <div className="zoom-bar">
+        <button
+          onClick={() => setZoom((current) => clampZoom(current / 1.15))}
+          title="縮小"
+        >
+          −
+        </button>
+        <button onClick={() => setZoom(1)} title="幅に合わせる">
+          {Math.round(zoom * 100)}%
+        </button>
+        <button
+          onClick={() => setZoom((current) => clampZoom(current * 1.15))}
+          title="拡大"
+        >
+          ＋
+        </button>
+        <span className="hint">Ctrl+ホイールで拡大縮小 / Shift+ホイールで左右</span>
+      </div>
+      <div className="page-stage-wrap" ref={wrapRef}>
       {url === null ? (
         <p className="status">ページ画像を読み込み中…</p>
       ) : (
-        <div className="page-stage">
+        <div className="page-stage" style={{ width: `${zoom * 100}%` }}>
           <img
             ref={imageRef}
             src={url}
@@ -171,6 +256,7 @@ export default function PageViewer(props: {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

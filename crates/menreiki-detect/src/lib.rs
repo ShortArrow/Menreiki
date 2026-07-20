@@ -16,6 +16,12 @@ pub struct RegexRule {
     category: String,
     detector: String,
     pattern: Regex,
+    /// Whether this is a built-in name heuristic (organization, department,
+    /// person, place) rather than an exact user string. Heuristic matches
+    /// get suffix-boundary filtering so a suffix character inside a compound
+    /// word (部 in 部位, 市 in 市場) is not mistaken for a name; user
+    /// searches and dictionary terms are matched verbatim without it.
+    heuristic: bool,
 }
 
 impl RegexRule {
@@ -24,6 +30,7 @@ impl RegexRule {
             category: category.to_string(),
             detector: "regex".to_string(),
             pattern: Regex::new(pattern)?,
+            heuristic: false,
         })
     }
 
@@ -54,6 +61,39 @@ impl RegexRule {
             .join(r"\s*");
         Self::new(category, &pattern).expect("escaped literal is a valid pattern")
     }
+
+    /// Marks this rule as a built-in name heuristic (enables suffix-boundary
+    /// filtering in [`detect_page`]).
+    fn heuristic(mut self) -> Self {
+        self.heuristic = true;
+        self
+    }
+}
+
+/// Single-character name suffixes that are only meaningful at a word
+/// boundary: 技術開発部 is a department, but 部 inside 部位 / 部品 is not, and
+/// 市 inside 市場 is not a place.
+const BOUNDARY_SUFFIXES: &str = "部課係都府県市区町村氏殿";
+
+/// Decides whether a heuristic match ends a name rather than sitting inside a
+/// compound word. A match ending in a boundary suffix is a compound (not a
+/// name) when another ideograph follows it — 部位, 部品, 市場, 氏名 — with 長
+/// the one exception, since it marks a title on a real unit (営業部長 → 営業部).
+fn heuristic_match_ends_a_name(matched: &str, following: Option<char>) -> bool {
+    let Some(last) = matched.chars().last() else {
+        return true;
+    };
+    if !BOUNDARY_SUFFIXES.contains(last) {
+        return true;
+    }
+    match following {
+        Some(next) if is_ideograph(next) => next == '長',
+        _ => true,
+    }
+}
+
+fn is_ideograph(character: char) -> bool {
+    ('\u{4E00}'..='\u{9FFF}').contains(&character)
 }
 
 /// Dash-like characters OCR commonly confuses with each other, e.g. the
@@ -88,19 +128,22 @@ fn confusable_class(character: char) -> String {
     }
 }
 
-/// Characters that may appear inside a Japanese company name. Hiragana is
-/// excluded on purpose: it terminates the name so surrounding particles
-/// (「〜した」「〜から」) never leak into the match.
-const ORG_CHAR: &str = "[一-龥ァ-ヶーA-Za-z0-9]";
+/// Characters that may appear inside a Japanese name. Covers CJK ideographs
+/// including Extension A and the compatibility block (so surname variants
+/// such as 﨑 U+FA11 do not split a name), the iteration mark 々, katakana,
+/// and Latin/digits. Hiragana is excluded on purpose: it terminates the name
+/// so surrounding particles (「〜した」「〜から」) never leak into the match.
+const ORG_CHAR: &str = r"[\u{3005}\u{3400}-\u{9FFF}\u{F900}-\u{FAFF}ァ-ヶーA-Za-z0-9]";
 
-/// Spaced-tolerant spellings of company legal forms.
+/// Spaced-tolerant spellings of company legal forms. `\s*` (not `\s?`)
+/// absorbs any number of spurious OCR spaces between the characters.
 fn legal_forms() -> String {
     ["株式会社", "有限会社", "合同会社"]
         .map(|form| {
             form.chars()
                 .map(|c| regex::escape(&c.to_string()))
                 .collect::<Vec<_>>()
-                .join(r"\s?")
+                .join(r"\s*")
         })
         .join("|")
 }
@@ -117,30 +160,39 @@ const HEURISTIC_STOPWORDS: [&str; 7] =
 /// and a missed name costs more than a rejected candidate.
 pub fn builtin_rules() -> Vec<RegexRule> {
     let forms = legal_forms();
-    [
+    let name_heuristics = [
         (
             "organization",
             format!(
-                "(?:{forms})(?:\\s?{ORG_CHAR}){{1,20}}\
-                 |(?:{ORG_CHAR}\\s?){{1,20}}(?:{forms})\
-                 |(?:{ORG_CHAR}\\s?){{2,20}}(?:グループ|ホールディングス)"
+                "(?:{forms})(?:\\s*{ORG_CHAR}){{1,20}}\
+                 |(?:{ORG_CHAR}\\s*){{1,20}}(?:{forms})\
+                 |(?:{ORG_CHAR}\\s*){{2,20}}(?:グループ|ホールディングス)"
             ),
         ),
         (
             "department",
             format!(
-                "(?:{ORG_CHAR}\\s?){{1,20}}(?:部門|事業部|本部|支社|支店|営業所|研究所|製作所)\
-                 |(?:{ORG_CHAR}\\s?){{2,20}}[部課係]"
+                "(?:{ORG_CHAR}\\s*){{1,20}}(?:部門|事業部|本部|支社|支店|営業所|研究所|製作所)\
+                 |(?:{ORG_CHAR}\\s*){{2,20}}[部課係]"
             ),
         ),
         (
             "person",
-            format!("(?:{ORG_CHAR}\\s?){{1,4}}(?:氏|殿|さん)"),
+            format!("(?:{ORG_CHAR}\\s*){{1,4}}(?:氏|殿|さん)"),
         ),
         (
             "place",
-            format!("(?:{ORG_CHAR}\\s?){{1,6}}[都府県市区町村]|北\\s?海\\s?道"),
+            format!("(?:{ORG_CHAR}\\s*){{1,6}}[都府県市区町村]|北\\s*海\\s*道"),
         ),
+    ]
+    .into_iter()
+    .map(|(category, pattern)| {
+        RegexRule::new(category, &pattern)
+            .expect("built-in pattern is valid")
+            .heuristic()
+    });
+
+    let mechanical = [
         (
             "email",
             r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}".to_string(),
@@ -169,8 +221,9 @@ pub fn builtin_rules() -> Vec<RegexRule> {
     .into_iter()
     .map(|(category, pattern)| {
         RegexRule::new(category, &pattern).expect("built-in pattern is valid")
-    })
-    .collect()
+    });
+
+    name_heuristics.chain(mechanical).collect()
 }
 
 /// Applies every rule to every recognized line of a page.
@@ -183,6 +236,12 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
             for matched in rule.pattern.find_iter(&line.text) {
                 if HEURISTIC_STOPWORDS.contains(&matched.as_str()) {
                     continue;
+                }
+                if rule.heuristic {
+                    let following = line.text[matched.end()..].chars().next();
+                    if !heuristic_match_ends_a_name(matched.as_str(), following) {
+                        continue;
+                    }
                 }
                 let rect = rect_for_range(matched.range(), &words)
                     .or(line_rect)
@@ -565,6 +624,94 @@ mod tests {
                 .map(|finding| finding.text.as_str())
                 .collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn company_name_stays_whole_across_variant_kanji_and_ocr_gaps() {
+        let page = page(&[
+            "取引先は猫﨑電気産業株式会社である",
+            "検収は猫崎  電気産業株式会社が行う",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let orgs: Vec<&str> = findings
+            .iter()
+            .filter(|f| f.category == "organization")
+            .map(|f| f.text.as_str())
+            .collect();
+        assert!(
+            orgs.iter()
+                .any(|text| text.starts_with("猫﨑") && text.ends_with("株式会社")),
+            "variant kanji split the name: {orgs:?}"
+        );
+        assert!(
+            orgs.iter()
+                .any(|text| text.starts_with("猫崎") && text.ends_with("株式会社")),
+            "an OCR gap split the name: {orgs:?}"
+        );
+    }
+
+    #[test]
+    fn suffix_inside_a_compound_word_is_not_a_name() {
+        let page = page(&[
+            "当該部位を確認する",
+            "固有部品の一覧を添付する",
+            "青果市場で価格を調査した",
+            "氏名と住所を記入する",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let texts: Vec<&str> = findings.iter().map(|f| f.text.as_str()).collect();
+        assert!(
+            !texts.iter().any(|text| text.contains("部位")
+                || text.contains("部品")
+                || text.contains("市場")
+                || *text == "氏名"),
+            "compound words leaked as names: {texts:?}"
+        );
+        assert!(
+            !findings.iter().any(|f| f.category == "department"),
+            "no department here: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn a_real_department_before_a_particle_or_title_still_matches() {
+        let page = page(&[
+            "技術開発部の田中が担当する",
+            "承認は開発部長が行う",
+            "横浜市に拠点がある",
+        ]);
+
+        let findings = detect_page(&page, &builtin_rules());
+
+        let departments: Vec<&str> = findings
+            .iter()
+            .filter(|f| f.category == "department")
+            .map(|f| f.text.as_str())
+            .collect();
+        assert!(departments.contains(&"技術開発部"), "found: {departments:?}");
+        assert!(departments.contains(&"開発部"), "found: {departments:?}");
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.category == "place" && f.text == "横浜市"),
+            "横浜市 should still be a place",
+        );
+    }
+
+    #[test]
+    fn user_search_of_a_department_is_not_suffix_filtered() {
+        // A verbatim search must find its term even inside a compound.
+        let page = page(&["総務部門の統括"]);
+        let rules = vec![RegexRule::literal("search", "総務部")];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "総務部");
     }
 
     #[test]

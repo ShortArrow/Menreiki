@@ -212,6 +212,7 @@ export default function ReviewView(props: {
     category: string;
     text: string;
   } | null>(null);
+  const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
@@ -670,26 +671,45 @@ export default function ReviewView(props: {
           {project.fileName}
         </span>
         {project.analyzed ? (
-          <select
-            className="reanalyze"
-            value=""
-            disabled={busy !== null}
-            onChange={(event) => {
-              const value = event.target.value;
-              if (value === "llm-detect") runLlmDetect(false);
-              else if (value === "vlm-detect") runLlmDetect(true);
-              else if (value) runAnalyze(value as AnalysisScope);
-            }}
-          >
-            <option value="">再解析…</option>
-            <option value="all">すべて（最初から）</option>
-            <option value="resume">続きから再開</option>
-            <option value="render-only">画像化のみ</option>
-            <option value="ocr-only">OCRのみ＋検出</option>
-            <option value="detect-only">検出のみ</option>
-            <option value="llm-detect">LLM検出（テキスト・実験的）</option>
-            <option value="vlm-detect">VLM検出（ページ画像・実験的）</option>
-          </select>
+          <div className="reanalyze-menu">
+            <button
+              disabled={busy !== null}
+              onClick={() => setReanalyzeOpen((open) => !open)}
+            >
+              再解析… ▾
+            </button>
+            {reanalyzeOpen && (
+              <>
+                <div
+                  className="menu-backdrop"
+                  onClick={() => setReanalyzeOpen(false)}
+                />
+                <div className="menu">
+                  {(
+                    [
+                      ["all", "すべて（最初から）", () => runAnalyze("all")],
+                      ["resume", "続きから再開", () => runAnalyze("resume")],
+                      ["render", "画像化のみ", () => runAnalyze("render-only")],
+                      ["ocr", "OCRのみ＋検出", () => runAnalyze("ocr-only")],
+                      ["detect", "検出のみ", () => runAnalyze("detect-only")],
+                      ["llm", "LLM検出（テキスト・実験的）", () => runLlmDetect(false)],
+                      ["vlm", "VLM検出（ページ画像・実験的）", () => runLlmDetect(true)],
+                    ] as [string, string, () => void][]
+                  ).map(([key, label, action]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setReanalyzeOpen(false);
+                        action();
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         ) : project.pageCount > 0 ? (
           <>
             <button
