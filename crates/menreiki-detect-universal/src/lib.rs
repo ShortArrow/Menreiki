@@ -6,33 +6,56 @@
 //! redefining them. Locale-specific formats (phone numbers, postal codes,
 //! dates) belong in the language pack, not here.
 
-use menreiki_detect::RegexRule;
+use menreiki_detect::{DetectorGroup, RegexRule};
 
-/// Detection rules for identifiers whose form does not depend on language.
+/// Toggleable detector groups for identifiers whose form does not depend on
+/// language.
 ///
-/// International phone numbers in `+<country code>` (E.164) form are matched
+/// International phone numbers in `+<country code>` (E.164) form are a group
 /// here because the leading `+CC` is universal; nation-local formats (such as
-/// a Japanese 0-prefixed number) stay in the language pack.
-pub fn universal_rules() -> Vec<RegexRule> {
+/// a Japanese 0-prefixed number) are groups in the language pack. The
+/// international group's id is `phone-intl` even though it reports the `phone`
+/// category, so it can be toggled apart from a domestic phone group.
+pub fn groups() -> Vec<DetectorGroup> {
     [
-        ("email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
-        // Tolerates a lost colon (OCR reads "https //host" for "https://host").
-        ("url", r"https?\s?:?//[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+"),
-        ("ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
         (
+            "email",
+            "email",
+            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        ),
+        // Tolerates a lost colon (OCR reads "https //host" for "https://host").
+        (
+            "url",
+            "url",
+            r"https?\s?:?//[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+",
+        ),
+        ("ip-address", "ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
+        (
+            "mac-address",
             "mac-address",
             r"\b(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}\b",
         ),
         (
+            "phone-intl",
             "phone",
             r"\+\d{1,3}[\s.\-]?\(?\d{1,4}\)?(?:[\s.\-]?\d{2,4}){2,4}",
         ),
     ]
     .into_iter()
-    .map(|(category, pattern)| {
-        RegexRule::new(category, pattern).expect("built-in pattern is valid")
+    .map(|(id, category, pattern)| {
+        DetectorGroup::new(
+            id,
+            vec![RegexRule::new(category, pattern).expect("built-in pattern is valid")],
+        )
     })
     .collect()
+}
+
+/// All universal rules, flattened — a convenience for callers that do not
+/// need group-level selection.
+pub fn universal_rules() -> Vec<RegexRule> {
+    use menreiki_detect::DetectorSet;
+    DetectorSet::new().extend(groups()).into_rules()
 }
 
 #[cfg(test)]

@@ -51,7 +51,13 @@ enum Command {
         /// Model name for the llm stage (e.g. an Ollama model tag)
         #[arg(long, default_value = "")]
         llm_model: String,
+        /// Detector groups to turn off (repeatable), e.g. --disable phone-jp
+        /// --disable date. See `list-detectors` for the ids
+        #[arg(long)]
+        disable: Vec<String>,
     },
+    /// List the available detector group ids
+    ListDetectors,
     /// List the findings detected in a project
     Findings {
         /// Project directory created by `import`
@@ -136,6 +142,7 @@ fn run(cli: Cli) -> Result<(), String> {
             only,
             llm_url,
             llm_model,
+            disable,
         } => {
             let project = menreiki_project::resolve_project_dir(&project);
             let stage = |name: &str| {
@@ -186,7 +193,7 @@ fn run(cli: Cli) -> Result<(), String> {
             }
 
             if stage("ocr") || stage("detect") {
-                let mut rules = menreiki_lang_ja::builtin_rules();
+                let mut rules = menreiki_lang_ja::preset().without(&disable).into_rules();
                 let dictionary = menreiki_project::load_dictionary(&project)
                     .map_err(|error| error.to_string())?;
                 rules.extend(menreiki_project::dictionary_rules(&dictionary));
@@ -218,6 +225,12 @@ fn run(cli: Cli) -> Result<(), String> {
                 .map_err(|error| error.to_string())?;
                 eprintln!();
                 println!("model-assisted detection updated findings on {pages} pages");
+            }
+            Ok(())
+        }
+        Command::ListDetectors => {
+            for id in menreiki_lang_ja::preset().ids() {
+                println!("{id}");
             }
             Ok(())
         }

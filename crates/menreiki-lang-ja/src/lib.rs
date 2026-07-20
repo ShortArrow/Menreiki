@@ -7,16 +7,21 @@
 //! matching a user-supplied string. A future `menreiki-lang-en` can plug
 //! into the same engine without touching it.
 
-use menreiki_detect::RegexRule;
+use menreiki_detect::{DetectorGroup, DetectorSet, RegexRule};
 
-/// Built-in Japanese rules for detectable identifiers. Patterns accept common
-/// OCR confusions (dash variants, a lost colon in URLs). The name heuristics
-/// deliberately over-trigger — findings are candidates for human review, and
-/// a missed name costs more than a rejected candidate.
-pub fn builtin_rules() -> Vec<RegexRule> {
+/// Japanese detector groups: the name heuristics (organization, department,
+/// person, place) and the Japan-local formats (0-prefixed domestic phone,
+/// 〒 postal codes, Japanese-era dates). Email, URL, IP, MAC, and
+/// international (+CC) phone numbers are locale-independent and come from the
+/// universal pack via [`preset`].
+///
+/// The name heuristics deliberately over-trigger — findings are candidates
+/// for human review, and a missed name costs more than a rejected candidate.
+pub fn groups() -> Vec<DetectorGroup> {
     let forms = legal_forms();
-    let name_heuristics = [
+    let heuristics = [
         (
+            "organization",
             "organization",
             format!(
                 "(?:{forms})(?:\\s*{ORG_CHAR}){{1,20}}\
@@ -26,6 +31,7 @@ pub fn builtin_rules() -> Vec<RegexRule> {
         ),
         (
             "department",
+            "department",
             format!(
                 "(?:{ORG_CHAR}\\s*){{1,20}}(?:部門|事業部|本部|支社|支店|営業所|研究所|製作所)\
                  |(?:{ORG_CHAR}\\s*){{2,20}}[部課係]"
@@ -33,24 +39,28 @@ pub fn builtin_rules() -> Vec<RegexRule> {
         ),
         (
             "person",
+            "person",
             format!("(?:{ORG_CHAR}\\s*){{1,4}}(?:氏|殿|さん)"),
         ),
         (
+            "place",
             "place",
             format!("(?:{ORG_CHAR}\\s*){{1,6}}[都府県市区町村]|北\\s*海\\s*道"),
         ),
     ]
     .into_iter()
-    .map(|(category, pattern)| {
-        RegexRule::new(category, &pattern)
-            .expect("built-in pattern is valid")
-            .with_post_filter(heuristic_keep)
+    .map(|(id, category, pattern)| {
+        DetectorGroup::new(
+            id,
+            vec![RegexRule::new(category, &pattern)
+                .expect("built-in pattern is valid")
+                .with_post_filter(heuristic_keep)],
+        )
     });
 
-    // Japan-locale formats. Email, URL, IP, MAC, and international (+CC)
-    // phone numbers are locale-independent and come from the universal pack.
     let japan_local = [
         (
+            "phone-jp",
             "phone",
             format!(
                 r"[（(]0\d{{1,4}}[)）]\s?\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b|\b0\d{{1,4}}[（(]\d{{1,4}}[)）]\d{{4}}\b|\b0\d{{1,4}}[{DASH_CHARS}]\d{{1,4}}[{DASH_CHARS}]\d{{4}}\b"
@@ -58,23 +68,40 @@ pub fn builtin_rules() -> Vec<RegexRule> {
         ),
         (
             "postal-code",
+            "postal-code",
             format!(r"(?:〒\s?)?\b\d{{3}}[{DASH_CHARS}]\d{{4}}\b"),
         ),
         (
+            "date",
             "date",
             r"\d{4}\s?年\s?\d{1,2}\s?月\s?\d{1,2}\s?日|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b"
                 .to_string(),
         ),
     ]
     .into_iter()
-    .map(|(category, pattern)| {
-        RegexRule::new(category, &pattern).expect("built-in pattern is valid")
+    .map(|(id, category, pattern)| {
+        DetectorGroup::new(
+            id,
+            vec![RegexRule::new(category, &pattern).expect("built-in pattern is valid")],
+        )
     });
 
-    name_heuristics
-        .chain(japan_local)
-        .chain(menreiki_detect_universal::universal_rules())
-        .collect()
+    heuristics.chain(japan_local).collect()
+}
+
+/// The default detector composition for Japanese documents: the Japanese
+/// groups plus the universal groups, deduplicated by id. Callers apply
+/// [`DetectorSet::without`] to disable individual groups.
+pub fn preset() -> DetectorSet {
+    DetectorSet::new()
+        .extend(groups())
+        .extend(menreiki_detect_universal::groups())
+}
+
+/// The preset's rules, flattened — the "everything on" convenience for
+/// callers that do not need group-level selection.
+pub fn builtin_rules() -> Vec<RegexRule> {
+    preset().into_rules()
 }
 
 /// A rule matching `text` the way OCR may have read it — the path for

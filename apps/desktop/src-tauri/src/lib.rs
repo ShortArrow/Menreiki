@@ -136,6 +136,16 @@ fn get_config() -> settings::Config {
     settings::load_config()
 }
 
+/// The ids of the toggleable detector groups, for a settings UI.
+#[tauri::command]
+fn list_detectors() -> Vec<String> {
+    menreiki_lang_ja::preset()
+        .ids()
+        .iter()
+        .map(|id| id.to_string())
+        .collect()
+}
+
 #[tauri::command]
 fn set_config(config: settings::Config) -> Result<(), String> {
     settings::save_config(&config)
@@ -183,7 +193,8 @@ struct AnalyzeOutcome {
 }
 
 fn run_detection(project_dir: &Path) -> Result<(), String> {
-    let mut rules = menreiki_lang_ja::builtin_rules();
+    let disabled = settings::load_config().detection.disabled;
+    let mut rules = menreiki_lang_ja::preset().without(&disabled).into_rules();
     let dictionary =
         menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
     rules.extend(menreiki_project::dictionary_rules(&dictionary));
@@ -620,6 +631,7 @@ pub fn run() {
             register_file_association,
             get_config,
             set_config,
+            list_detectors,
             initial_project,
             load_review_decisions,
             save_review_decisions,

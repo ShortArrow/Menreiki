@@ -54,6 +54,77 @@ impl RegexRule {
     }
 }
 
+/// A named, single-purpose set of rules that can be toggled as a unit and
+/// composed with other groups. The `id` is the stable selection handle
+/// (e.g. "phone-jp"); it is independent of the finding categories the rules
+/// emit, so two groups ("phone-jp", "phone-intl") can both report "phone".
+pub struct DetectorGroup {
+    id: String,
+    rules: Vec<RegexRule>,
+}
+
+impl DetectorGroup {
+    pub fn new(id: &str, rules: Vec<RegexRule>) -> Self {
+        Self {
+            id: id.to_string(),
+            rules,
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+/// A composition of detector groups from one or more packs.
+///
+/// Groups are added in order; a group whose id is already present is skipped
+/// (first-wins), so packs that each ship a generic detector do not run it
+/// twice. To override a group, add your version before the pack that also
+/// defines it. `without` drops groups by id — the mechanism behind per-user
+/// detector on/off.
+#[derive(Default)]
+pub struct DetectorSet {
+    groups: Vec<DetectorGroup>,
+    seen: HashSet<String>,
+}
+
+impl DetectorSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn extend(mut self, groups: impl IntoIterator<Item = DetectorGroup>) -> Self {
+        for group in groups {
+            if self.seen.insert(group.id.clone()) {
+                self.groups.push(group);
+            }
+        }
+        self
+    }
+
+    pub fn without(mut self, disabled: &[String]) -> Self {
+        self.groups
+            .retain(|group| !disabled.iter().any(|d| d == &group.id));
+        self.seen = self.groups.iter().map(|group| group.id.clone()).collect();
+        self
+    }
+
+    /// Ids of the groups currently in the set, in order — for listing the
+    /// toggleable detectors in a UI or CLI.
+    pub fn ids(&self) -> Vec<&str> {
+        self.groups.iter().map(|group| group.id.as_str()).collect()
+    }
+
+    /// All rules, flattened, ready for [`detect_page`].
+    pub fn into_rules(self) -> Vec<RegexRule> {
+        self.groups
+            .into_iter()
+            .flat_map(|group| group.rules)
+            .collect()
+    }
+}
+
 /// Applies every rule to every recognized line of a page.
 pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -316,6 +387,49 @@ mod tests {
         // "ab": 'a' followed by 'b' (alphabetic) -> rejected.
         // "aX": 'a' followed by 'X' (alphabetic) -> rejected too.
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    fn group(id: &str, pattern: &str) -> DetectorGroup {
+        DetectorGroup::new(id, vec![RegexRule::new(id, pattern).unwrap()])
+    }
+
+    #[test]
+    fn detector_set_composes_and_flattens_groups() {
+        let set = DetectorSet::new()
+            .extend([group("a", "x")])
+            .extend([group("b", "y")]);
+
+        assert_eq!(set.ids(), vec!["a", "b"]);
+        assert_eq!(set.into_rules().len(), 2);
+    }
+
+    #[test]
+    fn duplicate_group_ids_are_skipped_first_wins() {
+        let page = page(&["z"]);
+        // Two packs both ship a "dup" group; the first-added one wins.
+        let set = DetectorSet::new()
+            .extend([DetectorGroup::new(
+                "dup",
+                vec![RegexRule::new("first", "z").unwrap()],
+            )])
+            .extend([DetectorGroup::new(
+                "dup",
+                vec![RegexRule::new("second", "z").unwrap()],
+            )]);
+
+        assert_eq!(set.ids(), vec!["dup"]);
+        let findings = detect_page(&page, &set.into_rules());
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].category, "first");
+    }
+
+    #[test]
+    fn without_drops_groups_by_id() {
+        let set = DetectorSet::new()
+            .extend([group("a", "x"), group("b", "y"), group("c", "z")])
+            .without(&["b".to_string()]);
+
+        assert_eq!(set.ids(), vec!["a", "c"]);
     }
 
     #[test]
