@@ -38,6 +38,8 @@ npm install
 npm run tauri dev
 ```
 
+開発サーバーは、ターミナルで Ctrl+C せず**アプリのウィンドウを閉じて終了**してください。Windows では Ctrl+C だと cmd のバッチ中断となり、Vite 開発サーバーが port 1420 を掴んだまま残ります（次回の起動が失敗します）。残ってしまった場合は port 1420 を使う node プロセスを終了してください。
+
 ## CLI
 
 ```text
