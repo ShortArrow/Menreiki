@@ -24,6 +24,7 @@ import {
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
+import SettingsView from "./SettingsView";
 import type {
   AnalysisScope,
   ApplySummary,
@@ -213,6 +214,7 @@ export default function ReviewView(props: {
     text: string;
   } | null>(null);
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
@@ -737,6 +739,13 @@ export default function ReviewView(props: {
           </button>
         )}
         <span className="spacer" />
+        <button
+          onClick={() => setSettingsOpen(true)}
+          disabled={busy !== null}
+          title="設定（検出器・ローカルLLM）"
+        >
+          ⚙ 設定
+        </button>
         <label className="toggle">
           <input
             type="checkbox"
@@ -1398,6 +1407,21 @@ export default function ReviewView(props: {
           </section>
         </aside>
       </div>
+
+      {settingsOpen && (
+        <SettingsView
+          projectDir={project.projectDir}
+          onClose={() => setSettingsOpen(false)}
+          onDetectorsChanged={() => {
+            if (project.analyzed) {
+              void run("再検出中…", async () => {
+                await analyzeProject(project.projectDir, "detect-only");
+                setFindings(await listFindings(project.projectDir));
+              });
+            }
+          }}
+        />
+      )}
 
       {previewRegion !== null && regionRules[previewRegion] && (
         <div

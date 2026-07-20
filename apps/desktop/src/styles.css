@@ -578,6 +578,38 @@ button.rule-target:hover {
   gap: 8px;
 }
 
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 4px 12px;
+  margin-top: 6px;
+}
+
+.detector-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.field input {
+  color: var(--text);
+  font-size: 14px;
+}
+
 /* ---- Side pane ---- */
 
 .side-pane {

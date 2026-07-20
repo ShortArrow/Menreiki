@@ -1,5 +1,10 @@
 export interface AppConfig {
   theme: "light" | "dark";
+  inference: { base_url: string; model: string };
+}
+
+export interface ProjectSettings {
+  detectors?: string[] | null;
 }
 
 export interface ProjectInfo {

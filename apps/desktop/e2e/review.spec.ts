@@ -99,6 +99,13 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 30_000,
   });
 
+  // Settings dialog lists the detector groups and persists a selection.
+  await page.getByRole("button", { name: "⚙ 設定" }).click();
+  await expect(page.getByText("このプロジェクトで使う検出器")).toBeVisible();
+  await expect(page.getByText("date", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
+
   await page.getByPlaceholder("例: 株式会社アルファ技研").fill("株式会社アルファ技研");
   await page.getByRole("button", { name: "検索", exact: true }).click();
   await expect(page.getByText(/\d+ 件見つかりました/)).toBeVisible({

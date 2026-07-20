@@ -29,7 +29,10 @@ export default function App() {
   function toggleTheme() {
     const next: ThemeName = theme === "dark" ? "light" : "dark";
     applyTheme(next);
-    setConfig({ theme: next }).catch(() => {});
+    // Preserve the rest of the config (inference settings) when saving.
+    getConfig()
+      .then((config) => setConfig({ ...config, theme: next }))
+      .catch(() => {});
   }
 
   return (

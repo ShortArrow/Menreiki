@@ -10,6 +10,7 @@ import type {
   PageFindings,
   Policy,
   ProjectInfo,
+  ProjectSettings,
   ReviewDecisions,
 } from "./types";
 
@@ -19,6 +20,18 @@ export function getConfig() {
 
 export function registerFileAssociation() {
   return invoke<void>("register_file_association");
+}
+
+export function listDetectors() {
+  return invoke<string[]>("list_detectors");
+}
+
+export function getProjectSettings(project: string) {
+  return invoke<ProjectSettings>("get_project_settings", { project });
+}
+
+export function setProjectSettings(project: string, settings: ProjectSettings) {
+  return invoke<void>("set_project_settings", { project, settings });
 }
 
 export function setConfig(config: AppConfig) {
