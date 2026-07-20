@@ -51,13 +51,21 @@ enum Command {
         /// Model name for the llm stage (e.g. an Ollama model tag)
         #[arg(long, default_value = "")]
         llm_model: String,
-        /// Detector groups to turn off (repeatable), e.g. --disable phone-jp
-        /// --disable date. See `list-detectors` for the ids
-        #[arg(long)]
-        disable: Vec<String>,
     },
-    /// List the available detector group ids
+    /// List the detector group ids available to choose from
     ListDetectors,
+    /// Show or set which detector groups a project uses (persisted in the
+    /// project.mnrk). With no flags, prints the current selection
+    Detectors {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// Pin the project to exactly these detector ids (repeatable)
+        #[arg(long)]
+        set: Vec<String>,
+        /// Clear the selection so all default detectors run
+        #[arg(long)]
+        all: bool,
+    },
     /// List the findings detected in a project
     Findings {
         /// Project directory created by `import`
@@ -142,7 +150,6 @@ fn run(cli: Cli) -> Result<(), String> {
             only,
             llm_url,
             llm_model,
-            disable,
         } => {
             let project = menreiki_project::resolve_project_dir(&project);
             let stage = |name: &str| {
@@ -193,7 +200,14 @@ fn run(cli: Cli) -> Result<(), String> {
             }
 
             if stage("ocr") || stage("detect") {
-                let mut rules = menreiki_lang_ja::preset().without(&disable).into_rules();
+                let settings = menreiki_project::load_project_settings(&project)
+                    .map_err(|error| error.to_string())?;
+                let set = menreiki_lang_ja::preset();
+                let set = match &settings.detectors {
+                    Some(ids) => set.only(ids),
+                    None => set,
+                };
+                let mut rules = set.into_rules();
                 let dictionary = menreiki_project::load_dictionary(&project)
                     .map_err(|error| error.to_string())?;
                 rules.extend(menreiki_project::dictionary_rules(&dictionary));
@@ -231,6 +245,23 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::ListDetectors => {
             for id in menreiki_lang_ja::preset().ids() {
                 println!("{id}");
+            }
+            Ok(())
+        }
+        Command::Detectors { project, set, all } => {
+            let project = menreiki_project::resolve_project_dir(&project);
+            if all || !set.is_empty() {
+                let settings = menreiki_project::ProjectSettings {
+                    detectors: if all { None } else { Some(set) },
+                };
+                menreiki_project::save_project_settings(&project, &settings)
+                    .map_err(|error| error.to_string())?;
+            }
+            let settings = menreiki_project::load_project_settings(&project)
+                .map_err(|error| error.to_string())?;
+            match settings.detectors {
+                Some(ids) => println!("selected: {}", ids.join(", ")),
+                None => println!("all default detectors"),
             }
             Ok(())
         }

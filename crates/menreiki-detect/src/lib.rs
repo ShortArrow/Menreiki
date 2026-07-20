@@ -110,6 +110,15 @@ impl DetectorSet {
         self
     }
 
+    /// Keeps only the groups whose id is in `enabled` — the allow-list a
+    /// project uses to pin exactly the detectors it needs.
+    pub fn only(mut self, enabled: &[String]) -> Self {
+        self.groups
+            .retain(|group| enabled.iter().any(|e| e == &group.id));
+        self.seen = self.groups.iter().map(|group| group.id.clone()).collect();
+        self
+    }
+
     /// Ids of the groups currently in the set, in order — for listing the
     /// toggleable detectors in a UI or CLI.
     pub fn ids(&self) -> Vec<&str> {
@@ -428,6 +437,15 @@ mod tests {
         let set = DetectorSet::new()
             .extend([group("a", "x"), group("b", "y"), group("c", "z")])
             .without(&["b".to_string()]);
+
+        assert_eq!(set.ids(), vec!["a", "c"]);
+    }
+
+    #[test]
+    fn only_keeps_the_allow_listed_groups() {
+        let set = DetectorSet::new()
+            .extend([group("a", "x"), group("b", "y"), group("c", "z")])
+            .only(&["c".to_string(), "a".to_string()]);
 
         assert_eq!(set.ids(), vec!["a", "c"]);
     }

@@ -30,15 +30,6 @@ pub struct Config {
     pub theme: Theme,
     #[serde(default)]
     pub inference: InferenceConfig,
-    #[serde(default)]
-    pub detection: DetectionConfig,
-}
-
-/// Detector groups the user has turned off (by id, e.g. "phone-jp").
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct DetectionConfig {
-    #[serde(default)]
-    pub disabled: Vec<String>,
 }
 
 /// Where the optional local model lives. `model` empty means the LLM

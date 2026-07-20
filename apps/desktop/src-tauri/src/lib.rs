@@ -136,7 +136,7 @@ fn get_config() -> settings::Config {
     settings::load_config()
 }
 
-/// The ids of the toggleable detector groups, for a settings UI.
+/// The ids of the detector groups available to choose from, for a settings UI.
 #[tauri::command]
 fn list_detectors() -> Vec<String> {
     menreiki_lang_ja::preset()
@@ -144,6 +144,20 @@ fn list_detectors() -> Vec<String> {
         .iter()
         .map(|id| id.to_string())
         .collect()
+}
+
+#[tauri::command]
+fn get_project_settings(project: String) -> Result<menreiki_project::ProjectSettings, String> {
+    menreiki_project::load_project_settings(Path::new(&project)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_project_settings(
+    project: String,
+    settings: menreiki_project::ProjectSettings,
+) -> Result<(), String> {
+    menreiki_project::save_project_settings(Path::new(&project), &settings)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -193,8 +207,15 @@ struct AnalyzeOutcome {
 }
 
 fn run_detection(project_dir: &Path) -> Result<(), String> {
-    let disabled = settings::load_config().detection.disabled;
-    let mut rules = menreiki_lang_ja::preset().without(&disabled).into_rules();
+    let selection = menreiki_project::load_project_settings(project_dir)
+        .map_err(|error| error.to_string())?
+        .detectors;
+    let set = menreiki_lang_ja::preset();
+    let set = match &selection {
+        Some(ids) => set.only(ids),
+        None => set,
+    };
+    let mut rules = set.into_rules();
     let dictionary =
         menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
     rules.extend(menreiki_project::dictionary_rules(&dictionary));
@@ -632,6 +653,8 @@ pub fn run() {
             get_config,
             set_config,
             list_detectors,
+            get_project_settings,
+            set_project_settings,
             initial_project,
             load_review_decisions,
             save_review_decisions,
