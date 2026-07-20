@@ -1,13 +1,11 @@
 [package]
-name = "menreiki-lang-ja"
+name = "menreiki-detect-universal"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 menreiki-detect.workspace = true
-menreiki-detect-universal.workspace = true
-regex.workspace = true
 
 [dev-dependencies]
 menreiki-core.workspace = true

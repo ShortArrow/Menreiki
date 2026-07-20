@@ -2395,6 +2395,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "menreiki-detect-universal"
+version = "0.1.0"
+dependencies = [
+ "menreiki-core",
+ "menreiki-detect",
+]
+
+[[package]]
 name = "menreiki-entity"
 version = "0.1.0"
 dependencies = [
@@ -2418,6 +2426,7 @@ version = "0.1.0"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
+ "menreiki-detect-universal",
  "regex",
 ]
 

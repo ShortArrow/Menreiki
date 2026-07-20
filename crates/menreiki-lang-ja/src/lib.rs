@@ -47,16 +47,9 @@ pub fn builtin_rules() -> Vec<RegexRule> {
             .with_post_filter(heuristic_keep)
     });
 
-    let mechanical = [
-        (
-            "email",
-            r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}".to_string(),
-        ),
-        (
-            "url",
-            r"https?\s?:?//[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+".to_string(),
-        ),
-        ("ip-address", r"\b(?:\d{1,3}\.){3}\d{1,3}\b".to_string()),
+    // Japan-locale formats. Email, URL, IP, MAC, and international (+CC)
+    // phone numbers are locale-independent and come from the universal pack.
+    let japan_local = [
         (
             "phone",
             format!(
@@ -78,7 +71,10 @@ pub fn builtin_rules() -> Vec<RegexRule> {
         RegexRule::new(category, &pattern).expect("built-in pattern is valid")
     });
 
-    name_heuristics.chain(mechanical).collect()
+    name_heuristics
+        .chain(japan_local)
+        .chain(menreiki_detect_universal::universal_rules())
+        .collect()
 }
 
 /// A rule matching `text` the way OCR may have read it — the path for

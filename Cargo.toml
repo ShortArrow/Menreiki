@@ -5,6 +5,7 @@ members = [
     "crates/menreiki-core",
     "crates/menreiki-project",
     "crates/menreiki-detect",
+    "crates/menreiki-detect-universal",
     "crates/menreiki-entity",
     "crates/menreiki-inference",
     "crates/menreiki-lang-ja",
@@ -28,6 +29,7 @@ menreiki-audit = { path = "crates/menreiki-audit" }
 menreiki-core = { path = "crates/menreiki-core" }
 menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
+menreiki-detect-universal = { path = "crates/menreiki-detect-universal" }
 menreiki-entity = { path = "crates/menreiki-entity" }
 menreiki-inference = { path = "crates/menreiki-inference" }
 menreiki-lang-ja = { path = "crates/menreiki-lang-ja" }

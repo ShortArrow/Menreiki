@@ -16,3 +16,4 @@ Menreikiのアーキテクチャ決定の記録。運用ルールは [ADR-000](0
 | [009](009-portable-single-binary.jp.md) | ポータブル単一バイナリを主配布形態とし、pdfiumを埋め込む | 2026-07-19 |
 | [010](010-remote-inference-via-ssh-tunnel.jp.md) | リモート推論はSSHトンネルで接続し、TLSは強制しない | 2026-07-19 |
 | [011](011-japanese-first-and-doc-language-tags.jp.md) | 当面は日本語文書に集中し、ドキュメントは言語タグ付きファイル名にする | 2026-07-19 |
+| [012](012-detection-layering.jp.md) | 検出をエンジン／言語非依存パック／言語パックの三層に分ける | 2026-07-20 |
