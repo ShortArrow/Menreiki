@@ -47,8 +47,8 @@ pub use layout::{
 pub use llm_detect::{llm_detect_pages, vlm_detect_pages, LlmDetectError};
 pub use maintenance::clear_analysis;
 pub use manifest::{
-    load_manifest, load_project_settings, save_project_settings, LoadError, ProjectManifest,
-    ProjectSettings, SettingsError, SCHEMA_VERSION,
+    load_manifest, load_project_settings, save_project_settings, IgnoreEntry, LoadError,
+    ProjectManifest, ProjectSettings, SettingsError, SCHEMA_VERSION,
 };
 pub use markdown::{export_markdown, render_markdown, MarkdownError};
 pub use ocr::{load_ocr_pages, ocr_pages, LoadOcrError, OcrPagesError};

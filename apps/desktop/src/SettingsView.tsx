@@ -6,6 +6,7 @@ import {
   setConfig,
   setProjectSettings,
 } from "./api";
+import type { IgnoreEntry } from "./types";
 
 /// Settings dialog: project-scoped detector selection (persisted in the
 /// project.mnrk) and app-level local-LLM configuration (config.toml).
@@ -16,6 +17,7 @@ export default function SettingsView(props: {
 }) {
   const [allDetectors, setAllDetectors] = useState<string[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
+  const [ignored, setIgnored] = useState<IgnoreEntry[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
   const [ready, setReady] = useState(false);
@@ -34,6 +36,7 @@ export default function SettingsView(props: {
         setAllDetectors(ids);
         // null / absent means "all detectors".
         setEnabled(new Set(settings.detectors ?? ids));
+        setIgnored(settings.ignored ?? []);
         setBaseUrl(config.inference.base_url);
         setModel(config.inference.model);
         setReady(true);
@@ -62,6 +65,7 @@ export default function SettingsView(props: {
       const allOn = allDetectors.every((id) => enabled.has(id));
       await setProjectSettings(props.projectDir, {
         detectors: allOn ? null : allDetectors.filter((id) => enabled.has(id)),
+        ignored,
       });
       const config = await getConfig();
       await setConfig({
@@ -101,6 +105,43 @@ export default function SettingsView(props: {
                 </label>
               ))}
             </div>
+          </section>
+
+          <section>
+            <h2>無視する語（このプロジェクト）</h2>
+            <p className="hint">
+              誤検出をここに入れると、この文書では検出候補になりません。候補行の
+              「無視」ボタンからも追加できます。
+            </p>
+            {ignored.length === 0 ? (
+              <p className="status">なし</p>
+            ) : (
+              <div className="text-rules">
+                {ignored.map((entry, index) => {
+                  const text =
+                    typeof entry === "string" ? entry : entry.text;
+                  const scope =
+                    typeof entry === "string" ? "すべて" : entry.category;
+                  return (
+                    <div key={`${text}-${scope}-${index}`} className="text-rule">
+                      <span className="chip-action">{scope}</span>
+                      <span className="rule-text" title={text}>
+                        {text}
+                      </span>
+                      <button
+                        onClick={() =>
+                          setIgnored((current) =>
+                            current.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <section>

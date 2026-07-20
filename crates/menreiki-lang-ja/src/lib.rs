@@ -316,6 +316,27 @@ mod tests {
     }
 
     #[test]
+    fn fully_letter_spaced_company_name_stays_whole() {
+        for text in [
+            "宛先 猫 埼 電 工 株 式 会 社 御中",
+            "宛先 猫　埼　電　工　株　式　会　社 御中",
+        ] {
+            let page = page(&[text]);
+            let findings = detect_page(&page, &builtin_rules());
+            let orgs = by_category(&findings, "organization");
+            assert!(
+                orgs.iter()
+                    .any(|t| t.replace([' ', '　'], "").ends_with("猫埼電工株式会社")),
+                "letter-spaced name split in {text:?}: {:?}",
+                findings
+                    .iter()
+                    .map(|f| f.text.as_str())
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
     fn departments_people_and_places_are_flagged() {
         let page = page(&[
             "技術開発部の田中氏が担当する",

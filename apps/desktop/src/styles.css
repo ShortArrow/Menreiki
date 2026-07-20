@@ -616,7 +616,7 @@ button.rule-target:hover {
   overflow-y: auto;
   background: var(--panel);
   border-left: 1px solid var(--border-soft);
-  padding: 12px;
+  padding: 12px 12px 60px;
   display: flex;
   flex-direction: column;
   gap: 20px;

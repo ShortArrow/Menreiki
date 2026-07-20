@@ -16,17 +16,25 @@ pub enum DetectPagesError {
 }
 
 /// Applies detection rules to every stored OCR result, adds cross-page
-/// repeated-layout candidates (headers, footers, page numbers), and writes
-/// one findings JSON per page under `findings/`. Returns the number of
-/// pages processed.
+/// repeated-layout candidates (headers, footers, page numbers), drops any
+/// finding on the project's ignore list, and writes one findings JSON per
+/// page under `findings/`. Returns the number of pages processed.
 pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, DetectPagesError> {
     let ocr_pages = load_ocr_pages(project_dir)?;
     let repeated = menreiki_detect::detect_repeated_lines(&ocr_pages);
+    let ignored = crate::load_project_settings(project_dir)
+        .map(|settings| settings.ignored)
+        .unwrap_or_default();
     fs::create_dir_all(project_dir.join(FINDINGS_DIR)).map_err(DetectPagesError::Write)?;
 
     for (page_index, ocr) in ocr_pages.iter().enumerate() {
         let mut findings = menreiki_detect::detect_page(ocr, rules);
         findings.extend(repeated[page_index].iter().cloned());
+        findings.retain(|finding| {
+            !ignored
+                .iter()
+                .any(|entry| entry.matches(&finding.text, &finding.category))
+        });
         let json =
             serde_json::to_string_pretty(&findings).expect("findings are always serializable");
         fs::write(page_findings_path(project_dir, page_index as u16), json)

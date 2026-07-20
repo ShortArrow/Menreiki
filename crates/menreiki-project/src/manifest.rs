@@ -11,6 +11,48 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// Project-scoped settings, persisted inside `project.mnrk`. These describe
 /// one document and travel with it — as opposed to app-level preferences
 /// (config.toml) and transient UI state (session.json).
+/// A text that should never become a finding in this project — the escape
+/// hatch for heuristic false positives. Two forms:
+/// - a bare string ignores that text under every category;
+/// - `{ text, category }` ignores it only when found as that category, so a
+///   surname wrongly flagged as a department can be dropped there while the
+///   person finding for the same text stays.
+///
+/// Text is compared ignoring whitespace, so OCR spacing does not matter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum IgnoreEntry {
+    Text(String),
+    Scoped { text: String, category: String },
+}
+
+impl IgnoreEntry {
+    pub fn text(&self) -> &str {
+        match self {
+            IgnoreEntry::Text(text) | IgnoreEntry::Scoped { text, .. } => text,
+        }
+    }
+
+    /// Whether this entry suppresses a finding of `category` with `text`.
+    pub fn matches(&self, text: &str, category: &str) -> bool {
+        let same_text = strip_ws(self.text()) == strip_ws(text);
+        match self {
+            IgnoreEntry::Text(_) => same_text,
+            IgnoreEntry::Scoped { category: scope, .. } => same_text && scope == category,
+        }
+    }
+}
+
+impl From<&str> for IgnoreEntry {
+    fn from(text: &str) -> Self {
+        IgnoreEntry::Text(text.to_string())
+    }
+}
+
+fn strip_ws(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectSettings {
     /// Detector group ids this project uses. `None` means all default
@@ -18,6 +60,9 @@ pub struct ProjectSettings {
     /// project); `Some` is an allow-list of exactly the groups it needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detectors: Option<Vec<String>>,
+    /// Findings this project suppresses (see [`IgnoreEntry`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored: Vec<IgnoreEntry>,
 }
 
 /// Identity and settings of a project, persisted as `project.mnrk` in the

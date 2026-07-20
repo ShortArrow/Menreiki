@@ -66,6 +66,24 @@ enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// Manage the project's ignore list — findings that are suppressed
+    /// (persisted in the project.mnrk). With no flags, prints the list
+    Ignore {
+        /// Project directory created by `import`
+        project: PathBuf,
+        /// Add a term, ignored under every category (repeatable)
+        #[arg(long)]
+        add: Vec<String>,
+        /// Add a term ignored only under this category (used with --add-text)
+        #[arg(long, requires = "add_text")]
+        add_category: Option<String>,
+        /// The term for --add-category
+        #[arg(long)]
+        add_text: Option<String>,
+        /// Remove every ignore entry with this text (repeatable)
+        #[arg(long)]
+        remove: Vec<String>,
+    },
     /// List the findings detected in a project
     Findings {
         /// Project directory created by `import`
@@ -251,9 +269,9 @@ fn run(cli: Cli) -> Result<(), String> {
         Command::Detectors { project, set, all } => {
             let project = menreiki_project::resolve_project_dir(&project);
             if all || !set.is_empty() {
-                let settings = menreiki_project::ProjectSettings {
-                    detectors: if all { None } else { Some(set) },
-                };
+                let mut settings = menreiki_project::load_project_settings(&project)
+                    .map_err(|error| error.to_string())?;
+                settings.detectors = if all { None } else { Some(set) };
                 menreiki_project::save_project_settings(&project, &settings)
                     .map_err(|error| error.to_string())?;
             }
@@ -262,6 +280,45 @@ fn run(cli: Cli) -> Result<(), String> {
             match settings.detectors {
                 Some(ids) => println!("selected: {}", ids.join(", ")),
                 None => println!("all default detectors"),
+            }
+            Ok(())
+        }
+        Command::Ignore {
+            project,
+            add,
+            add_category,
+            add_text,
+            remove,
+        } => {
+            use menreiki_project::IgnoreEntry;
+            let project = menreiki_project::resolve_project_dir(&project);
+            let changed = !add.is_empty() || !remove.is_empty() || add_text.is_some();
+            if changed {
+                let mut settings = menreiki_project::load_project_settings(&project)
+                    .map_err(|error| error.to_string())?;
+                settings
+                    .ignored
+                    .retain(|entry| !remove.iter().any(|text| entry.text() == text));
+                let mut new_entries: Vec<IgnoreEntry> =
+                    add.into_iter().map(IgnoreEntry::Text).collect();
+                if let (Some(category), Some(text)) = (add_category, add_text) {
+                    new_entries.push(IgnoreEntry::Scoped { text, category });
+                }
+                for entry in new_entries {
+                    if !settings.ignored.contains(&entry) {
+                        settings.ignored.push(entry);
+                    }
+                }
+                menreiki_project::save_project_settings(&project, &settings)
+                    .map_err(|error| error.to_string())?;
+            }
+            let settings = menreiki_project::load_project_settings(&project)
+                .map_err(|error| error.to_string())?;
+            for entry in &settings.ignored {
+                match entry {
+                    IgnoreEntry::Text(text) => println!("{text}"),
+                    IgnoreEntry::Scoped { text, category } => println!("{text}  [{category}]"),
+                }
             }
             Ok(())
         }

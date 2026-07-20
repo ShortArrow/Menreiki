@@ -3,8 +3,11 @@ export interface AppConfig {
   inference: { base_url: string; model: string };
 }
 
+export type IgnoreEntry = string | { text: string; category: string };
+
 export interface ProjectSettings {
   detectors?: string[] | null;
+  ignored?: IgnoreEntry[];
 }
 
 export interface ProjectInfo {

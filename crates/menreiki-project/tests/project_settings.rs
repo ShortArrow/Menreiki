@@ -29,6 +29,7 @@ fn detector_selection_round_trips_and_keeps_the_source() {
         &project_dir,
         &ProjectSettings {
             detectors: Some(vec!["email".to_string(), "phone-jp".to_string()]),
+            ..Default::default()
         },
     )
     .unwrap();
@@ -55,6 +56,7 @@ fn clearing_the_selection_returns_to_all() {
         &project_dir,
         &ProjectSettings {
             detectors: Some(vec!["email".to_string()]),
+            ..Default::default()
         },
     )
     .unwrap();

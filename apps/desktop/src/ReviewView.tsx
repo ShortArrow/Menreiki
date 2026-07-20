@@ -8,6 +8,8 @@ import {
   cancelAnalysis,
   countMatches,
   exportMarkdown,
+  getProjectSettings,
+  setProjectSettings,
   exportProject,
   listDictionary,
   listEntities,
@@ -583,6 +585,34 @@ export default function ReviewView(props: {
     });
   }
 
+  function ignoreFinding(finding: Finding) {
+    void run("無視リストに追加中…", async () => {
+      const settings = await getProjectSettings(project.projectDir);
+      const ignored = settings.ignored ?? [];
+      // Scope the ignore to this finding's category, so the same text found
+      // under another category is unaffected.
+      const already = ignored.some(
+        (entry) =>
+          typeof entry === "object" &&
+          entry.text === finding.text &&
+          entry.category === finding.category,
+      );
+      if (!already) {
+        await setProjectSettings(project.projectDir, {
+          ...settings,
+          ignored: [
+            ...ignored,
+            { text: finding.text, category: finding.category },
+          ],
+        });
+      }
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
+  }
+
   function addSearchRule(action: Exclude<DecisionAction, "keep">) {
     const text = searchInput.trim();
     if (!text) return;
@@ -869,6 +899,15 @@ export default function ReviewView(props: {
         </main>
 
         <aside className="side-pane">
+          <section>
+            <h2>出力前確認</h2>
+            <div className={undecidedCount > 0 ? "precheck warn" : "precheck ok"}>
+              <span>未判断の候補: {undecidedCount} 種類</span>
+              <span>判断済み: {decidedCount} 種類</span>
+              <span>適用予定ルール: {policy.rules.length} 件</span>
+            </div>
+          </section>
+
           <section>
             <h2>文字列で検索</h2>
             <div className="search-row">
@@ -1317,6 +1356,13 @@ export default function ReviewView(props: {
                     >
                       E
                     </button>
+                    <button
+                      className="mini"
+                      title={`「${finding.text}」を ${finding.category} の検出から除外`}
+                      onClick={() => ignoreFinding(finding)}
+                    >
+                      無視
+                    </button>
                     <select
                       value={decision?.action ?? "undecided"}
                       onChange={(event) =>
@@ -1342,19 +1388,6 @@ export default function ReviewView(props: {
                     : "解析を実行すると候補が表示されます"}
                 </p>
               )}
-            </div>
-          </section>
-
-          <section>
-            <h2>出力前確認</h2>
-            <div
-              className={
-                undecidedCount > 0 ? "precheck warn" : "precheck ok"
-              }
-            >
-              <span>未判断の候補: {undecidedCount} 種類</span>
-              <span>判断済み: {decidedCount} 種類</span>
-              <span>適用予定ルール: {policy.rules.length} 件</span>
             </div>
           </section>
 
