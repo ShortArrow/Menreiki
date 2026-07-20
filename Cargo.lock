@@ -2333,6 +2333,7 @@ version = "0.1.0"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
+ "menreiki-lang-ja",
  "serde",
 ]
 
@@ -2345,8 +2346,8 @@ dependencies = [
  "menreiki-adapter-pdfium",
  "menreiki-adapter-windows-ocr",
  "menreiki-audit",
- "menreiki-detect",
  "menreiki-inference",
+ "menreiki-lang-ja",
  "menreiki-policy",
  "menreiki-project",
  "menreiki-render",
@@ -2370,9 +2371,9 @@ dependencies = [
  "menreiki-adapter-pdfium",
  "menreiki-adapter-windows-ocr",
  "menreiki-audit",
- "menreiki-detect",
  "menreiki-entity",
  "menreiki-inference",
+ "menreiki-lang-ja",
  "menreiki-policy",
  "menreiki-project",
  "menreiki-render",
@@ -2412,6 +2413,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "menreiki-lang-ja"
+version = "0.1.0"
+dependencies = [
+ "menreiki-core",
+ "menreiki-detect",
+ "regex",
+]
+
+[[package]]
 name = "menreiki-ocr"
 version = "0.1.0"
 dependencies = [
@@ -2425,6 +2435,7 @@ version = "0.1.0"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
+ "menreiki-lang-ja",
  "serde",
  "serde_yaml",
  "thiserror 2.0.18",
@@ -2440,6 +2451,7 @@ dependencies = [
  "menreiki-detect",
  "menreiki-entity",
  "menreiki-inference",
+ "menreiki-lang-ja",
  "menreiki-ocr",
  "menreiki-policy",
  "menreiki-render",

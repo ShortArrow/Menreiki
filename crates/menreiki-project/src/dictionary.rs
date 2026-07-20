@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use menreiki_detect::RegexRule;
+use menreiki_lang_ja::dictionary_rule;
 use serde::{Deserialize, Serialize};
 
 use crate::layout::{dictionary_path, RULES_DIR};
@@ -64,7 +65,7 @@ pub fn dictionary_rules(entries: &[DictionaryEntry]) -> Vec<RegexRule> {
     entries
         .iter()
         .filter(|entry| !entry.text.trim().is_empty())
-        .map(|entry| RegexRule::dictionary(&entry.category, &entry.text))
+        .map(|entry| dictionary_rule(&entry.category, &entry.text))
         .collect()
 }
 

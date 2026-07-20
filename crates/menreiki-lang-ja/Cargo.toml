@@ -1,11 +1,12 @@
 [package]
-name = "menreiki-audit"
+name = "menreiki-lang-ja"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
-menreiki-core.workspace = true
 menreiki-detect.workspace = true
-menreiki-lang-ja.workspace = true
-serde.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+menreiki-core.workspace = true

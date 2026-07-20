@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use menreiki_detect::RegexRule;
+use menreiki_lang_ja::literal_rule;
 
 use crate::detect::PageFindings;
 use crate::ocr::{load_ocr_pages, LoadOcrError};
@@ -9,7 +9,7 @@ use crate::ocr::{load_ocr_pages, LoadOcrError};
 /// OCR results — the entry point for enumerating anonymization candidates
 /// by name before deciding how to transform them.
 pub fn search_text(project_dir: &Path, text: &str) -> Result<Vec<PageFindings>, LoadOcrError> {
-    let rule = [RegexRule::literal("search", text)];
+    let rule = [literal_rule("search", text)];
     Ok(load_ocr_pages(project_dir)?
         .iter()
         .enumerate()

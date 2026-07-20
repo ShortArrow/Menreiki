@@ -9,7 +9,8 @@
 use std::path::Path;
 
 use menreiki_core::{EditStyle, Finding, PageEdit, PageOcr, Rect};
-use menreiki_detect::{detect_page, RegexRule};
+use menreiki_detect::detect_page;
+use menreiki_lang_ja::literal_rule;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -110,7 +111,7 @@ pub fn plan_page_edits(
         }
 
         if let Some(text) = &rule.r#match.text {
-            let literal = [RegexRule::literal("policy-text", text)];
+            let literal = [literal_rule("policy-text", text)];
             for (page_index, ocr) in ocr_pages.iter().enumerate() {
                 for finding in detect_page(ocr, &literal) {
                     plans[page_index].push(PageEdit {

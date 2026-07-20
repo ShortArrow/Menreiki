@@ -183,7 +183,7 @@ struct AnalyzeOutcome {
 }
 
 fn run_detection(project_dir: &Path) -> Result<(), String> {
-    let mut rules = menreiki_detect::builtin_rules();
+    let mut rules = menreiki_lang_ja::builtin_rules();
     let dictionary =
         menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
     rules.extend(menreiki_project::dictionary_rules(&dictionary));

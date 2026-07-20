@@ -186,7 +186,7 @@ fn run(cli: Cli) -> Result<(), String> {
             }
 
             if stage("ocr") || stage("detect") {
-                let mut rules = menreiki_detect::builtin_rules();
+                let mut rules = menreiki_lang_ja::builtin_rules();
                 let dictionary = menreiki_project::load_dictionary(&project)
                     .map_err(|error| error.to_string())?;
                 rules.extend(menreiki_project::dictionary_rules(&dictionary));

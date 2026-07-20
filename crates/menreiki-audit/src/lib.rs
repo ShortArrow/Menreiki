@@ -5,7 +5,8 @@
 //! a statement about the checks, never a guarantee of absolute safety.
 
 use menreiki_core::{PageOcr, Rect};
-use menreiki_detect::{detect_page, RegexRule};
+use menreiki_detect::detect_page;
+use menreiki_lang_ja::literal_rule;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -39,7 +40,7 @@ pub struct AuditReport {
 pub fn audit_pages(pages: &[PageOcr], deny_terms: &[String]) -> AuditReport {
     let mut residuals = Vec::new();
     for term in deny_terms {
-        let rule = [RegexRule::literal("residual", term)];
+        let rule = [literal_rule("residual", term)];
         for (page_index, page) in pages.iter().enumerate() {
             for finding in detect_page(page, &rule) {
                 residuals.push(Residual {

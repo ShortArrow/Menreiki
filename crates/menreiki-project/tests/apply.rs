@@ -4,7 +4,7 @@ use std::fs;
 
 use image::{Rgba, RgbaImage};
 use menreiki_core::{OcrLine, PageOcr, Rect, Span};
-use menreiki_detect::builtin_rules;
+use menreiki_lang_ja::builtin_rules;
 use menreiki_policy::parse_policy;
 use menreiki_project::{
     apply, detect_pages, import, page_image_path, page_ocr_path, page_render_path, plan_path,

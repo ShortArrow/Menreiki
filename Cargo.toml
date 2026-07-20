@@ -7,6 +7,7 @@ members = [
     "crates/menreiki-detect",
     "crates/menreiki-entity",
     "crates/menreiki-inference",
+    "crates/menreiki-lang-ja",
     "crates/menreiki-ocr",
     "crates/menreiki-policy",
     "crates/menreiki-render",
@@ -29,6 +30,7 @@ menreiki-project = { path = "crates/menreiki-project" }
 menreiki-detect = { path = "crates/menreiki-detect" }
 menreiki-entity = { path = "crates/menreiki-entity" }
 menreiki-inference = { path = "crates/menreiki-inference" }
+menreiki-lang-ja = { path = "crates/menreiki-lang-ja" }
 menreiki-ocr = { path = "crates/menreiki-ocr" }
 menreiki-policy = { path = "crates/menreiki-policy" }
 regex = "1"

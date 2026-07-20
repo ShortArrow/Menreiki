@@ -1,7 +1,7 @@
 use std::fs;
 
 use menreiki_core::{OcrLine, PageOcr, Rect, Span};
-use menreiki_detect::builtin_rules;
+use menreiki_lang_ja::builtin_rules;
 use menreiki_project::{detect_pages, import, load_findings, page_ocr_path, OCR_DIR};
 
 fn project_with_ocr(tmp: &tempfile::TempDir, page_texts: &[&str]) -> std::path::PathBuf {

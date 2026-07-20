@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 
 use menreiki_core::{Finding, PageOcr, Rect};
-use menreiki_detect::RegexRule;
 use menreiki_inference::{CandidateDetector, ImageCandidateDetector, InferenceError, LlmCandidate};
+use menreiki_lang_ja::literal_rule;
 
 use crate::layout::{page_findings_path, page_image_path, FINDINGS_DIR};
 use crate::ocr::{load_ocr_pages, LoadOcrError};
@@ -101,7 +101,7 @@ fn merge_candidates(
     };
 
     for candidate in candidates {
-        let rule = [RegexRule::literal(&candidate.category, &candidate.text)];
+        let rule = [literal_rule(&candidate.category, &candidate.text)];
         let hits = menreiki_detect::detect_page(ocr, &rule);
         let note = (!candidate.reason.trim().is_empty()).then(|| candidate.reason.clone());
 
