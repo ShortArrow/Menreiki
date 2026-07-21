@@ -12,10 +12,14 @@ never blocks the next run.
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $desktop = Join-Path $repoRoot 'apps\desktop'
 
+# Frees Vite's port via netstat (a quiet native command); Get-NetTCPConnection
+# floods the console with CIM debug traces when $DebugPreference is on.
 function Stop-VitePort {
-    $connections = Get-NetTCPConnection -LocalPort 1420 -State Listen -ErrorAction SilentlyContinue
-    foreach ($connection in $connections) {
-        Stop-Process -Id $connection.OwningProcess -Force -ErrorAction SilentlyContinue
+    foreach ($line in (netstat -ano | Select-String -Pattern ':1420\s' | Where-Object { $_ -match 'LISTENING' })) {
+        $procId = ($line.ToString().Trim() -split '\s+')[-1]
+        if ($procId -match '^\d+$' -and $procId -ne '0') {
+            Stop-Process -Id ([int]$procId) -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
