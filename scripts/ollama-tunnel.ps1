@@ -51,18 +51,30 @@ if ($inUse) {
     return
 }
 
+# Windows OpenSSH's `-f` does not detach cleanly (the process lingers in the
+# foreground and blocks the caller), so background it with Start-Process instead.
 $sshArgs = @(
-    '-f', '-N',
+    '-N',
     '-o', 'ServerAliveInterval=30',
     '-o', 'ServerAliveCountMax=3',
     '-o', 'ExitOnForwardFailure=yes',
     '-L', "${Port}:localhost:${Port}",
     $SshHost
 )
-ssh @sshArgs
+$proc = Start-Process -FilePath 'ssh' -ArgumentList $sshArgs -WindowStyle Hidden -PassThru
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "tunnel open: localhost:$Port -> $SshHost (remote localhost:$Port)"
+# Wait until the forward binds the local port, or ssh gives up (auth/config error).
+$listening = $null
+for ($i = 0; $i -lt 20 -and -not $proc.HasExited; $i++) {
+    $listening = netstat -ano | Select-String -Pattern ":$Port\s" | Where-Object { $_ -match 'LISTENING' }
+    if ($listening) { break }
+    Start-Sleep -Milliseconds 250
+}
+
+if ($proc.HasExited) {
+    Write-Warning "ssh exited with code $($proc.ExitCode) (check the $SshHost entry in ~/.ssh/config)"
+} elseif (-not $listening) {
+    Write-Warning "ssh is running (pid $($proc.Id)) but port $Port is not listening yet; stop it with -Stop and check the connection"
 } else {
-    Write-Warning "ssh exited with code $LASTEXITCODE (check the $SshHost entry in ~/.ssh/config)"
+    Write-Host "tunnel open: localhost:$Port -> $SshHost (remote localhost:$Port)"
 }
