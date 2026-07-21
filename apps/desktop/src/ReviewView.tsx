@@ -190,6 +190,25 @@ function AliasSuggest(props: {
   );
 }
 
+/// Parses a print-style page selection ("1-3, 5, 8") into sorted, unique
+/// 0-based page indices, clamped to the document. Invalid or out-of-range
+/// parts are ignored so a stray character never aborts the export.
+function parsePageRanges(input: string, pageCount: number): number[] {
+  const pages = new Set<number>();
+  for (const part of input.split(",")) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const bounds = trimmed.split("-").map((n) => Number.parseInt(n, 10));
+    const [from, to] =
+      bounds.length === 2 ? bounds : [bounds[0], bounds[0]];
+    if (!Number.isFinite(from) || !Number.isFinite(to)) continue;
+    for (let p = Math.min(from, to); p <= Math.max(from, to); p++) {
+      if (p >= 1 && p <= pageCount) pages.add(p - 1);
+    }
+  }
+  return [...pages].sort((a, b) => a - b);
+}
+
 const PANE_WIDTHS_KEY = "menreiki.paneWidths";
 const DEFAULT_PANE_WIDTHS = { left: 108, right: 360 };
 
@@ -263,6 +282,8 @@ export default function ReviewView(props: {
     text: string;
   } | null>(null);
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const [exportPagesInput, setExportPagesInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
@@ -715,13 +736,20 @@ export default function ReviewView(props: {
     });
   }
 
-  function runExport() {
+  function runExport(pages?: number[]) {
+    setExportMenuOpen(false);
     void run("PDFを再構築中…", async () => {
-      setExportPath(await exportProject(project.projectDir));
+      setExportPath(await exportProject(project.projectDir, 300, pages));
+      const scopeNote =
+        pages && pages.length > 0
+          ? `${pages.length} ページを出力しました。`
+          : "";
       if (undecidedCount > 0) {
         setNotice(
-          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+          `${scopeNote}未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
         );
+      } else if (scopeNote) {
+        setNotice(scopeNote);
       }
     });
   }
@@ -982,9 +1010,55 @@ export default function ReviewView(props: {
         >
           適用（{policy.rules.length}ルール）
         </button>
-        <button onClick={runExport} disabled={busy !== null || !hasRenders}>
-          PDF出力
-        </button>
+        <div className="reanalyze-menu">
+          <button
+            onClick={() => setExportMenuOpen((open) => !open)}
+            disabled={busy !== null || !hasRenders}
+          >
+            PDF出力 ▾
+          </button>
+          {exportMenuOpen && (
+            <>
+              <div
+                className="menu-backdrop"
+                onClick={() => setExportMenuOpen(false)}
+              />
+              <div className="menu export-menu">
+                <button onClick={() => runExport()}>すべてのページを出力</button>
+                <div className="export-range">
+                  <label className="hint">
+                    ページ指定（例: 1-3, 5, 8）
+                  </label>
+                  <input
+                    value={exportPagesInput}
+                    placeholder={`1-${project.pageCount}`}
+                    onChange={(event) => setExportPagesInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        const pages = parsePageRanges(
+                          exportPagesInput,
+                          project.pageCount,
+                        );
+                        if (pages.length > 0) runExport(pages);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => {
+                      const pages = parsePageRanges(
+                        exportPagesInput,
+                        project.pageCount,
+                      );
+                      if (pages.length > 0) runExport(pages);
+                    }}
+                  >
+                    選択ページを出力
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
         <button
           onClick={runExportMarkdown}
           disabled={busy !== null || !hasRenders}

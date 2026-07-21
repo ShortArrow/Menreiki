@@ -244,6 +244,24 @@ h2 {
   background: var(--hover);
 }
 
+.export-range {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border-soft);
+  margin-top: 4px;
+}
+
+.export-range input {
+  width: 100%;
+}
+
+.export-range button {
+  text-align: center !important;
+  border: 1px solid var(--border) !important;
+}
+
 .toggle {
   display: flex;
   align-items: center;

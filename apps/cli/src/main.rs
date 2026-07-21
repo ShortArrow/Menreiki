@@ -387,7 +387,7 @@ fn run(cli: Cli) -> Result<(), String> {
             let project = menreiki_project::resolve_project_dir(&project);
             let wants = |kind: &str| format == kind || format == "all";
             if wants("pdf") {
-                let output = menreiki_project::export_pdf(&project, dpi)
+                let output = menreiki_project::export_pdf(&project, dpi, None)
                     .map_err(|error| error.to_string())?;
                 println!("exported {}", output.display());
             }

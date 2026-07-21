@@ -162,8 +162,12 @@ export function applyPolicy(project: string, policy: Policy) {
   return invoke<ApplySummary>("apply_policy", { project, policy });
 }
 
-export function exportProject(project: string, dpi = 300) {
-  return invoke<string>("export_project", { project, dpi });
+export function exportProject(
+  project: string,
+  dpi = 300,
+  pages?: number[],
+) {
+  return invoke<string>("export_project", { project, dpi, pages });
 }
 
 export function exportMarkdown(project: string, ocrLanguage = "ja") {

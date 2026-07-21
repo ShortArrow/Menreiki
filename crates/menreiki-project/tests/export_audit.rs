@@ -66,11 +66,31 @@ fn export_builds_sanitized_pdf_from_renders() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_renders(&tmp, 2);
 
-    let output = export_pdf(&project_dir, 300).unwrap();
+    let output = export_pdf(&project_dir, 300, None).unwrap();
 
     let bytes = fs::read(output).unwrap();
     assert!(bytes.starts_with(b"%PDF-1.4"));
     assert!(String::from_utf8_lossy(&bytes[..1000]).contains("/Count 2"));
+}
+
+#[test]
+fn export_includes_only_the_selected_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 3);
+
+    // Keep only pages 1 and 3 (0-based 0 and 2).
+    let output = export_pdf(&project_dir, 300, Some(&[0, 2])).unwrap();
+
+    let bytes = fs::read(output).unwrap();
+    assert!(String::from_utf8_lossy(&bytes[..1000]).contains("/Count 2"));
+}
+
+#[test]
+fn export_with_an_empty_selection_is_no_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 2);
+
+    assert!(export_pdf(&project_dir, 300, Some(&[])).is_err());
 }
 
 #[test]

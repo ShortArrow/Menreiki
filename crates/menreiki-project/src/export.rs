@@ -22,7 +22,15 @@ pub enum ExportError {
 /// Transformed pages under `renders/` are used when present; otherwise the
 /// untransformed `pages/` are exported. The PDF is built from pixels alone,
 /// so nothing from the source document carries over.
-pub fn export_pdf(project_dir: &Path, dpi: u32) -> Result<PathBuf, ExportError> {
+///
+/// `pages` selects which 0-based pages to include (in document order);
+/// `None` exports every page. An empty or fully out-of-range selection is
+/// [`ExportError::NoPages`], so the caller never writes an empty PDF.
+pub fn export_pdf(
+    project_dir: &Path,
+    dpi: u32,
+    pages: Option<&[u16]>,
+) -> Result<PathBuf, ExportError> {
     let use_renders = page_render_path(project_dir, 0).exists();
     let page_path = |index: u16| {
         if use_renders {
@@ -35,7 +43,9 @@ pub fn export_pdf(project_dir: &Path, dpi: u32) -> Result<PathBuf, ExportError> 
     let mut pngs = Vec::new();
     let mut page_index: u16 = 0;
     while page_path(page_index).exists() {
-        pngs.push(fs::read(page_path(page_index)).map_err(ExportError::Read)?);
+        if pages.map_or(true, |selected| selected.contains(&page_index)) {
+            pngs.push(fs::read(page_path(page_index)).map_err(ExportError::Read)?);
+        }
         page_index += 1;
     }
     if pngs.is_empty() {

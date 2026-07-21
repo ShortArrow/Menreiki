@@ -551,10 +551,17 @@ async fn apply_policy(
     .map_err(|error| error.to_string())?
 }
 
+/// Rebuilds the PDF. `pages` (0-based) selects which pages to include; an
+/// empty/None selection exports every page.
 #[tauri::command]
-async fn export_project(project: String, dpi: u32) -> Result<String, String> {
+async fn export_project(
+    project: String,
+    dpi: u32,
+    pages: Option<Vec<u16>>,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        menreiki_project::export_pdf(Path::new(&project), dpi)
+        let pages = pages.filter(|list| !list.is_empty());
+        menreiki_project::export_pdf(Path::new(&project), dpi, pages.as_deref())
             .map(|path| path.display().to_string())
             .map_err(|error| error.to_string())
     })
