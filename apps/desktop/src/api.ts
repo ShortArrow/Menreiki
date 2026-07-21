@@ -75,6 +75,10 @@ export function llmDetect(project: string, useImage = false) {
   return invoke<number>("llm_detect_project", { project, useImage });
 }
 
+export function listModels(baseUrl: string) {
+  return invoke<string[]>("list_models", { baseUrl });
+}
+
 export function suggestReplacements(
   text: string,
   category: string,

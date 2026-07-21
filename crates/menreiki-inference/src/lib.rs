@@ -125,6 +125,48 @@ impl InferenceClient {
     }
 }
 
+/// Lists the model ids the endpoint offers, via the OpenAI-compatible
+/// `GET /models`. Needs no model configured — it exists so a settings UI can
+/// offer the installed models to pick from instead of asking the user to type
+/// a name. The endpoint is still restricted to this machine.
+pub fn list_models(base_url: &str) -> Result<Vec<String>, InferenceError> {
+    ensure_local(base_url)?;
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    let body = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .get(&url)
+        .call()
+        .map_err(|error| InferenceError::Request(error.to_string()))?
+        .into_string()
+        .map_err(|error| InferenceError::Response(error.to_string()))?;
+    parse_models(&body)
+}
+
+/// Extracts the model ids from an OpenAI-compatible `/models` response
+/// (`{ "data": [ { "id": ... }, ... ] }`), dropping blanks and duplicates
+/// while preserving the endpoint's order.
+pub fn parse_models(body: &str) -> Result<Vec<String>, InferenceError> {
+    #[derive(Deserialize)]
+    struct Models {
+        data: Vec<Model>,
+    }
+    #[derive(Deserialize)]
+    struct Model {
+        id: String,
+    }
+    let models: Models =
+        serde_json::from_str(body).map_err(|error| InferenceError::Response(error.to_string()))?;
+    let mut ids = Vec::new();
+    for model in models.data {
+        let id = model.id.trim().to_string();
+        if !id.is_empty() && !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    Ok(ids)
+}
+
 const LOCAL_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "[::1]", "::1"];
 
 fn ensure_local(url: &str) -> Result<(), InferenceError> {
@@ -178,6 +220,33 @@ mod tests {
                 "{url}"
             );
         }
+    }
+
+    #[test]
+    fn parses_model_ids_in_order_dropping_blanks_and_dupes() {
+        let body = r#"{"object":"list","data":[
+            {"id":"qwen3","object":"model"},
+            {"id":"  ","object":"model"},
+            {"id":"llava","object":"model"},
+            {"id":"qwen3","object":"model"}
+        ]}"#;
+
+        let ids = parse_models(body).unwrap();
+
+        assert_eq!(ids, vec!["qwen3".to_string(), "llava".to_string()]);
+    }
+
+    #[test]
+    fn a_non_model_list_response_is_an_error() {
+        assert!(parse_models("not json").is_err());
+    }
+
+    #[test]
+    fn listing_models_refuses_a_remote_endpoint() {
+        assert!(matches!(
+            list_models("https://api.openai.com/v1"),
+            Err(InferenceError::NotLocal(_))
+        ));
     }
 
     #[test]

@@ -369,6 +369,18 @@ async fn llm_detect_project(
     .map_err(|error| error.to_string())?
 }
 
+/// Lists the models the local endpoint offers, so the settings UI can present
+/// them as a dropdown instead of asking the user to type a name. `base_url`
+/// is whatever the user has entered (still restricted to this machine).
+#[tauri::command]
+async fn list_models(base_url: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        menreiki_inference::list_models(&base_url).map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Asks the configured local model for replacement suggestions (alias or
 /// generalization) for one expression. Advisory only — the reviewer picks.
 #[tauri::command]
@@ -670,6 +682,7 @@ pub fn run() {
             analyze_project,
             cancel_analysis,
             llm_detect_project,
+            list_models,
             suggest_replacements,
             list_findings,
             search_project,

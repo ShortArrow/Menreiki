@@ -610,6 +610,17 @@ button.rule-target:hover {
   font-size: 14px;
 }
 
+.field-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.field-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ---- Side pane ---- */
 
 .side-pane {

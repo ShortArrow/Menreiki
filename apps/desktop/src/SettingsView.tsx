@@ -3,6 +3,7 @@ import {
   getConfig,
   getProjectSettings,
   listDetectors,
+  listModels,
   setConfig,
   setProjectSettings,
 } from "./api";
@@ -20,6 +21,9 @@ export default function SettingsView(props: {
   const [ignored, setIgnored] = useState<IgnoreEntry[]>([]);
   const [baseUrl, setBaseUrl] = useState("");
   const [model, setModel] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +44,7 @@ export default function SettingsView(props: {
         setBaseUrl(config.inference.base_url);
         setModel(config.inference.model);
         setReady(true);
+        void refreshModels(config.inference.base_url);
       })
       .catch((failure) => {
         if (!cancelled) setError(String(failure));
@@ -48,6 +53,24 @@ export default function SettingsView(props: {
       cancelled = true;
     };
   }, [props.projectDir]);
+
+  /// Asks the endpoint which models it serves, so the field below can offer
+  /// them. A failure (endpoint down, no server) is shown as a hint, not an
+  /// error — the user can always type the name by hand.
+  async function refreshModels(url: string) {
+    const target = url.trim();
+    if (!target) return;
+    setLoadingModels(true);
+    setModelsError(null);
+    try {
+      setModels(await listModels(target));
+    } catch (failure) {
+      setModels([]);
+      setModelsError(String(failure));
+    } finally {
+      setLoadingModels(false);
+    }
+  }
 
   function toggle(id: string) {
     setEnabled((current) => {
@@ -155,16 +178,41 @@ export default function SettingsView(props: {
                 value={baseUrl}
                 placeholder="http://localhost:11434/v1"
                 onChange={(event) => setBaseUrl(event.target.value)}
+                onBlur={(event) => void refreshModels(event.target.value)}
               />
             </label>
             <label className="field">
               モデル
-              <input
-                value={model}
-                placeholder="qwen3（VLM検出は vision モデル）"
-                onChange={(event) => setModel(event.target.value)}
-              />
+              <div className="field-row">
+                <input
+                  list="model-options"
+                  value={model}
+                  placeholder="qwen3（VLM検出は vision モデル）"
+                  onChange={(event) => setModel(event.target.value)}
+                />
+                <datalist id="model-options">
+                  {models.map((id) => (
+                    <option key={id} value={id} />
+                  ))}
+                </datalist>
+                <button
+                  type="button"
+                  onClick={() => void refreshModels(baseUrl)}
+                  disabled={loadingModels}
+                >
+                  {loadingModels ? "取得中…" : "再取得"}
+                </button>
+              </div>
             </label>
+            <p className="hint">
+              {loadingModels
+                ? "モデルを取得しています…"
+                : modelsError
+                  ? `モデル一覧を取得できませんでした（エンドポイントが起動しているか確認してください）。名前は手入力もできます。`
+                  : models.length > 0
+                    ? `${models.length} 個のモデルを検出。欄をクリックすると候補から選べます。`
+                    : "候補はありません。名前を手入力してください。"}
+            </p>
           </section>
 
           {error && <p className="error">{error}</p>}

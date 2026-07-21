@@ -44,6 +44,40 @@ fn serve_one(response_content: &str) -> (std::thread::JoinHandle<String>, u16) {
     (handle, port)
 }
 
+/// A one-shot server that replies with `body` verbatim, for endpoints (like
+/// `/models`) that are not chat-completion shaped.
+fn serve_raw(body: String) -> (std::thread::JoinHandle<String>, u16) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buffer = [0u8; 65536];
+        let read = stream.read(&mut buffer).unwrap();
+        let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+        let http = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        stream.write_all(http.as_bytes()).unwrap();
+        request
+    });
+    (handle, port)
+}
+
+#[test]
+fn list_models_reads_the_models_endpoint() {
+    let (server, port) = serve_raw(
+        r#"{"object":"list","data":[{"id":"qwen3"},{"id":"llava"}]}"#.to_string(),
+    );
+
+    let ids = menreiki_inference::list_models(&format!("http://127.0.0.1:{port}/v1")).unwrap();
+
+    assert_eq!(ids, vec!["qwen3".to_string(), "llava".to_string()]);
+    let request = server.join().unwrap();
+    assert!(request.contains("GET /v1/models"));
+}
+
 #[test]
 fn chat_round_trips_through_an_openai_compatible_server() {
     let (server, port) = serve_one("こんにちは、候補はありません。[]");
