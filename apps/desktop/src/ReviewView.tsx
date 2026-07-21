@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   addDictionaryEntry,
@@ -187,10 +187,25 @@ function AliasSuggest(props: {
   );
 }
 
+const PANE_WIDTHS_KEY = "menreiki.paneWidths";
+const DEFAULT_PANE_WIDTHS = { left: 108, right: 360 };
+
+function loadPaneWidths(): { left: number; right: number } {
+  try {
+    const raw = localStorage.getItem(PANE_WIDTHS_KEY);
+    if (raw) return { ...DEFAULT_PANE_WIDTHS, ...JSON.parse(raw) };
+  } catch {
+    // fall through to defaults
+  }
+  return DEFAULT_PANE_WIDTHS;
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
   onClose: () => void;
+  theme: "light" | "dark";
+  onToggleTheme: () => void;
 }) {
   const { project } = props;
   const [findings, setFindings] = useState<PageFindings[]>([]);
@@ -222,6 +237,10 @@ export default function ReviewView(props: {
     null,
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
+  const [showRulePreview, setShowRulePreview] = useState(true);
+  const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
+  const panesRef = useRef<HTMLDivElement>(null);
+  const currentPageRef = useRef<HTMLButtonElement>(null);
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -531,6 +550,81 @@ export default function ReviewView(props: {
     return { rules };
   }, [entities, decidedEntries, textRules, regionRules]);
 
+  /// Text → pending transformation, so the viewer can paint what each
+  /// finding on the page will become (green replace / blue mask / red erase),
+  /// mirroring the text rules the policy will apply.
+  const previewByText = useMemo(() => {
+    const map = new Map<string, { action: DecisionAction; value: string }>();
+    for (const entity of entities) {
+      for (const variant of entity.variants) {
+        if (!map.has(variant))
+          map.set(variant, { action: "replace", value: entity.alias });
+      }
+    }
+    for (const entry of decidedEntries) {
+      if (!map.has(entry.finding.text))
+        map.set(entry.finding.text, {
+          action: entry.decision.action,
+          value: entry.decision.value,
+        });
+    }
+    for (const rule of textRules) {
+      if (!map.has(rule.text))
+        map.set(rule.text, { action: rule.action, value: rule.value });
+    }
+    return map;
+  }, [entities, decidedEntries, textRules]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PANE_WIDTHS_KEY, JSON.stringify(paneWidths));
+    } catch {
+      // best-effort; a full/blocked storage just loses the preference
+    }
+  }, [paneWidths]);
+
+  // Keep the current page's thumbnail in view in the left pane whenever the
+  // page changes — including jumps triggered from the right pane.
+  useEffect(() => {
+    currentPageRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [page]);
+
+  /// Drags a separator: `side` picks which pane grows, clamped so neither
+  /// pane collapses nor crowds out the viewer in the middle.
+  function startResize(side: "left" | "right", event: React.PointerEvent) {
+    event.preventDefault();
+    const panes = panesRef.current;
+    if (!panes) return;
+    const startX = event.clientX;
+    const startWidths = paneWidths;
+    const total = panes.clientWidth;
+    (event.target as Element).setPointerCapture(event.pointerId);
+
+    function onMove(move: PointerEvent) {
+      const delta = move.clientX - startX;
+      setPaneWidths((current) => {
+        if (side === "left") {
+          const left = Math.round(startWidths.left + delta);
+          const max = total - startWidths.right - 320;
+          return { ...current, left: Math.min(Math.max(80, left), Math.max(80, max)) };
+        }
+        const right = Math.round(startWidths.right - delta);
+        const max = total - startWidths.left - 320;
+        return { ...current, right: Math.min(Math.max(240, right), Math.max(240, max)) };
+      });
+    }
+    function onUp(up: PointerEvent) {
+      (event.target as Element).releasePointerCapture(up.pointerId);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   function runApply() {
     void run("変換を適用中…", async () => {
       const summary = await applyPolicy(project.projectDir, policy);
@@ -804,6 +898,13 @@ export default function ReviewView(props: {
         <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
           監査
         </button>
+        <button
+          className="theme-button"
+          onClick={props.onToggleTheme}
+          title="テーマを切り替える"
+        >
+          {props.theme === "dark" ? "☀" : "🌙"}
+        </button>
       </header>
 
       {(busy || progress || error || notice) && (
@@ -817,11 +918,18 @@ export default function ReviewView(props: {
         </div>
       )}
 
-      <div className="panes">
+      <div
+        className="panes"
+        ref={panesRef}
+        style={{
+          gridTemplateColumns: `${paneWidths.left}px 6px minmax(0, 1fr) 6px ${paneWidths.right}px`,
+        }}
+      >
         <nav className="page-list">
           {Array.from({ length: project.pageCount }, (_, index) => (
             <button
               key={index}
+              ref={index === page ? currentPageRef : undefined}
               className={
                 index === page ? "page-button current" : "page-button"
               }
@@ -838,6 +946,12 @@ export default function ReviewView(props: {
             </button>
           ))}
         </nav>
+
+        <div
+          className="pane-gutter"
+          onPointerDown={(event) => startResize("left", event)}
+          title="ドラッグで左ペインの幅を変更"
+        />
 
         <main className="viewer-pane">
           <div className="viewer-toolbar">
@@ -866,6 +980,15 @@ export default function ReviewView(props: {
                 <span className="hint">ドラッグで領域ルールを追加</span>
               </>
             )}
+            <span className="spacer" />
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={showRulePreview}
+                onChange={(event) => setShowRulePreview(event.target.checked)}
+              />
+              適用予定を重ねる
+            </label>
           </div>
           <PageViewer
             projectDir={project.projectDir}
@@ -877,6 +1000,7 @@ export default function ReviewView(props: {
             highlightKey={highlightKey}
             findingKey={findingKey}
             drawMode={drawMode}
+            rulePreview={showRulePreview ? previewByText : null}
             focusRect={focus?.rect ?? null}
             focusNonce={focus?.nonce ?? 0}
             onRegion={(rect) =>
@@ -897,6 +1021,12 @@ export default function ReviewView(props: {
             }
           />
         </main>
+
+        <div
+          className="pane-gutter"
+          onPointerDown={(event) => startResize("right", event)}
+          title="ドラッグで右ペインの幅を変更"
+        />
 
         <aside className="side-pane">
           <section>

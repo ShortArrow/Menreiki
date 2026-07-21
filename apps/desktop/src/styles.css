@@ -262,8 +262,29 @@ h2 {
 .panes {
   flex: 1;
   display: grid;
-  grid-template-columns: 108px minmax(280px, 1fr) minmax(280px, 400px);
+  /* Columns are set inline (draggable); this is the initial fallback. */
+  grid-template-columns: 108px 6px minmax(0, 1fr) 6px 360px;
   min-height: 0;
+}
+
+.pane-gutter {
+  background: var(--border-soft);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.pane-gutter:hover,
+.pane-gutter:active {
+  background: var(--accent);
+}
+
+.viewer-toolbar .spacer {
+  flex: 1;
+}
+
+.theme-button {
+  font-size: 15px;
+  padding: 2px 8px;
 }
 
 /* ---- Page list ---- */
@@ -417,6 +438,44 @@ h2 {
 .finding-rect.search {
   fill: rgba(151, 71, 255, 0.18);
   stroke: rgba(151, 71, 255, 0.95);
+}
+
+/* ---- Pending-rule preview overlay ---- */
+
+.rule-preview {
+  pointer-events: none;
+}
+
+.preview-rect {
+  stroke-width: 2;
+}
+
+.preview-rect.erase {
+  fill: rgba(20, 20, 20, 0.82);
+  stroke: rgba(0, 0, 0, 0.9);
+}
+
+.preview-rect.mask {
+  fill: rgba(40, 90, 200, 0.55);
+  stroke: rgba(40, 90, 200, 0.95);
+}
+
+.preview-rect.replace {
+  fill: rgba(24, 150, 90, 0.28);
+  stroke: rgba(24, 150, 90, 0.95);
+}
+
+.preview-label {
+  fill: #ffffff;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.85);
+  stroke-width: 3;
+  font-weight: 700;
+  dominant-baseline: alphabetic;
+}
+
+.preview-label.replace {
+  fill: #eafff3;
 }
 
 .finding-rect.highlight {

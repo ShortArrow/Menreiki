@@ -42,17 +42,23 @@ export default function App() {
           project={project}
           onProjectChange={setProject}
           onClose={() => setProject(null)}
+          theme={theme}
+          onToggleTheme={toggleTheme}
         />
       ) : (
-        <HomeView onOpened={setProject} />
+        <>
+          <HomeView onOpened={setProject} />
+          {/* Review view carries its own toggle in the toolbar so this
+              floating one never overlaps the side pane's content. */}
+          <button
+            className="theme-toggle"
+            onClick={toggleTheme}
+            title="テーマを切り替える"
+          >
+            {theme === "dark" ? "☀" : "🌙"}
+          </button>
+        </>
       )}
-      <button
-        className="theme-toggle"
-        onClick={toggleTheme}
-        title="テーマを切り替える"
-      >
-        {theme === "dark" ? "☀" : "🌙"}
-      </button>
     </>
   );
 }

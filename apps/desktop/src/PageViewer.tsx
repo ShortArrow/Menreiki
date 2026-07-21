@@ -4,6 +4,13 @@ import type { Finding, Rect } from "./types";
 
 export type DrawMode = "none" | "erase" | "mask";
 
+type PreviewAction = "keep" | "erase" | "mask" | "replace";
+const PREVIEW_LABELS: Record<Exclude<PreviewAction, "keep">, string> = {
+  erase: "消去",
+  mask: "マスク",
+  replace: "置換",
+};
+
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
 
@@ -26,6 +33,9 @@ export default function PageViewer(props: {
   highlightKey: string | null;
   findingKey: (finding: Finding) => string;
   drawMode: DrawMode;
+  /// text → the transformation it will receive, painted over the page so the
+  /// reviewer sees the pending result in place. Null hides the preview.
+  rulePreview: Map<string, { action: PreviewAction; value: string }> | null;
   focusRect: Rect | null;
   focusNonce: number;
   onRegion: (rect: Rect) => void;
@@ -243,6 +253,38 @@ export default function PageViewer(props: {
                   <title>クリックでこの領域ルールを削除</title>
                 </rect>
               ))}
+              {props.rulePreview &&
+                props.findings.map((finding, index) => {
+                  const rule = props.rulePreview?.get(finding.text);
+                  if (!rule || rule.action === "keep") return null;
+                  const fontSize = Math.max(
+                    12,
+                    Math.min(finding.rect.height * 0.9, 32),
+                  );
+                  const label =
+                    rule.action === "replace"
+                      ? `→ ${rule.value || "（仮称）"}`
+                      : PREVIEW_LABELS[rule.action];
+                  return (
+                    <g key={`preview-${index}`} className="rule-preview">
+                      <rect
+                        className={`preview-rect ${rule.action}`}
+                        x={finding.rect.x}
+                        y={finding.rect.y}
+                        width={finding.rect.width}
+                        height={finding.rect.height}
+                      />
+                      <text
+                        className={`preview-label ${rule.action}`}
+                        x={finding.rect.x + 2}
+                        y={finding.rect.y - 3}
+                        fontSize={fontSize}
+                      >
+                        {label.length > 24 ? `${label.slice(0, 24)}…` : label}
+                      </text>
+                    </g>
+                  );
+                })}
               {dragRect && (
                 <rect
                   className="drag-rect"
