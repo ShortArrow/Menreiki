@@ -26,8 +26,15 @@ pub fn groups() -> Vec<DetectorGroup> {
             format!(
                 "(?:{forms})(?:\\s*{ORG_CHAR}){{1,20}}\
                  |(?:{ORG_CHAR}\\s*){{1,20}}(?:{forms})\
-                 |(?:{ORG_CHAR}\\s*){{2,20}}(?:グループ|ホールディングス)"
+                 |(?:{ORG_CHAR}\\s*){{2,20}}(?:グ\\s*ル\\s*ー\\s*プ|ホールディングス|カ\\s*ン\\s*パ\\s*ニ\\s*ー|コーポレーション)"
             ),
+        ),
+        (
+            // A proper noun a document defines an abbreviation for, e.g.
+            // 「(以下「○○」と称する)」; report just the name, not the phrase.
+            "aliased-name",
+            "organization",
+            format!("(?P<keep>(?:{ORG_CHAR}\\s*){{2,20}})[」』】]?\\s*と\\s*称"),
         ),
         (
             "department",
@@ -293,6 +300,37 @@ mod tests {
         assert!(orgs.contains(&"株式会社ベータ電機"), "found: {orgs:?}");
         assert!(orgs.contains(&"ベータ電子株式会社"), "found: {orgs:?}");
         assert!(orgs.iter().any(|t| t.contains("アルファ技研")), "found: {orgs:?}");
+    }
+
+    #[test]
+    fn katakana_company_suffixes_are_flagged() {
+        let page = page(&[
+            "詳細はアルファカンパニーへ",
+            "供給元はベータコーポレーションとする",
+            "字間の空いた ガ ン マ カ ン パ ニ ー も対象",
+        ]);
+        let findings = detect_page(&page, &builtin_rules());
+        let orgs = by_category(&findings, "organization");
+
+        assert!(orgs.iter().any(|t| t.contains("アルファカンパニー")), "found: {orgs:?}");
+        assert!(orgs.iter().any(|t| t.contains("ベータコーポレーション")), "found: {orgs:?}");
+        assert!(
+            orgs.iter().any(|t| t.replace([' ', '　'], "").ends_with("カンパニー")),
+            "spaced company suffix split: {orgs:?}"
+        );
+    }
+
+    #[test]
+    fn a_defined_alias_reports_only_the_proper_noun() {
+        let page = page(&[
+            "本契約において甲を株式会社アルファ技研（以下「アルファ」と称する）",
+            "対象製品をガンマ計測器と称す",
+        ]);
+        let findings = detect_page(&page, &builtin_rules());
+        let orgs = by_category(&findings, "organization");
+
+        assert!(orgs.contains(&"アルファ"), "alias not reported alone: {orgs:?}");
+        assert!(orgs.contains(&"ガンマ計測器"), "found: {orgs:?}");
     }
 
     #[test]

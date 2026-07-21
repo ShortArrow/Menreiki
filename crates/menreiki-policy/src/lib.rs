@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use menreiki_core::{EditStyle, Finding, PageEdit, PageOcr, Rect};
+use menreiki_core::{EditStyle, Finding, PageEdit, PageOcr, Rect, TextAlign};
 use menreiki_detect::detect_page;
 use menreiki_lang_ja::literal_rule;
 use serde::Deserialize;
@@ -54,7 +54,11 @@ pub enum Action {
     Keep,
     Remove,
     Mask,
-    Replace { value: String },
+    Replace {
+        value: String,
+        #[serde(default)]
+        align: TextAlign,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -142,8 +146,9 @@ fn edit_style(action: &Action) -> Option<EditStyle> {
         Action::Keep => None,
         Action::Remove => Some(EditStyle::Erase),
         Action::Mask => Some(EditStyle::Mask),
-        Action::Replace { value } => Some(EditStyle::ReplaceText {
+        Action::Replace { value, align } => Some(EditStyle::ReplaceText {
             text: value.clone(),
+            align: *align,
         }),
     }
 }
@@ -258,10 +263,30 @@ rules:
         assert_eq!(
             plans[0][0].style,
             EditStyle::ReplaceText {
-                text: "開発会社A".to_string()
+                text: "開発会社A".to_string(),
+                align: TextAlign::Center,
             }
         );
         assert!(plans[1].is_empty());
+    }
+
+    #[test]
+    fn replace_alignment_is_parsed_and_carried_into_the_edit() {
+        let policy = parse_policy(
+            "rules:\n  - match: { text: 株式会社アルファ }\n    action: { type: replace, value: A, align: right }\n",
+        )
+        .unwrap();
+        let ocr = vec![page_with_text("納入元は株式会社アルファです")];
+
+        let plans = plan_page_edits(&policy, &ocr, &[vec![]]).unwrap();
+
+        assert_eq!(
+            plans[0][0].style,
+            EditStyle::ReplaceText {
+                text: "A".to_string(),
+                align: TextAlign::Right,
+            }
+        );
     }
 
     #[test]

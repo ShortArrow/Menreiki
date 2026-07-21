@@ -771,10 +771,42 @@ button.rule-target:hover {
   min-width: 80px;
 }
 
+.align-toggle {
+  display: inline-flex;
+  flex: none;
+}
+
+.align-btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 1px 5px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.align-btn.current {
+  background: var(--strong-chip-bg);
+  color: var(--strong-chip-text);
+  border-color: var(--strong-chip-bg);
+}
+
 /* ---- Findings ---- */
 
 .findings-section {
   min-height: 0;
+}
+
+.finding-filter {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.finding-filter input {
+  flex: 1;
+  min-width: 100px;
 }
 
 .findings-list {
@@ -783,6 +815,13 @@ button.rule-target:hover {
   gap: 4px;
   max-height: 40vh;
   overflow-y: auto;
+}
+
+/* Clear separation so the results block never reads as overlapping the
+   findings list above it. */
+.results-section {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 12px;
 }
 
 .finding-row {

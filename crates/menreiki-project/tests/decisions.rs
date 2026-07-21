@@ -21,11 +21,13 @@ fn sample_decisions() -> ReviewDecisions {
             text: "taro@example.com".to_string(),
             action: "mask".to_string(),
             value: String::new(),
+            align: None,
         }],
         texts: vec![TextDecision {
             text: "株式会社アルファ技研".to_string(),
             action: "replace".to_string(),
             value: "開発会社A".to_string(),
+            align: Some(menreiki_core::TextAlign::Right),
         }],
         regions: vec![RegionDecision {
             rect: Rect {

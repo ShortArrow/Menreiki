@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use menreiki_core::Rect;
+use menreiki_core::{Rect, TextAlign};
 use serde::{Deserialize, Serialize};
 
 use crate::layout::{decisions_path, DECISIONS_DIR};
@@ -29,6 +29,9 @@ pub struct FindingDecision {
     pub action: String,
     #[serde(default)]
     pub value: String,
+    /// Horizontal placement of the replacement text (replace only).
+    #[serde(default)]
+    pub align: Option<TextAlign>,
 }
 
 /// Document-wide decision on a user-searched text.
@@ -39,6 +42,9 @@ pub struct TextDecision {
     pub action: String,
     #[serde(default)]
     pub value: String,
+    /// Horizontal placement of the replacement text (replace only).
+    #[serde(default)]
+    pub align: Option<TextAlign>,
 }
 
 /// A rectangle to blank, on one page or on all of them.

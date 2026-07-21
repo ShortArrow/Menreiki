@@ -5,11 +5,7 @@ import type { Finding, Rect } from "./types";
 export type DrawMode = "none" | "erase" | "mask";
 
 type PreviewAction = "keep" | "erase" | "mask" | "replace";
-const PREVIEW_LABELS: Record<Exclude<PreviewAction, "keep">, string> = {
-  erase: "消去",
-  mask: "マスク",
-  replace: "置換",
-};
+export type TextAlign = "left" | "center" | "right";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 8;
@@ -35,7 +31,10 @@ export default function PageViewer(props: {
   drawMode: DrawMode;
   /// text → the transformation it will receive, painted over the page so the
   /// reviewer sees the pending result in place. Null hides the preview.
-  rulePreview: Map<string, { action: PreviewAction; value: string }> | null;
+  rulePreview: Map<
+    string,
+    { action: PreviewAction; value: string; align?: TextAlign }
+  > | null;
   focusRect: Rect | null;
   focusNonce: number;
   onRegion: (rect: Rect) => void;
@@ -257,31 +256,52 @@ export default function PageViewer(props: {
                 props.findings.map((finding, index) => {
                   const rule = props.rulePreview?.get(finding.text);
                   if (!rule || rule.action === "keep") return null;
-                  const fontSize = Math.max(
-                    12,
-                    Math.min(finding.rect.height * 0.9, 32),
-                  );
-                  const label =
+                  const { x, y, width, height } = finding.rect;
+                  // Draw the pending result in place: erase/mask are solid
+                  // fills; replace paints the substitute text inside the same
+                  // box, so its length and alignment against the original are
+                  // visible before applying.
+                  const text =
                     rule.action === "replace"
-                      ? `→ ${rule.value || "（仮称）"}`
-                      : PREVIEW_LABELS[rule.action];
+                      ? rule.value || "（仮称）"
+                      : rule.action === "mask"
+                        ? "■".repeat(Math.max(1, [...finding.text].length))
+                        : null;
+                  const fontSize = Math.max(8, Math.min(height * 0.8, 40));
+                  const align = rule.align ?? "center";
+                  const anchorX =
+                    align === "right"
+                      ? x + width - 2
+                      : align === "left"
+                        ? x + 2
+                        : x + width / 2;
+                  const textAnchor =
+                    align === "right"
+                      ? "end"
+                      : align === "left"
+                        ? "start"
+                        : "middle";
                   return (
                     <g key={`preview-${index}`} className="rule-preview">
                       <rect
                         className={`preview-rect ${rule.action}`}
-                        x={finding.rect.x}
-                        y={finding.rect.y}
-                        width={finding.rect.width}
-                        height={finding.rect.height}
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
                       />
-                      <text
-                        className={`preview-label ${rule.action}`}
-                        x={finding.rect.x + 2}
-                        y={finding.rect.y - 3}
-                        fontSize={fontSize}
-                      >
-                        {label.length > 24 ? `${label.slice(0, 24)}…` : label}
-                      </text>
+                      {text !== null && (
+                        <text
+                          className={`preview-label ${rule.action}`}
+                          x={anchorX}
+                          y={y + height / 2}
+                          fontSize={fontSize}
+                          textAnchor={textAnchor}
+                          dominantBaseline="central"
+                        >
+                          {text}
+                        </text>
+                      )}
                     </g>
                   );
                 })}

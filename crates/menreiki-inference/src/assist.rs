@@ -98,25 +98,44 @@ fn extract_json_array(content: &str) -> Result<String, InferenceError> {
             "malformed JSON array in model output".to_string(),
         ));
     }
-    Ok(strip_trailing_commas(&content[start..=end]))
+    Ok(sanitize_model_json(&content[start..=end]))
 }
 
-/// Removes commas that immediately precede a closing `]` or `}` (ignoring
-/// whitespace), while leaving commas inside string literals untouched.
-fn strip_trailing_commas(json: &str) -> String {
+/// Repairs the two JSON mistakes small local models make most:
+/// - trailing commas before a closing `]`/`}` (strict JSON forbids them), and
+/// - raw control characters (an unescaped newline/tab) inside a string, which
+///   serde rejects with "control character found while parsing a string".
+///
+/// Commas and control characters are only rewritten in the context that
+/// matters — commas outside strings, control characters inside them — so real
+/// data is preserved.
+fn sanitize_model_json(json: &str) -> String {
     let bytes = json.as_bytes();
     let mut out = String::with_capacity(json.len());
     let mut in_string = false;
     let mut escaped = false;
     for (index, ch) in json.char_indices() {
         if in_string {
-            out.push(ch);
             if escaped {
                 escaped = false;
+                out.push(ch);
             } else if ch == '\\' {
                 escaped = true;
+                out.push(ch);
             } else if ch == '"' {
                 in_string = false;
+                out.push(ch);
+            } else if (ch as u32) < 0x20 {
+                // Escape the raw control character instead of dropping it, so
+                // "line1\nline2" survives as a valid two-line string value.
+                match ch {
+                    '\n' => out.push_str("\\n"),
+                    '\r' => out.push_str("\\r"),
+                    '\t' => out.push_str("\\t"),
+                    other => out.push_str(&format!("\\u{:04x}", other as u32)),
+                }
+            } else {
+                out.push(ch);
             }
             continue;
         }
@@ -250,5 +269,17 @@ mod tests {
         let suggestions = parse_suggestions(output).unwrap();
 
         assert_eq!(suggestions, vec!["A株式会社, B事業部".to_string()]);
+    }
+
+    #[test]
+    fn escapes_raw_control_characters_inside_strings() {
+        // A model emitted a literal newline inside a reason string, which
+        // strict JSON rejects ("control character found while parsing").
+        let output = "[{\"category\":\"person\",\"text\":\"田中太郎\",\"reason\":\"社員\n担当\"}]";
+
+        let candidates = parse_candidates(output).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].reason, "社員\n担当");
     }
 }

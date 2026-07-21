@@ -135,25 +135,36 @@ impl DetectorSet {
 }
 
 /// Applies every rule to every recognized line of a page.
+///
+/// A rule whose pattern defines a named group `keep` reports only that group
+/// (text, coordinates, and the following-character check), while the rest of
+/// the pattern acts as required context — the way to match "○○と称する" but
+/// report just the "○○". Rules without it report the whole match.
 pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
     let mut findings = Vec::new();
     for line in &page.lines {
         let words = locate_words(&line.text, &line.words);
         let line_rect = union_rects(words.iter().map(|(_, rect)| *rect));
         for rule in rules {
-            for matched in rule.pattern.find_iter(&line.text) {
+            for captures in rule.pattern.captures_iter(&line.text) {
+                let Some(reported) = captures
+                    .name("keep")
+                    .or_else(|| captures.get(0))
+                else {
+                    continue;
+                };
                 if let Some(post_filter) = rule.post_filter {
-                    let following = line.text[matched.end()..].chars().next();
-                    if !post_filter(matched.as_str(), following) {
+                    let following = line.text[reported.end()..].chars().next();
+                    if !post_filter(reported.as_str(), following) {
                         continue;
                     }
                 }
-                let rect = rect_for_range(matched.range(), &words)
+                let rect = rect_for_range(reported.range(), &words)
                     .or(line_rect)
                     .unwrap_or(EMPTY_RECT);
                 findings.push(Finding {
                     category: rule.category.clone(),
-                    text: matched.as_str().to_string(),
+                    text: reported.as_str().to_string(),
                     rect,
                     detector: rule.detector.clone(),
                     note: None,
@@ -396,6 +407,19 @@ mod tests {
         // "ab": 'a' followed by 'b' (alphabetic) -> rejected.
         // "aX": 'a' followed by 'X' (alphabetic) -> rejected too.
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn a_keep_group_reports_only_that_span() {
+        // Match "○○と称す" for context but report just the "○○".
+        let page = page(&["以下アルファ商事と称する"]);
+        let rules =
+            vec![RegexRule::new("organization", r"(?P<keep>[アルファ商事]+)と称").unwrap()];
+
+        let findings = detect_page(&page, &rules);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].text, "アルファ商事");
     }
 
     fn group(id: &str, pattern: &str) -> DetectorGroup {

@@ -40,6 +40,7 @@ import type {
   ProjectInfo,
   Rect,
   ReviewDecisions,
+  TextAlign,
 } from "./types";
 
 type DecisionAction = "keep" | "erase" | "mask" | "replace";
@@ -47,12 +48,14 @@ type DecisionAction = "keep" | "erase" | "mask" | "replace";
 interface Decision {
   action: DecisionAction;
   value: string;
+  align?: TextAlign;
 }
 
 interface TextRule {
   text: string;
   action: Exclude<DecisionAction, "keep">;
   value: string;
+  align?: TextAlign;
 }
 
 interface RegionRule {
@@ -200,6 +203,35 @@ function loadPaneWidths(): { left: number; right: number } {
   return DEFAULT_PANE_WIDTHS;
 }
 
+/// Left/center/right placement picker for a replacement, shown next to the
+/// replace value so the reviewer can align a substitute of a different length
+/// to the original's edge. Center is the default.
+function AlignToggle(props: {
+  value: TextAlign | undefined;
+  onChange: (align: TextAlign) => void;
+}) {
+  const current = props.value ?? "center";
+  const options: [TextAlign, string, string][] = [
+    ["left", "⇤", "左揃え"],
+    ["center", "≡", "中央揃え"],
+    ["right", "⇥", "右揃え"],
+  ];
+  return (
+    <span className="align-toggle">
+      {options.map(([align, glyph, title]) => (
+        <button
+          key={align}
+          className={current === align ? "align-btn current" : "align-btn"}
+          title={title}
+          onClick={() => props.onChange(align)}
+        >
+          {glyph}
+        </button>
+      ))}
+    </span>
+  );
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -238,6 +270,9 @@ export default function ReviewView(props: {
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
+  const [findingFilter, setFindingFilter] = useState("");
+  const [findingCategoryFilter, setFindingCategoryFilter] = useState("all");
+  const [findingUndecidedOnly, setFindingUndecidedOnly] = useState(false);
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
@@ -264,6 +299,7 @@ export default function ReviewView(props: {
           record[`${finding.category}|::|${finding.text}`] = {
             action: finding.action as DecisionAction,
             value: finding.value,
+            align: finding.align,
           };
         }
         setDecisions(record);
@@ -272,6 +308,7 @@ export default function ReviewView(props: {
             text: text.text,
             action: text.action as Exclude<DecisionAction, "keep">,
             value: text.value,
+            align: text.align,
           })),
         );
         setRegionRules(
@@ -303,12 +340,14 @@ export default function ReviewView(props: {
             text: rest.join("|::|"),
             action: decision.action,
             value: decision.value,
+            align: decision.align,
           };
         }),
         texts: textRules.map((rule) => ({
           text: rule.text,
           action: rule.action,
           value: rule.value,
+          align: rule.align,
         })),
         regions: regionRules.map((rule) => ({
           rect: rule.rect,
@@ -484,6 +523,36 @@ export default function ReviewView(props: {
     [findings],
   );
 
+  const findingCategories = useMemo(
+    () =>
+      [...new Set(flatFindings.map(({ finding }) => finding.category))].sort(),
+    [flatFindings],
+  );
+
+  const filteredFindings = useMemo(() => {
+    const needle = findingFilter.trim().toLowerCase();
+    return flatFindings.filter(({ pageIndex, finding }) => {
+      if (
+        findingCategoryFilter !== "all" &&
+        finding.category !== findingCategoryFilter
+      )
+        return false;
+      if (findingUndecidedOnly && decisions[findingKey(finding)]) return false;
+      if (!needle) return true;
+      return (
+        finding.text.toLowerCase().includes(needle) ||
+        finding.category.toLowerCase().includes(needle) ||
+        `p.${pageIndex + 1}`.includes(needle)
+      );
+    });
+  }, [
+    flatFindings,
+    findingFilter,
+    findingCategoryFilter,
+    findingUndecidedOnly,
+    decisions,
+  ]);
+
   const decidedEntries = useMemo(() => {
     const unique = new Map<string, Finding>();
     for (const { finding } of flatFindings) {
@@ -509,6 +578,7 @@ export default function ReviewView(props: {
       text: string,
       action: Exclude<DecisionAction, "keep">,
       value: string,
+      align?: TextAlign,
     ) => {
       if (!text || seenTexts.has(text)) return;
       seenTexts.add(text);
@@ -516,7 +586,7 @@ export default function ReviewView(props: {
         match: { text },
         action:
           action === "replace"
-            ? { type: "replace", value: value || "■■■" }
+            ? { type: "replace", value: value || "■■■", align: align ?? "center" }
             : action === "mask"
               ? { type: "mask" }
               : { type: "remove" },
@@ -532,10 +602,11 @@ export default function ReviewView(props: {
         entry.finding.text,
         entry.decision.action as Exclude<DecisionAction, "keep">,
         entry.decision.value,
+        entry.decision.align,
       );
     }
     for (const rule of textRules) {
-      pushTextRule(rule.text, rule.action, rule.value);
+      pushTextRule(rule.text, rule.action, rule.value, rule.align);
     }
     for (const region of regionRules) {
       rules.push({
@@ -554,7 +625,10 @@ export default function ReviewView(props: {
   /// finding on the page will become (green replace / blue mask / red erase),
   /// mirroring the text rules the policy will apply.
   const previewByText = useMemo(() => {
-    const map = new Map<string, { action: DecisionAction; value: string }>();
+    const map = new Map<
+      string,
+      { action: DecisionAction; value: string; align?: TextAlign }
+    >();
     for (const entity of entities) {
       for (const variant of entity.variants) {
         if (!map.has(variant))
@@ -566,11 +640,16 @@ export default function ReviewView(props: {
         map.set(entry.finding.text, {
           action: entry.decision.action,
           value: entry.decision.value,
+          align: entry.decision.align,
         });
     }
     for (const rule of textRules) {
       if (!map.has(rule.text))
-        map.set(rule.text, { action: rule.action, value: rule.value });
+        map.set(rule.text, {
+          action: rule.action,
+          value: rule.value,
+          align: rule.align,
+        });
     }
     return map;
   }, [entities, decidedEntries, textRules]);
@@ -779,8 +858,25 @@ export default function ReviewView(props: {
   function setDecisionValue(key: string, value: string) {
     setDecisions((current) => ({
       ...current,
-      [key]: { action: current[key]?.action ?? "replace", value },
+      [key]: { ...current[key], action: current[key]?.action ?? "replace", value },
     }));
+  }
+
+  function setDecisionAlign(key: string, align: TextAlign) {
+    setDecisions((current) => ({
+      ...current,
+      [key]: {
+        action: current[key]?.action ?? "replace",
+        value: current[key]?.value ?? "",
+        align,
+      },
+    }));
+  }
+
+  function setTextRuleAlign(index: number, align: TextAlign) {
+    setTextRules((current) =>
+      current.map((rule, i) => (i === index ? { ...rule, align } : rule)),
+    );
   }
 
   function clearAllRules() {
@@ -1204,6 +1300,10 @@ export default function ReviewView(props: {
                         category={entry.finding.category}
                         onPick={(value) => setDecisionValue(entry.key, value)}
                       />
+                      <AlignToggle
+                        value={entry.decision.align}
+                        onChange={(align) => setDecisionAlign(entry.key, align)}
+                      />
                     </>
                   )}
                   <button onClick={() => setDecision(entry.key, "undecided")}>
@@ -1247,6 +1347,10 @@ export default function ReviewView(props: {
                             ),
                           )
                         }
+                      />
+                      <AlignToggle
+                        value={rule.align}
+                        onChange={(align) => setTextRuleAlign(index, align)}
                       />
                     </>
                   )}
@@ -1443,9 +1547,45 @@ export default function ReviewView(props: {
           </section>
 
           <section className="findings-section">
-            <h2>検出候補（{flatFindings.length}件）</h2>
+            <h2>
+              検出候補（{filteredFindings.length}
+              {filteredFindings.length !== flatFindings.length
+                ? ` / ${flatFindings.length}`
+                : ""}
+              件）
+            </h2>
+            <div className="finding-filter">
+              <input
+                value={findingFilter}
+                placeholder="絞り込み（語・分類・p.3）"
+                onChange={(event) => setFindingFilter(event.target.value)}
+              />
+              <select
+                value={findingCategoryFilter}
+                onChange={(event) =>
+                  setFindingCategoryFilter(event.target.value)
+                }
+              >
+                <option value="all">すべての分類</option>
+                {findingCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              <label className="toggle">
+                <input
+                  type="checkbox"
+                  checked={findingUndecidedOnly}
+                  onChange={(event) =>
+                    setFindingUndecidedOnly(event.target.checked)
+                  }
+                />
+                未判断のみ
+              </label>
+            </div>
             <div className="findings-list">
-              {flatFindings.map(({ pageIndex, finding }, index) => {
+              {filteredFindings.map(({ pageIndex, finding }, index) => {
                 const key = findingKey(finding);
                 const decision = decisions[key];
                 return (
@@ -1518,10 +1658,13 @@ export default function ReviewView(props: {
                     : "解析を実行すると候補が表示されます"}
                 </p>
               )}
+              {flatFindings.length > 0 && filteredFindings.length === 0 && (
+                <p className="status">絞り込み条件に一致する候補はありません</p>
+              )}
             </div>
           </section>
 
-          <section>
+          <section className="results-section">
             <h2>結果</h2>
             {applySummary && (
               <p>

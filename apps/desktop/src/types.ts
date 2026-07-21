@@ -63,8 +63,14 @@ export interface Entity {
 }
 
 export interface ReviewDecisions {
-  findings: { category: string; text: string; action: string; value: string }[];
-  texts: { text: string; action: string; value: string }[];
+  findings: {
+    category: string;
+    text: string;
+    action: string;
+    value: string;
+    align?: TextAlign;
+  }[];
+  texts: { text: string; action: string; value: string; align?: TextAlign }[];
   regions: {
     rect: Rect;
     action: string;
@@ -73,11 +79,13 @@ export interface ReviewDecisions {
   }[];
 }
 
+export type TextAlign = "left" | "center" | "right";
+
 export type RuleAction =
   | { type: "keep" }
   | { type: "remove" }
   | { type: "mask" }
-  | { type: "replace"; value: string };
+  | { type: "replace"; value: string; align?: TextAlign };
 
 export interface PolicyRule {
   name?: string;

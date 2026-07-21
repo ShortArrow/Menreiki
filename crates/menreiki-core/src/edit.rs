@@ -17,6 +17,22 @@ pub enum EditStyle {
     Erase,
     /// Cover the region with a solid box that shows something was removed.
     Mask,
-    /// Erase the region and draw replacement text in its place.
-    ReplaceText { text: String },
+    /// Erase the region and draw replacement text in its place. `align`
+    /// controls horizontal placement when the substitute is a different
+    /// length than the original — the reviewer's choice per rule.
+    ReplaceText {
+        text: String,
+        #[serde(default)]
+        align: TextAlign,
+    },
+}
+
+/// Horizontal placement of replacement text within its region.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TextAlign {
+    Left,
+    #[default]
+    Center,
+    Right,
 }

@@ -5,7 +5,7 @@ use ab_glyph::{FontVec, PxScale};
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_text_mut, text_size};
 use imageproc::rect::Rect as PixelRect;
-use menreiki_core::{EditStyle, PageEdit, Rect};
+use menreiki_core::{EditStyle, PageEdit, Rect, TextAlign};
 
 const PAPER_WHITE: Rgba<u8> = Rgba([255, 255, 255, 255]);
 const MASK_BLACK: Rgba<u8> = Rgba([0, 0, 0, 255]);
@@ -50,10 +50,10 @@ pub fn apply_edits(
         match &edit.style {
             EditStyle::Erase => draw_filled_rect_mut(&mut image, area, PAPER_WHITE),
             EditStyle::Mask => draw_filled_rect_mut(&mut image, area, MASK_BLACK),
-            EditStyle::ReplaceText { text } => {
+            EditStyle::ReplaceText { text, align } => {
                 draw_filled_rect_mut(&mut image, area, PAPER_WHITE);
                 let font = font.ok_or(EditError::FontRequired)?;
-                draw_fitted_text(&mut image, area, text, font);
+                draw_fitted_text(&mut image, area, text, font, *align);
             }
         }
     }
@@ -76,16 +76,30 @@ fn clip_to_image(rect: &Rect, image: &RgbaImage) -> Option<PixelRect> {
     Some(PixelRect::at(left, top).of_size((right - left) as u32, (bottom - top) as u32))
 }
 
-/// Draws `text` centered in `area`, shrinking it as needed (PRD's automatic
-/// shrink when a replacement does not fit its region).
-fn draw_fitted_text(image: &mut RgbaImage, area: PixelRect, text: &str, font: &FontVec) {
+/// Draws `text` in `area`, aligned horizontally per `align` and shrunk as
+/// needed (PRD's automatic shrink when a replacement does not fit its region).
+/// Alignment lets the reviewer keep a shorter or longer substitute flush with
+/// the original's left or right edge instead of always centered.
+fn draw_fitted_text(
+    image: &mut RgbaImage,
+    area: PixelRect,
+    text: &str,
+    font: &FontVec,
+    align: TextAlign,
+) {
     let mut scale = PxScale::from(area.height() as f32 * 0.8);
     let (text_width, _) = text_size(scale, font, text);
     if text_width > 0 && text_width as f32 > area.width() as f32 {
         scale = PxScale::from(scale.y * area.width() as f32 / text_width as f32);
     }
     let (fitted_width, fitted_height) = text_size(scale, font, text);
-    let x = area.left() + ((area.width() as i32 - fitted_width as i32) / 2).max(0);
+    let slack = (area.width() as i32 - fitted_width as i32).max(0);
+    let offset_x = match align {
+        TextAlign::Left => 0,
+        TextAlign::Center => slack / 2,
+        TextAlign::Right => slack,
+    };
+    let x = area.left() + offset_x;
     let y = area.top() + ((area.height() as i32 - fitted_height as i32) / 2).max(0);
     draw_text_mut(image, TEXT_BLACK, x, y, scale, font, text);
 }
@@ -168,6 +182,7 @@ mod tests {
             rect: rect(0.0, 0.0, 50.0, 20.0),
             style: EditStyle::ReplaceText {
                 text: "X".to_string(),
+                align: TextAlign::Center,
             },
         }];
 
@@ -185,6 +200,7 @@ mod tests {
             rect: rect(10.0, 10.0, 180.0, 40.0),
             style: EditStyle::ReplaceText {
                 text: "開発会社A".to_string(),
+                align: TextAlign::Center,
             },
         }];
 
@@ -196,5 +212,34 @@ mod tests {
             .collect();
         assert!(region_pixels.iter().all(|pixel| *pixel != RED));
         assert!(region_pixels.iter().any(|pixel| pixel.0[0] < 128));
+    }
+
+    /// Column of the leftmost dark (glyph) pixel drawn for `text` in a wide
+    /// box under `align`, or None if nothing was drawn.
+    fn leftmost_glyph_x(align: TextAlign, font: &FontVec) -> Option<u32> {
+        let png = red_png(200, 40);
+        let edits = [PageEdit {
+            rect: rect(0.0, 0.0, 200.0, 40.0),
+            style: EditStyle::ReplaceText {
+                text: "AB".to_string(),
+                align,
+            },
+        }];
+        let out = decode(&apply_edits(&png, &edits, Some(font)).unwrap());
+        (0..200).find(|&x| (0..40).any(|y| out.get_pixel(x, y).0[0] < 128))
+    }
+
+    #[test]
+    fn alignment_places_short_replacement_at_the_chosen_edge() {
+        let font = load_font(Path::new(r"C:\Windows\Fonts\msgothic.ttc"))
+            .expect("MS Gothic is preinstalled on Windows");
+
+        let left = leftmost_glyph_x(TextAlign::Left, &font).unwrap();
+        let center = leftmost_glyph_x(TextAlign::Center, &font).unwrap();
+        let right = leftmost_glyph_x(TextAlign::Right, &font).unwrap();
+
+        assert!(left < center, "left {left} not left of center {center}");
+        assert!(center < right, "center {center} not left of right {right}");
+        assert!(left < 10, "left-aligned text should hug the left edge: {left}");
     }
 }

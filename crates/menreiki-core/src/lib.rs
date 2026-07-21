@@ -9,7 +9,7 @@ mod geometry;
 mod ocr;
 mod source;
 
-pub use edit::{EditStyle, PageEdit};
+pub use edit::{EditStyle, PageEdit, TextAlign};
 pub use finding::Finding;
 pub use geometry::Rect;
 pub use ocr::{compose_line_text, OcrLine, PageOcr, Span};
