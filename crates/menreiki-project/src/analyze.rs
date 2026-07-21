@@ -24,15 +24,18 @@ pub enum AnalyzeError {
 /// returns the page count.
 ///
 /// With `resume`, pages whose image already exists are skipped, so an
-/// interrupted run continues where it stopped. `on_page` receives each
-/// finished (or skipped) 0-based page index with the total page count;
-/// returning `false` stops before the next page with
+/// interrupted run continues where it stopped. `pages`, when `Some`,
+/// re-renders only those 0-based pages (forced, ignoring `resume`) and leaves
+/// the rest untouched — the mechanism behind re-analyzing a single page.
+/// `on_page` receives each finished 0-based page index with the total page
+/// count; returning `false` stops before the next page with
 /// [`AnalyzeError::Cancelled`], leaving all finished pages valid.
 pub fn analyze(
     project_dir: &Path,
     rasterizer: &dyn DocumentRasterizer,
     dpi: u32,
     resume: bool,
+    pages: Option<&[u16]>,
     on_page: &mut dyn FnMut(u16, u16) -> bool,
 ) -> Result<u16, AnalyzeError> {
     let manifest = load_manifest(project_dir)?;
@@ -44,10 +47,19 @@ pub fn analyze(
 
     let total = rasterizer.page_count(&source)?;
     for page_index in 0..total {
-        let path = page_image_path(project_dir, page_index);
-        if !(resume && path.exists()) {
+        if let Some(selected) = pages {
+            if !selected.contains(&page_index) {
+                continue;
+            }
             let image = rasterizer.rasterize_page(&source, page_index, dpi)?;
-            fs::write(path, &image.png).map_err(AnalyzeError::Pages)?;
+            fs::write(page_image_path(project_dir, page_index), &image.png)
+                .map_err(AnalyzeError::Pages)?;
+        } else {
+            let path = page_image_path(project_dir, page_index);
+            if !(resume && path.exists()) {
+                let image = rasterizer.rasterize_page(&source, page_index, dpi)?;
+                fs::write(path, &image.png).map_err(AnalyzeError::Pages)?;
+            }
         }
         if !on_page(page_index, total) {
             return Err(AnalyzeError::Cancelled);

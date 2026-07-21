@@ -494,6 +494,19 @@ export default function ReviewView(props: {
     };
   }, []);
 
+  // Each page's candidates are written as its OCR finishes; refresh the list
+  // so findings appear mid-run instead of only when analysis completes.
+  useEffect(() => {
+    const unlisten = listen<{ page: number }>("page-detected", () => {
+      void listFindings(project.projectDir)
+        .then((loaded) => setFindings(loaded))
+        .catch(() => {});
+    });
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [project.projectDir]);
+
   async function run<T>(label: string, action: () => Promise<T>) {
     setBusy(label);
     setError(null);
@@ -509,9 +522,9 @@ export default function ReviewView(props: {
     }
   }
 
-  function runAnalyze(scope: AnalysisScope) {
+  function runAnalyze(scope: AnalysisScope, pages?: number[]) {
     void run("解析中…", async () => {
-      if (scope === "all" || scope === "resume") {
+      if ((scope === "all" || scope === "resume") && !pages) {
         setSearchHits(null);
         setAudit(null);
         setApplySummary(null);
@@ -521,7 +534,13 @@ export default function ReviewView(props: {
         setHighlightKey(null);
         setFocus(null);
       }
-      const outcome = await analyzeProject(project.projectDir, scope);
+      const outcome = await analyzeProject(
+        project.projectDir,
+        scope,
+        300,
+        "ja",
+        pages,
+      );
       props.onProjectChange(outcome.project);
       setFindings(await listFindings(project.projectDir).catch(() => []));
       setVersion((current) => current + 1);
@@ -939,6 +958,11 @@ export default function ReviewView(props: {
                     [
                       ["all", "すべて（最初から）", () => runAnalyze("all")],
                       ["resume", "続きから再開", () => runAnalyze("resume")],
+                      [
+                        "page",
+                        `このページ（p.${page + 1}）のみ再解析`,
+                        () => runAnalyze("resume", [page]),
+                      ],
                       ["render", "画像化のみ", () => runAnalyze("render-only")],
                       ["ocr", "OCRのみ＋検出", () => runAnalyze("ocr-only")],
                       ["detect", "検出のみ", () => runAnalyze("detect-only")],

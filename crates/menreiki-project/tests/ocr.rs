@@ -38,7 +38,8 @@ fn writes_one_ocr_json_per_page() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, false, &mut |_, _| true).unwrap();
+    let page_count =
+        ocr_pages(&project_dir, &FakeOcrEngine, false, None, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 2);
     let first: PageOcr =
@@ -53,7 +54,8 @@ fn project_without_rendered_pages_yields_zero() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_pages(&tmp, &[]);
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, false, &mut |_, _| true).unwrap();
+    let page_count =
+        ocr_pages(&project_dir, &FakeOcrEngine, false, None, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 0);
 }
@@ -65,7 +67,8 @@ fn ocr_resume_skips_pages_that_already_have_results() {
     fs::create_dir_all(page_ocr_path(&project_dir, 0).parent().unwrap()).unwrap();
     fs::write(page_ocr_path(&project_dir, 0), "{\"from\":\"previous\"}").unwrap();
 
-    let page_count = ocr_pages(&project_dir, &FakeOcrEngine, true, &mut |_, _| true).unwrap();
+    let page_count =
+        ocr_pages(&project_dir, &FakeOcrEngine, true, None, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 2);
     assert_eq!(
@@ -81,7 +84,7 @@ fn ocr_cancel_keeps_finished_pages() {
     let project_dir = project_with_pages(&tmp, &[b"png-one", b"png-two"]);
 
     let cancel_after_first_page = &mut |_: u16, _: u16| false;
-    let result = ocr_pages(&project_dir, &FakeOcrEngine, false, cancel_after_first_page);
+    let result = ocr_pages(&project_dir, &FakeOcrEngine, false, None, cancel_after_first_page);
 
     assert!(matches!(result, Err(OcrPagesError::Cancelled)));
     assert!(page_ocr_path(&project_dir, 0).exists());

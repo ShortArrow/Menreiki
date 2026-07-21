@@ -185,6 +185,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     rasterizer.as_ref(),
                     dpi,
                     resume,
+                    None,
                     &mut |page_index, total| {
                         eprint!("\rrendering page {} / {total}...", page_index + 1);
                         true
@@ -204,6 +205,7 @@ fn run(cli: Cli) -> Result<(), String> {
                     &project,
                     &ocr_engine,
                     resume,
+                    None,
                     &mut |page_index, total| {
                         eprint!("\rrecognizing page {} / {total}...", page_index + 1);
                         true

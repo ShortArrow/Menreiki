@@ -4,7 +4,7 @@ use std::path::Path;
 use menreiki_core::Finding;
 use menreiki_detect::RegexRule;
 
-use crate::layout::{page_findings_path, FINDINGS_DIR};
+use crate::layout::{page_findings_path, page_ocr_path, FINDINGS_DIR};
 use crate::ocr::{load_ocr_pages, LoadOcrError};
 
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +41,41 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
             .map_err(DetectPagesError::Write)?;
     }
     Ok(ocr_pages.len() as u16)
+}
+
+/// Detects on a single page's stored OCR and writes just that page's findings,
+/// applying the project ignore list. Used to stream candidates into the UI as
+/// each page finishes OCR, before the full [`detect_pages`] pass (which also
+/// needs every page for cross-page repeated-layout detection) runs. Returns
+/// the finding count, or 0 if the page has no OCR yet.
+pub fn detect_single_page(
+    project_dir: &Path,
+    page_index: u16,
+    rules: &[RegexRule],
+) -> Result<usize, DetectPagesError> {
+    let ocr_path = page_ocr_path(project_dir, page_index);
+    if !ocr_path.exists() {
+        return Ok(0);
+    }
+    let text = fs::read_to_string(&ocr_path).map_err(|error| {
+        DetectPagesError::Load(LoadOcrError::Read(error))
+    })?;
+    let ocr: menreiki_core::PageOcr =
+        serde_json::from_str(&text).map_err(|error| DetectPagesError::Load(error.into()))?;
+    let ignored = crate::load_project_settings(project_dir)
+        .map(|settings| settings.ignored)
+        .unwrap_or_default();
+    let mut findings = menreiki_detect::detect_page(&ocr, rules);
+    findings.retain(|finding| {
+        !ignored
+            .iter()
+            .any(|entry| entry.matches(&finding.text, &finding.category))
+    });
+    fs::create_dir_all(project_dir.join(FINDINGS_DIR)).map_err(DetectPagesError::Write)?;
+    let json = serde_json::to_string_pretty(&findings).expect("findings are always serializable");
+    fs::write(page_findings_path(project_dir, page_index), json)
+        .map_err(DetectPagesError::Write)?;
+    Ok(findings.len())
 }
 
 /// Findings of one page, keyed by 0-based page index.

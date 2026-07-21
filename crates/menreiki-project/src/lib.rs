@@ -29,7 +29,10 @@ pub use decisions::{
     load_decisions, save_decisions, DecisionsError, FindingDecision, RegionDecision,
     ReviewDecisions, TextDecision,
 };
-pub use detect::{detect_pages, load_findings, DetectPagesError, LoadFindingsError, PageFindings};
+pub use detect::{
+    detect_pages, detect_single_page, load_findings, DetectPagesError, LoadFindingsError,
+    PageFindings,
+};
 pub use dictionary::{
     add_dictionary_entry, dictionary_rules, load_dictionary, remove_dictionary_entry,
     DictionaryEntry, DictionaryError,

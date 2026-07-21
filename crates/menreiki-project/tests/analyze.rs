@@ -53,7 +53,7 @@ fn analyze_writes_one_png_per_page() {
     let rasterizer = FakeRasterizer::new(vec![b"png-1".to_vec(), b"png-2".to_vec()]);
 
     let mut reported: Vec<(u16, u16)> = Vec::new();
-    let page_count = analyze(&project_dir, &rasterizer, 300, false, &mut |index, total| {
+    let page_count = analyze(&project_dir, &rasterizer, 300, false, None, &mut |index, total| {
         reported.push((index, total));
         true
     })
@@ -70,7 +70,7 @@ fn analyze_requires_an_existing_project() {
     let tmp = tempfile::tempdir().unwrap();
     let rasterizer = FakeRasterizer::new(vec![]);
 
-    let result = analyze(tmp.path(), &rasterizer, 300, false, &mut |_, _| true);
+    let result = analyze(tmp.path(), &rasterizer, 300, false, None, &mut |_, _| true);
 
     assert!(result.is_err());
 }
@@ -82,7 +82,7 @@ fn cancelling_keeps_finished_pages() {
     let rasterizer = FakeRasterizer::new(vec![b"png-1".to_vec(), b"png-2".to_vec()]);
 
     let cancel_after_first_page = &mut |_: u16, _: u16| false;
-    let result = analyze(&project_dir, &rasterizer, 300, false, cancel_after_first_page);
+    let result = analyze(&project_dir, &rasterizer, 300, false, None, cancel_after_first_page);
 
     assert!(matches!(result, Err(AnalyzeError::Cancelled)));
     assert!(page_image_path(&project_dir, 0).exists());
@@ -97,7 +97,7 @@ fn resume_skips_pages_that_already_exist() {
     fs::write(page_image_path(&project_dir, 0), b"from-previous-run").unwrap();
     let rasterizer = FakeRasterizer::new(vec![b"png-1".to_vec(), b"png-2".to_vec()]);
 
-    let page_count = analyze(&project_dir, &rasterizer, 300, true, &mut |_, _| true).unwrap();
+    let page_count = analyze(&project_dir, &rasterizer, 300, true, None, &mut |_, _| true).unwrap();
 
     assert_eq!(page_count, 2);
     assert_eq!(*rasterizer.rendered.borrow(), vec![1]);
@@ -105,5 +105,24 @@ fn resume_skips_pages_that_already_exist() {
         fs::read(page_image_path(&project_dir, 0)).unwrap(),
         b"from-previous-run"
     );
+    assert_eq!(fs::read(page_image_path(&project_dir, 1)).unwrap(), b"png-2");
+}
+
+#[test]
+fn a_page_selection_re_renders_only_those_pages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = fresh_project(&tmp);
+    fs::create_dir_all(page_image_path(&project_dir, 0).parent().unwrap()).unwrap();
+    fs::write(page_image_path(&project_dir, 0), b"old-0").unwrap();
+    fs::write(page_image_path(&project_dir, 1), b"old-1").unwrap();
+    let rasterizer = FakeRasterizer::new(vec![b"png-1".to_vec(), b"png-2".to_vec()]);
+
+    // Re-render page 1 (0-based) only, forced despite the existing image.
+    let page_count =
+        analyze(&project_dir, &rasterizer, 300, true, Some(&[1]), &mut |_, _| true).unwrap();
+
+    assert_eq!(page_count, 2);
+    assert_eq!(*rasterizer.rendered.borrow(), vec![1]);
+    assert_eq!(fs::read(page_image_path(&project_dir, 0)).unwrap(), b"old-0");
     assert_eq!(fs::read(page_image_path(&project_dir, 1)).unwrap(), b"png-2");
 }

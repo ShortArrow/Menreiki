@@ -21,6 +21,7 @@ winreg.workspace = true
 menreiki-adapter-pdfium.workspace = true
 menreiki-adapter-windows-ocr.workspace = true
 menreiki-audit.workspace = true
+menreiki-detect.workspace = true
 menreiki-lang-ja.workspace = true
 menreiki-entity.workspace = true
 menreiki-inference.workspace = true

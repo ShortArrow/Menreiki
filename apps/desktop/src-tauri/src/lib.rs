@@ -206,7 +206,11 @@ struct AnalyzeOutcome {
     project: ProjectInfo,
 }
 
-fn run_detection(project_dir: &Path) -> Result<(), String> {
+/// Builds the project's detection rules from its selected detectors and
+/// dictionary — shared by the full pass and the per-page streaming pass.
+fn build_detection_rules(
+    project_dir: &Path,
+) -> Result<Vec<menreiki_detect::RegexRule>, String> {
     let selection = menreiki_project::load_project_settings(project_dir)
         .map_err(|error| error.to_string())?
         .detectors;
@@ -219,6 +223,11 @@ fn run_detection(project_dir: &Path) -> Result<(), String> {
     let dictionary =
         menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
     rules.extend(menreiki_project::dictionary_rules(&dictionary));
+    Ok(rules)
+}
+
+fn run_detection(project_dir: &Path) -> Result<(), String> {
+    let rules = build_detection_rules(project_dir)?;
     menreiki_project::detect_pages(project_dir, &rules)
         .map(|_| ())
         .map_err(|error| error.to_string())
@@ -237,12 +246,15 @@ async fn analyze_project(
     dpi: u32,
     ocr_language: String,
     scope: AnalysisScope,
+    pages: Option<Vec<u16>>,
 ) -> Result<AnalyzeOutcome, String> {
     let cancel = state.0.clone();
     cancel.store(false, Ordering::Relaxed);
 
     tauri::async_runtime::spawn_blocking(move || {
         let project_dir = PathBuf::from(&project);
+        let pages = pages.filter(|list| !list.is_empty());
+        let page_scope = pages.as_deref();
         let emit = |stage: &str, page: Option<u16>, total: Option<u16>| {
             let _ = app.emit(
                 "analyze-progress",
@@ -265,7 +277,8 @@ async fn analyze_project(
             AnalysisScope::All | AnalysisScope::Resume | AnalysisScope::OcrOnly
         );
 
-        if matches!(scope, AnalysisScope::All) {
+        // A full run starts clean; a page-scoped run keeps the other pages.
+        if matches!(scope, AnalysisScope::All) && page_scope.is_none() {
             menreiki_project::clear_analysis(&project_dir).map_err(|error| error.to_string())?;
         }
 
@@ -277,6 +290,7 @@ async fn analyze_project(
                 rasterizer.as_ref(),
                 dpi,
                 resume,
+                page_scope,
                 &mut |page_index, total| {
                     emit("render", Some(page_index + 1), Some(total));
                     !cancel.load(Ordering::Relaxed)
@@ -292,12 +306,25 @@ async fn analyze_project(
         if ocr {
             emit("ocr", None, None);
             let engine = ocr_engine(&ocr_language)?;
+            // Detect each page as its OCR lands, so candidates appear in the
+            // UI mid-run; the full pass below adds cross-page layout findings.
+            let stream_rules = build_detection_rules(&project_dir)?;
             let result = menreiki_project::ocr_pages(
                 &project_dir,
                 &engine,
                 resume,
+                page_scope,
                 &mut |page_index, total| {
                     emit("ocr", Some(page_index + 1), Some(total));
+                    if menreiki_project::detect_single_page(
+                        &project_dir,
+                        page_index,
+                        &stream_rules,
+                    )
+                    .is_ok()
+                    {
+                        let _ = app.emit("page-detected", serde_json::json!({ "page": page_index }));
+                    }
                     !cancel.load(Ordering::Relaxed)
                 },
             );

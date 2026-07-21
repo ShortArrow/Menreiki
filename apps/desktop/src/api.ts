@@ -58,12 +58,14 @@ export function analyzeProject(
   scope: AnalysisScope,
   dpi = 300,
   ocrLanguage = "ja",
+  pages?: number[],
 ) {
   return invoke<AnalyzeOutcome>("analyze_project", {
     project,
     dpi,
     ocrLanguage,
     scope,
+    pages,
   });
 }
 

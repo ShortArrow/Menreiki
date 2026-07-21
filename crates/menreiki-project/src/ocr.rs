@@ -22,14 +22,16 @@ pub enum OcrPagesError {
 /// `ocr/`, and returns the number of pages processed.
 ///
 /// With `resume`, pages whose OCR result already exists are skipped, so an
-/// interrupted run continues where it stopped. `on_page` receives each
-/// finished (or skipped) 0-based page index with the total page count;
-/// returning `false` stops before the next page with
+/// interrupted run continues where it stopped. `pages`, when `Some`, re-runs
+/// OCR only for those 0-based pages (forced, ignoring `resume`) and leaves the
+/// rest untouched. `on_page` receives each finished 0-based page index with
+/// the total page count; returning `false` stops before the next page with
 /// [`OcrPagesError::Cancelled`], leaving all finished pages valid.
 pub fn ocr_pages(
     project_dir: &Path,
     engine: &dyn OcrEngine,
     resume: bool,
+    pages: Option<&[u16]>,
     on_page: &mut dyn FnMut(u16, u16) -> bool,
 ) -> Result<u16, OcrPagesError> {
     fs::create_dir_all(project_dir.join(OCR_DIR)).map_err(OcrPagesError::Write)?;
@@ -41,7 +43,11 @@ pub fn ocr_pages(
 
     for page_index in 0..total {
         let out_path = page_ocr_path(project_dir, page_index);
-        if !(resume && out_path.exists()) {
+        let forced = pages.map(|selected| selected.contains(&page_index));
+        if forced == Some(false) {
+            continue;
+        }
+        if forced == Some(true) || !(resume && out_path.exists()) {
             let png = fs::read(page_image_path(project_dir, page_index))
                 .map_err(OcrPagesError::Read)?;
             let page_ocr = engine.recognize(&png)?;
