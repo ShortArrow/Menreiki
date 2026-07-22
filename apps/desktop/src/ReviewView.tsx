@@ -593,6 +593,24 @@ export default function ReviewView(props: {
     decisions,
   ]);
 
+  // Collapse identical candidates (same category + text) into one row with an
+  // occurrence count. Decisions are keyed by category+text and already apply
+  // document-wide, so 37 repeated "footer 社" rows only need one entry; the
+  // page overlays still show every instance.
+  const dedupedFindings = useMemo(() => {
+    const byKey = new Map<
+      string,
+      { pageIndex: number; finding: Finding; count: number }
+    >();
+    for (const item of filteredFindings) {
+      const key = findingKey(item.finding);
+      const existing = byKey.get(key);
+      if (existing) existing.count += 1;
+      else byKey.set(key, { ...item, count: 1 });
+    }
+    return [...byKey.values()];
+  }, [filteredFindings]);
+
   const decidedEntries = useMemo(() => {
     const unique = new Map<string, Finding>();
     for (const { finding } of flatFindings) {
@@ -1662,11 +1680,13 @@ export default function ReviewView(props: {
 
           <section className="findings-section">
             <h2>
-              検出候補（{filteredFindings.length}
+              検出候補（{dedupedFindings.length}種
               {filteredFindings.length !== flatFindings.length
-                ? ` / ${flatFindings.length}`
-                : ""}
-              件）
+                ? ` / 全${flatFindings.length}件`
+                : filteredFindings.length !== dedupedFindings.length
+                  ? ` / ${filteredFindings.length}件`
+                  : ""}
+              ）
             </h2>
             <div className="finding-filter">
               <input
@@ -1699,7 +1719,7 @@ export default function ReviewView(props: {
               </label>
             </div>
             <div className="findings-list">
-              {filteredFindings.map(({ pageIndex, finding }, index) => {
+              {dedupedFindings.map(({ pageIndex, finding, count }, index) => {
                 const key = findingKey(finding);
                 const decision = decisions[key];
                 return (
@@ -1722,7 +1742,10 @@ export default function ReviewView(props: {
                       }
                       onClick={() => jumpTo(pageIndex, finding)}
                     >
-                      <span className="page-tag">p.{pageIndex + 1}</span>
+                      <span className="page-tag">
+                        p.{pageIndex + 1}
+                        {count > 1 ? `+${count - 1}` : ""}
+                      </span>
                       <span className={`category-tag cat-${finding.category}`}>
                         {finding.category}
                       </span>

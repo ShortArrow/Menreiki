@@ -162,9 +162,12 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
                 let rect = rect_for_range(reported.range(), &words)
                     .or(line_rect)
                     .unwrap_or(EMPTY_RECT);
-                // A rect covering most of the page is a word-mapping artifact
-                // (words scattered across a mis-grouped line), not a real span.
-                if covers_most_of_page(&rect, page) {
+                // Drop rects that can only be word-mapping artifacts: a span
+                // covering most of the page, or a box far wider than its text
+                // needs (a thin band stretched along an arrow in a diagram).
+                if covers_most_of_page(&rect, page)
+                    || rect_too_wide_for_text(&rect, reported.as_str())
+                {
                     continue;
                 }
                 findings.push(Finding {
@@ -185,6 +188,37 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
 fn covers_most_of_page(rect: &Rect, page: &PageOcr) -> bool {
     let page_area = page.width as f32 * page.height as f32;
     page_area > 0.0 && rect.width * rect.height > page_area * 0.5
+}
+
+/// Whether `rect` is far wider than `text` could fill. Windows OCR returns CJK
+/// as one tight box per character (~as wide as tall), so N characters need
+/// ~N×height; even letter-spaced names stay within a few times that. A box
+/// many times wider is a word-mapping artifact — a box's text unioned with a
+/// distant word along a diagram connector. Long findings (URLs) scale their
+/// width with their length, so they are unaffected.
+fn rect_too_wide_for_text(rect: &Rect, text: &str) -> bool {
+    let chars = text.chars().filter(|c| !c.is_whitespace()).count() as f32;
+    chars > 0.0 && rect.height > 0.0 && rect.width > chars * rect.height * 6.0
+}
+
+/// Whether `text` is page-numbering boilerplate (only digits and separators,
+/// e.g. "30 / 37" or "- 5 -"): repeated on every page but never sensitive, so
+/// it should not clutter the candidate list.
+fn is_numeric_boilerplate(text: &str) -> bool {
+    let mut has_digit = false;
+    for character in text.chars() {
+        if character.is_ascii_digit() {
+            has_digit = true;
+        } else if !character.is_whitespace()
+            && !matches!(
+                character,
+                '/' | '-' | '.' | ',' | '#' | '|' | '(' | ')' | ':' | '－' | '―' | '／' | '～'
+            )
+        {
+            return false;
+        }
+    }
+    has_digit
 }
 
 /// Finds text lines that repeat at the same vertical position across pages —
@@ -224,7 +258,7 @@ pub fn detect_repeated_lines(pages: &[PageOcr]) -> Vec<Vec<Finding>> {
             continue;
         }
         for (page_index, rect, text) in occurrences {
-            if covers_most_of_page(&rect, &pages[page_index]) {
+            if covers_most_of_page(&rect, &pages[page_index]) || is_numeric_boilerplate(&text) {
                 continue;
             }
             let center = vertical_center(&rect, pages[page_index].height);
@@ -449,6 +483,49 @@ mod tests {
         let rules = vec![RegexRule::new("x", "aX").unwrap()];
 
         assert!(detect_page(&page, &rules).is_empty());
+    }
+
+    #[test]
+    fn a_match_far_wider_than_its_text_is_dropped() {
+        // "abcd" mapped to a box far wider than four characters need (stretched
+        // along a diagram arrow). Drop it.
+        let page = PageOcr {
+            width: 1000,
+            height: 1000,
+            lines: vec![OcrLine {
+                text: "abcd".to_string(),
+                words: vec![Span {
+                    text: "abcd".to_string(),
+                    rect: Rect { x: 0.0, y: 500.0, width: 900.0, height: 20.0 },
+                }],
+            }],
+        };
+        let rules = vec![RegexRule::new("x", "abcd").unwrap()];
+
+        assert!(detect_page(&page, &rules).is_empty());
+    }
+
+    #[test]
+    fn page_numbers_are_not_repeated_line_candidates() {
+        let make = |text: &str| PageOcr {
+            width: 1000,
+            height: 1000,
+            lines: vec![OcrLine {
+                text: text.to_string(),
+                words: vec![Span {
+                    text: text.to_string(),
+                    rect: Rect { x: 450.0, y: 960.0, width: 100.0, height: 20.0 },
+                }],
+            }],
+        };
+        let pages = vec![make("30 / 37"), make("31 / 37"), make("32 / 37")];
+
+        let findings = detect_repeated_lines(&pages);
+
+        assert!(
+            findings.iter().all(|page| page.is_empty()),
+            "page-number footers leaked as candidates: {findings:?}"
+        );
     }
 
     #[test]

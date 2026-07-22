@@ -229,24 +229,27 @@ mod tests {
     use menreiki_core::{OcrLine, PageOcr, Rect, Span};
     use menreiki_detect::detect_page;
 
+    // Windows OCR returns CJK text as one word per character, giving each a
+    // tight box; model that so findings map to realistic (not line-wide) rects.
     fn line(text: &str) -> OcrLine {
         let mut x = 0.0;
-        let words = text
-            .split_whitespace()
-            .map(|word| {
-                let rect = Rect {
+        let mut words = Vec::new();
+        for character in text.chars() {
+            if character.is_whitespace() {
+                x += 15.0;
+                continue;
+            }
+            words.push(Span {
+                text: character.to_string(),
+                rect: Rect {
                     x,
                     y: 10.0,
-                    width: word.len() as f32 * 10.0,
+                    width: 20.0,
                     height: 20.0,
-                };
-                x += rect.width + 10.0;
-                Span {
-                    text: word.to_string(),
-                    rect,
-                }
-            })
-            .collect();
+                },
+            });
+            x += 25.0;
+        }
         OcrLine {
             text: text.to_string(),
             words,
