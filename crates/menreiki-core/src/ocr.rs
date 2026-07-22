@@ -88,6 +88,19 @@ pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
         }
         let x_spread = spread(members.iter().map(|&i| frags[i].0.x));
         let y_spread = spread(members.iter().map(|&i| frags[i].0.y));
+        // A real run is a thin line — spread in one axis, a character thick in
+        // the other. A cluster wide in both axes is a grid of cells (a table
+        // column of "+28" values), not one word; leave those characters alone.
+        let char_size = members
+            .iter()
+            .map(|&i| frags[i].0.height)
+            .fold(0.0_f32, f32::max);
+        if x_spread.min(y_spread) > char_size * 1.5 {
+            for &i in &members {
+                lines.push(frags[i].1.clone());
+            }
+            continue;
+        }
         let horizontal = x_spread >= y_spread;
         let mut ordered = members;
         ordered.sort_by(|&a, &b| {
@@ -99,13 +112,26 @@ pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
             .iter()
             .flat_map(|&i| frags[i].1.words.iter().cloned())
             .collect();
-        // A row spaces words by horizontal gap; a column reads straight down.
-        let text = if horizontal {
-            compose_line_text(&words)
+        if horizontal {
+            lines.push(OcrLine {
+                text: compose_line_text(&words),
+                words,
+            });
         } else {
-            words.iter().map(|word| word.text.as_str()).collect()
-        };
-        lines.push(OcrLine { text, words });
+            // A column reads straight down. Which way a rotated horizontal
+            // label reads (top-down for a clockwise turn, bottom-up for a
+            // counter-clockwise one) is ambiguous, so emit both orders and let
+            // detection keep whichever forms a real name.
+            let forward: String = words.iter().map(|word| word.text.as_str()).collect();
+            let mut reversed_words = words.clone();
+            reversed_words.reverse();
+            let reversed: String = reversed_words.iter().map(|word| word.text.as_str()).collect();
+            lines.push(OcrLine { text: forward, words });
+            lines.push(OcrLine {
+                text: reversed,
+                words: reversed_words,
+            });
+        }
     }
     PageOcr {
         width: page.width,
@@ -322,9 +348,10 @@ mod tests {
     }
 
     #[test]
-    fn merges_vertically_stacked_single_characters() {
+    fn merges_vertically_stacked_single_characters_both_directions() {
         // A horizontal label rotated 90°: one character per line, stacked down
-        // a column. It must reassemble top-to-bottom.
+        // a column. Reassemble it both top-to-bottom and bottom-to-top, since
+        // the rotation direction (and so the reading order) is unknown.
         let page = PageOcr {
             width: 200,
             height: 400,
@@ -338,8 +365,36 @@ mod tests {
 
         let merged = merge_row_fragments(&page);
 
-        assert_eq!(merged.lines.len(), 1);
-        assert_eq!(merged.lines[0].text.replace([' ', '　'], ""), "犬芝工業");
+        let texts: Vec<String> = merged
+            .lines
+            .iter()
+            .map(|line| line.text.replace([' ', '　'], ""))
+            .collect();
+        assert!(texts.contains(&"犬芝工業".to_string()), "{texts:?}");
+        assert!(texts.contains(&"業工芝犬".to_string()), "{texts:?}");
+    }
+
+    #[test]
+    fn keeps_a_grid_of_single_characters_separate() {
+        // A table column of "+28" cells: single characters aligned in both a
+        // row and a column form a grid, not one word. They must stay apart so
+        // "+28+28…" is never fabricated into a phone number.
+        let mut lines = Vec::new();
+        for row in 0..4 {
+            let y = row as f32 * 40.0;
+            for (col, ch) in ["+", "2", "8"].iter().enumerate() {
+                lines.push(char_line(ch, col as f32 * 25.0, y));
+            }
+        }
+        let page = PageOcr {
+            width: 200,
+            height: 200,
+            lines,
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 12);
     }
 
     #[test]

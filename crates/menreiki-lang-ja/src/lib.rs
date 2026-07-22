@@ -272,6 +272,49 @@ mod tests {
             .collect()
     }
 
+    fn single(text: &str, x: f32, y: f32) -> OcrLine {
+        OcrLine {
+            text: text.to_string(),
+            words: vec![Span {
+                text: text.to_string(),
+                rect: Rect {
+                    x,
+                    y,
+                    width: 20.0,
+                    height: 20.0,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn a_table_column_of_plus_28_is_not_a_phone_number() {
+        // Each cell reads "+28" as three single-character boxes; aligned in a
+        // column they must not be fabricated into "+28+28…" and matched as an
+        // international phone number.
+        let mut lines = Vec::new();
+        for row in 0..13 {
+            let y = row as f32 * 30.0;
+            for (col, ch) in ["+", "2", "8"].iter().enumerate() {
+                lines.push(single(ch, col as f32 * 24.0, y));
+            }
+        }
+        let page = PageOcr {
+            width: 300,
+            height: 400,
+            lines,
+        };
+
+        let merged = menreiki_core::merge_row_fragments(&page);
+        let findings = detect_page(&merged, &builtin_rules());
+
+        assert!(
+            by_category(&findings, "phone").is_empty(),
+            "fabricated a phone number: {:?}",
+            findings.iter().map(|f| f.text.as_str()).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn finds_mechanical_identifiers_across_lines() {
         let page = page(&[
