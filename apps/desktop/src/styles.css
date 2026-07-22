@@ -726,6 +726,17 @@ button.rule-target:hover {
   margin: 6px 0;
 }
 
+.suggest-targets {
+  margin-top: 6px;
+}
+
+.target-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
 .dictionary-register {
   display: flex;
   gap: 6px;

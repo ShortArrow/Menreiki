@@ -89,6 +89,10 @@ export function suggestReplacements(
   return invoke<string[]>("suggest_replacements", { text, category, context });
 }
 
+export function suggestTargets(project: string) {
+  return invoke<string[]>("suggest_targets", { project });
+}
+
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
 }

@@ -23,6 +23,7 @@ import {
   searchProject,
   suggestEntityVariants,
   suggestReplacements,
+  suggestTargets,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
@@ -268,6 +269,10 @@ export default function ReviewView(props: {
   const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
   const [searchHits, setSearchHits] = useState<PageFindings[] | null>(null);
+  const [targetSuggestions, setTargetSuggestions] = useState<string[] | null>(
+    null,
+  );
+  const [suggestingTargets, setSuggestingTargets] = useState(false);
   const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
   const [dictionaryCategory, setDictionaryCategory] = useState("organization");
   const [dictionaryNote, setDictionaryNote] = useState<string | null>(null);
@@ -827,6 +832,18 @@ export default function ReviewView(props: {
     });
   }
 
+  /// Asks the local model which sensitive terms it would look for in this
+  /// document; the reviewer picks one to search and turn into a rule.
+  function runSuggestTargets() {
+    setSuggestingTargets(true);
+    setTargetSuggestions(null);
+    setError(null);
+    suggestTargets(project.projectDir)
+      .then((terms) => setTargetSuggestions(terms))
+      .catch((failure) => setError(String(failure)))
+      .finally(() => setSuggestingTargets(false));
+  }
+
   function ignoreFinding(finding: Finding) {
     void run("無視リストに追加中…", async () => {
       const settings = await getProjectSettings(project.projectDir);
@@ -1268,6 +1285,40 @@ export default function ReviewView(props: {
               <button onClick={runSearch} disabled={busy !== null}>
                 検索
               </button>
+            </div>
+            <div className="suggest-targets">
+              <button
+                className="mini"
+                title="ローカルLLMに、この文書で検出すべき機密語の候補を提案させる"
+                onClick={runSuggestTargets}
+                disabled={suggestingTargets || busy !== null}
+              >
+                {suggestingTargets ? "提案中…" : "✨ AIに検出対象を提案させる"}
+              </button>
+              {targetSuggestions?.length === 0 && (
+                <span className="hint">提案はありませんでした</span>
+              )}
+              {targetSuggestions && targetSuggestions.length > 0 && (
+                <div className="target-chips">
+                  {targetSuggestions.map((term) => (
+                    <button
+                      key={term}
+                      className="variant-chip suggest"
+                      title="クリックでこの語を検索"
+                      onClick={() => {
+                        setSearchInput(term);
+                        void run("検索中…", async () => {
+                          setSearchHits(
+                            await searchProject(project.projectDir, term),
+                          );
+                        });
+                      }}
+                    >
+                      {term}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {searchHitCount !== null && (
               <div className="search-result">

@@ -434,6 +434,46 @@ async fn suggest_replacements(
     .map_err(|error| error.to_string())?
 }
 
+/// Asks the local model to propose sensitive terms worth detecting in this
+/// document — advisory targets the reviewer can search for and turn into
+/// rules, distinct from writing findings directly. Returns unique candidate
+/// strings from a bounded sample of the document's OCR text.
+#[tauri::command]
+async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = settings::load_config();
+        let client = menreiki_inference::InferenceClient::new(
+            &config.inference.base_url,
+            &config.inference.model,
+        )
+        .map_err(|error| {
+            format!(
+                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
+            )
+        })?;
+        let pages =
+            menreiki_project::load_ocr_pages(Path::new(&project)).map_err(|error| error.to_string())?;
+        let mut sample = String::new();
+        for page in &pages {
+            sample.push_str(&page.text());
+            sample.push('\n');
+            if sample.len() > 6000 {
+                break;
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        let targets = menreiki_inference::detect_candidates(&client, &sample)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .filter(|text| !text.trim().is_empty() && seen.insert(text.clone()))
+            .collect();
+        Ok(targets)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 #[tauri::command]
 fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>, String> {
     menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())
@@ -718,6 +758,7 @@ pub fn run() {
             llm_detect_project,
             list_models,
             suggest_replacements,
+            suggest_targets,
             list_findings,
             search_project,
             page_image,
