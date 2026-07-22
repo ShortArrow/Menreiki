@@ -66,22 +66,30 @@ pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
             )
     });
 
+    // Only runs of single-character fragments merge — the signature of
+    // letter-spaced text an engine broke apart. Multi-character lines (a table
+    // cell, a label) never merge, so text separated by a ruling line into
+    // adjacent cells on the same row stays apart. `row` holds the growing
+    // single-character run's bounds, or None when the last line was not one.
     let mut groups: Vec<Vec<&OcrLine>> = Vec::new();
     let mut row: Option<Rect> = None;
     for (rect, line) in entries {
-        if let Some(current) = row {
-            let shared = vertical_overlap(&current, &rect);
-            let ratio = shared / current.height.min(rect.height).max(1.0);
-            let gap = rect.x - (current.x + current.width);
-            let threshold = current.height.max(rect.height) * 2.0;
-            if ratio > 0.5 && gap < threshold {
-                groups.last_mut().expect("row has a group").push(line);
-                row = Some(current.union(&rect));
-                continue;
+        let is_single_char = line.text.chars().filter(|c| !c.is_whitespace()).count() == 1;
+        if is_single_char {
+            if let Some(current) = row {
+                let shared = vertical_overlap(&current, &rect);
+                let ratio = shared / current.height.min(rect.height).max(1.0);
+                let gap = rect.x - (current.x + current.width);
+                let threshold = current.height.max(rect.height) * 2.0;
+                if ratio > 0.5 && gap < threshold {
+                    groups.last_mut().expect("row has a group").push(line);
+                    row = Some(current.union(&rect));
+                    continue;
+                }
             }
         }
         groups.push(vec![line]);
-        row = Some(rect);
+        row = if is_single_char { Some(rect) } else { None };
     }
 
     let lines = groups
@@ -261,6 +269,36 @@ mod tests {
             lines: vec![
                 char_line("操舵指令", 60.0, 10.0),
                 char_line("受信部", 75.0, 40.0),
+            ],
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 2);
+    }
+
+    #[test]
+    fn keeps_adjacent_multi_character_cells_separate() {
+        // Two table cells on the same row, close together (separated only by a
+        // ruling line): multi-character text must never merge into one word.
+        let page = PageOcr {
+            width: 400,
+            height: 100,
+            lines: vec![
+                OcrLine {
+                    text: "数量".to_string(),
+                    words: vec![Span {
+                        text: "数量".to_string(),
+                        rect: Rect { x: 0.0, y: 10.0, width: 40.0, height: 20.0 },
+                    }],
+                },
+                OcrLine {
+                    text: "単価".to_string(),
+                    words: vec![Span {
+                        text: "単価".to_string(),
+                        rect: Rect { x: 55.0, y: 10.0, width: 40.0, height: 20.0 },
+                    }],
+                },
             ],
         };
 
