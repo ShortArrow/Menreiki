@@ -304,6 +304,8 @@ export default function ReviewView(props: {
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
+  const searchSectionRef = useRef<HTMLElement>(null);
+  const [searchFlash, setSearchFlash] = useState(false);
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -834,6 +836,17 @@ export default function ReviewView(props: {
     });
   }
 
+  /// Scrolls the search block into view and flashes it, so the reviewer sees
+  /// where a just-detected result landed in the right pane.
+  function revealSearch() {
+    searchSectionRef.current?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+    setSearchFlash(true);
+    window.setTimeout(() => setSearchFlash(false), 1200);
+  }
+
   /// "Detect this": read what the reviewer boxed on the page and drop it into
   /// search. OCR text is used when present; a box over a figure/logo/rotated
   /// label OCR could not read falls back to the vision model, whose result is
@@ -845,6 +858,7 @@ export default function ReviewView(props: {
       if (text) {
         setSearchInput(text);
         setSearchHits(await searchProject(project.projectDir, text));
+        revealSearch();
         return;
       }
       setProgress("OCRで読めない領域をVLMで読み取り中…");
@@ -862,6 +876,7 @@ export default function ReviewView(props: {
       setNotice(
         `VLM読取: ${read.join(" / ")}（本文に無ければ、この箇所はマスク領域で消してください）`,
       );
+      revealSearch();
     });
   }
 
@@ -1319,7 +1334,10 @@ export default function ReviewView(props: {
             </div>
           </section>
 
-          <section>
+          <section
+            ref={searchSectionRef}
+            className={searchFlash ? "reveal-flash" : undefined}
+          >
             <h2>文字列で検索</h2>
             <div className="search-row">
               <input

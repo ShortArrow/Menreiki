@@ -726,6 +726,23 @@ button.rule-target:hover {
   margin: 6px 0;
 }
 
+/* Briefly highlights the search block so a just-detected result is obvious. */
+.reveal-flash {
+  animation: reveal-flash 1.2s ease-out;
+  border-radius: 6px;
+}
+
+@keyframes reveal-flash {
+  0% {
+    background: var(--highlight-bg);
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
 .suggest-targets {
   margin-top: 6px;
 }
