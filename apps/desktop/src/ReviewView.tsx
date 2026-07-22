@@ -25,6 +25,7 @@ import {
   suggestReplacements,
   suggestTargets,
   textInRegion,
+  vlmInRegion,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
@@ -833,18 +834,34 @@ export default function ReviewView(props: {
     });
   }
 
-  /// "Detect this": read the OCR text the reviewer boxed on the page and drop
-  /// it into search, so a spot they point at becomes a target without typing.
+  /// "Detect this": read what the reviewer boxed on the page and drop it into
+  /// search. OCR text is used when present; a box over a figure/logo/rotated
+  /// label OCR could not read falls back to the vision model, whose result is
+  /// located by the box the reviewer drew.
   function detectRegion(rect: Rect) {
     setDrawMode("none");
     void run("領域のテキストを取得中…", async () => {
       const text = (await textInRegion(project.projectDir, page, rect)).trim();
-      if (!text) {
-        setNotice("この領域からは文字を取得できませんでした（画像内の文字はVLM検出をお試しください）。");
+      if (text) {
+        setSearchInput(text);
+        setSearchHits(await searchProject(project.projectDir, text));
         return;
       }
-      setSearchInput(text);
-      setSearchHits(await searchProject(project.projectDir, text));
+      setProgress("OCRで読めない領域をVLMで読み取り中…");
+      const read = await vlmInRegion(project.projectDir, page, rect).catch(
+        () => [] as string[],
+      );
+      if (read.length === 0) {
+        setNotice("この領域からは文字を取得できませんでした。");
+        return;
+      }
+      setSearchInput(read[0]);
+      setSearchHits(
+        await searchProject(project.projectDir, read[0]).catch(() => null),
+      );
+      setNotice(
+        `VLM読取: ${read.join(" / ")}（本文に無ければ、この箇所はマスク領域で消してください）`,
+      );
     });
   }
 

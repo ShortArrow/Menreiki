@@ -98,6 +98,10 @@ export function textInRegion(project: string, page: number, rect: Rect) {
   return invoke<string>("text_in_region", { project, page, rect });
 }
 
+export function vlmInRegion(project: string, page: number, rect: Rect) {
+  return invoke<string[]>("vlm_in_region", { project, page, rect });
+}
+
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
 }

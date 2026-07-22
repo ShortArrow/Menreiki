@@ -619,6 +619,50 @@ fn rects_overlap(a: &menreiki_core::Rect, b: &menreiki_core::Rect) -> bool {
     a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
+/// Reads a page rectangle with the vision model — the "detect this" path for a
+/// figure, logo, or rotated label OCR could not read. The position is the box
+/// the reviewer drew, so unlike whole-page VLM detection the result is located.
+#[tauri::command]
+async fn vlm_in_region(
+    project: String,
+    page: u16,
+    rect: menreiki_core::Rect,
+) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let config = settings::load_config();
+        let client = menreiki_inference::InferenceClient::new(
+            &config.inference.base_url,
+            &config.inference.model,
+        )
+        .map_err(|error| {
+            format!(
+                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
+            )
+        })?;
+        let png = std::fs::read(menreiki_project::page_image_path(Path::new(&project), page))
+            .map_err(|error| error.to_string())?;
+        let image = image::load_from_memory(&png).map_err(|error| error.to_string())?;
+        let (iw, ih) = (image.width(), image.height());
+        let x = rect.x.max(0.0) as u32;
+        let y = rect.y.max(0.0) as u32;
+        if x >= iw || y >= ih {
+            return Err("領域がページ外です".to_string());
+        }
+        let crop = image.crop_imm(x, y, (rect.width.max(1.0) as u32).min(iw - x), (rect.height.max(1.0) as u32).min(ih - y));
+        let mut buffer = Vec::new();
+        crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+            .map_err(|error| error.to_string())?;
+        Ok(menreiki_inference::detect_candidates_in_image(&client, &buffer)
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .map(|candidate| candidate.text)
+            .filter(|text| !text.trim().is_empty())
+            .collect())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Absolute path of a page image; `rendered` selects the transformed image
 /// under `renders/` instead of the original under `pages/`.
 #[tauri::command]
@@ -794,6 +838,7 @@ pub fn run() {
             list_findings,
             search_project,
             text_in_region,
+            vlm_in_region,
             page_image,
             apply_policy,
             export_project,
