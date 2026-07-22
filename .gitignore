@@ -5,3 +5,6 @@ node_modules/
 /apps/desktop/src-tauri/gen
 /apps/desktop/test-results
 /apps/desktop/playwright-report
+
+# Machine-local build-speed config (fast NTFS target, LLD, no PDB)
+.cargo/
