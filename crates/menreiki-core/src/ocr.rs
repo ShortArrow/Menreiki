@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::Rect;
@@ -43,80 +45,122 @@ pub fn compose_line_text(words: &[Span]) -> String {
     text
 }
 
-/// Rejoins OCR lines that are really one horizontal line split into pieces —
-/// the way an engine fragments widely letter-spaced text (e.g. a company name
-/// in a title block: 「犬 芝 工 業 株 式 会 社」 becoming one line per
-/// character). Two lines merge only when they sit on the same row (their
-/// vertical extents overlap) and are horizontally close, so stacked box text
-/// (two centered lines) and separate labels or columns stay apart.
+/// Rejoins OCR lines that are really one line of text split into pieces — the
+/// way an engine fragments widely letter-spaced text (a title-block company
+/// name 「犬 芝 工 業 株 式 会 社」 becoming one line per character), whether it
+/// runs across the page (horizontal) or, when a horizontal label is rotated
+/// 90°, down it (vertical).
+///
+/// Only runs of *single-character* fragments merge, connecting each to a
+/// collinear neighbour that is close in the reading direction. Multi-character
+/// lines (a table cell, a label) never merge, so text separated by a ruling
+/// line into adjacent cells stays apart. Each run reads in the direction it is
+/// most spread — left-to-right for a row, top-to-bottom for a column.
 pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
-    let mut entries: Vec<(Rect, &OcrLine)> = page
-        .lines
-        .iter()
-        .filter_map(|line| line_bounds(line).map(|rect| (rect, line)))
-        .collect();
-    entries.sort_by(|a, b| {
-        let (ay, by) = (a.0.y + a.0.height / 2.0, b.0.y + b.0.height / 2.0);
-        ay.partial_cmp(&by)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(
-                a.0.x
-                    .partial_cmp(&b.0.x)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
-    });
-
-    // Only runs of single-character fragments merge — the signature of
-    // letter-spaced text an engine broke apart. Multi-character lines (a table
-    // cell, a label) never merge, so text separated by a ruling line into
-    // adjacent cells on the same row stays apart. `row` holds the growing
-    // single-character run's bounds, or None when the last line was not one.
-    let mut groups: Vec<Vec<&OcrLine>> = Vec::new();
-    let mut row: Option<Rect> = None;
-    for (rect, line) in entries {
-        let is_single_char = line.text.chars().filter(|c| !c.is_whitespace()).count() == 1;
-        if is_single_char {
-            if let Some(current) = row {
-                let shared = vertical_overlap(&current, &rect);
-                let ratio = shared / current.height.min(rect.height).max(1.0);
-                let gap = rect.x - (current.x + current.width);
-                let threshold = current.height.max(rect.height) * 2.0;
-                if ratio > 0.5 && gap < threshold {
-                    groups.last_mut().expect("row has a group").push(line);
-                    row = Some(current.union(&rect));
-                    continue;
-                }
-            }
+    let mut lines: Vec<OcrLine> = Vec::new();
+    let mut frags: Vec<(Rect, &OcrLine)> = Vec::new();
+    for line in &page.lines {
+        match line_bounds(line) {
+            Some(rect) if is_single_char(line) => frags.push((rect, line)),
+            _ => lines.push(line.clone()),
         }
-        groups.push(vec![line]);
-        row = if is_single_char { Some(rect) } else { None };
     }
 
-    let lines = groups
-        .into_iter()
-        .map(|group| {
-            if group.len() == 1 {
-                return group[0].clone();
+    let mut parent: Vec<usize> = (0..frags.len()).collect();
+    for a in 0..frags.len() {
+        for b in (a + 1)..frags.len() {
+            if collinear_neighbours(&frags[a].0, &frags[b].0) {
+                let (ra, rb) = (find_root(&mut parent, a), find_root(&mut parent, b));
+                parent[ra] = rb;
             }
-            let mut words: Vec<Span> =
-                group.iter().flat_map(|line| line.words.iter().cloned()).collect();
-            words.sort_by(|a, b| {
-                a.rect
-                    .x
-                    .partial_cmp(&b.rect.x)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-            OcrLine {
-                text: compose_line_text(&words),
-                words,
-            }
-        })
-        .collect();
+        }
+    }
+
+    let mut runs: HashMap<usize, Vec<usize>> = HashMap::new();
+    for i in 0..frags.len() {
+        let root = find_root(&mut parent, i);
+        runs.entry(root).or_default().push(i);
+    }
+    for members in runs.into_values() {
+        if members.len() == 1 {
+            lines.push(frags[members[0]].1.clone());
+            continue;
+        }
+        let x_spread = spread(members.iter().map(|&i| frags[i].0.x));
+        let y_spread = spread(members.iter().map(|&i| frags[i].0.y));
+        let horizontal = x_spread >= y_spread;
+        let mut ordered = members;
+        ordered.sort_by(|&a, &b| {
+            let (ra, rb) = (frags[a].0, frags[b].0);
+            let (ka, kb) = if horizontal { (ra.x, rb.x) } else { (ra.y, rb.y) };
+            ka.partial_cmp(&kb).unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let words: Vec<Span> = ordered
+            .iter()
+            .flat_map(|&i| frags[i].1.words.iter().cloned())
+            .collect();
+        // A row spaces words by horizontal gap; a column reads straight down.
+        let text = if horizontal {
+            compose_line_text(&words)
+        } else {
+            words.iter().map(|word| word.text.as_str()).collect()
+        };
+        lines.push(OcrLine { text, words });
+    }
     PageOcr {
         width: page.width,
         height: page.height,
         lines,
     }
+}
+
+fn is_single_char(line: &OcrLine) -> bool {
+    line.text.chars().filter(|c| !c.is_whitespace()).count() == 1
+}
+
+fn find_root(parent: &mut [usize], index: usize) -> usize {
+    let mut root = index;
+    while parent[root] != root {
+        root = parent[root];
+    }
+    let mut current = index;
+    while parent[current] != root {
+        let next = parent[current];
+        parent[current] = root;
+        current = next;
+    }
+    root
+}
+
+fn spread(values: impl Iterator<Item = f32>) -> f32 {
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    for value in values {
+        min = min.min(value);
+        max = max.max(value);
+    }
+    (max - min).max(0.0)
+}
+
+/// Whether two single-character boxes are neighbours in a run: on the same row
+/// and horizontally close, or in the same column and vertically close. The
+/// gap allowance is a couple of glyph sizes — enough for wide letter-spacing,
+/// but not a jump to the next label.
+fn collinear_neighbours(a: &Rect, b: &Rect) -> bool {
+    let row = vertical_overlap(a, b) / a.height.min(b.height).max(1.0) > 0.5;
+    let h_gap = (b.x - (a.x + a.width)).max(a.x - (b.x + b.width));
+    if row && h_gap < a.height.max(b.height) * 2.0 {
+        return true;
+    }
+    let column = horizontal_overlap(a, b) / a.width.min(b.width).max(1.0) > 0.5;
+    let v_gap = (b.y - (a.y + a.height)).max(a.y - (b.y + b.height));
+    column && v_gap < a.width.max(b.width) * 2.0
+}
+
+fn horizontal_overlap(a: &Rect, b: &Rect) -> f32 {
+    let left = a.x.max(b.x);
+    let right = (a.x + a.width).min(b.x + b.width);
+    (right - left).max(0.0)
 }
 
 fn line_bounds(line: &OcrLine) -> Option<Rect> {
@@ -275,6 +319,27 @@ mod tests {
         let merged = merge_row_fragments(&page);
 
         assert_eq!(merged.lines.len(), 2);
+    }
+
+    #[test]
+    fn merges_vertically_stacked_single_characters() {
+        // A horizontal label rotated 90°: one character per line, stacked down
+        // a column. It must reassemble top-to-bottom.
+        let page = PageOcr {
+            width: 200,
+            height: 400,
+            lines: vec![
+                char_line("犬", 10.0, 0.0),
+                char_line("芝", 10.0, 40.0),
+                char_line("工", 10.0, 80.0),
+                char_line("業", 10.0, 120.0),
+            ],
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 1);
+        assert_eq!(merged.lines[0].text.replace([' ', '　'], ""), "犬芝工業");
     }
 
     #[test]
