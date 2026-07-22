@@ -11,6 +11,7 @@ import type {
   Policy,
   ProjectInfo,
   ProjectSettings,
+  Rect,
   ReviewDecisions,
 } from "./types";
 
@@ -91,6 +92,10 @@ export function suggestReplacements(
 
 export function suggestTargets(project: string) {
   return invoke<string[]>("suggest_targets", { project });
+}
+
+export function textInRegion(project: string, page: number, rect: Rect) {
+  return invoke<string>("text_in_region", { project, page, rect });
 }
 
 export function listFindings(project: string) {

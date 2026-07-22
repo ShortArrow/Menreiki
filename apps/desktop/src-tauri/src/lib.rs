@@ -587,6 +587,38 @@ fn search_project(
     menreiki_project::search_text(Path::new(&project), &text).map_err(|error| error.to_string())
 }
 
+/// Text the OCR recognized inside a page rectangle, in reading order — the
+/// seed for "detect this" when the reviewer boxes a spot on the page instead
+/// of typing the string.
+#[tauri::command]
+fn text_in_region(
+    project: String,
+    page: u16,
+    rect: menreiki_core::Rect,
+) -> Result<String, String> {
+    let pages =
+        menreiki_project::load_ocr_pages(Path::new(&project)).map_err(|error| error.to_string())?;
+    let ocr = pages
+        .get(page as usize)
+        .ok_or_else(|| "ページが範囲外です".to_string())?;
+    let mut hits: Vec<&menreiki_core::Span> = ocr
+        .lines
+        .iter()
+        .flat_map(|line| &line.words)
+        .filter(|word| rects_overlap(&word.rect, &rect))
+        .collect();
+    hits.sort_by(|a, b| {
+        (a.rect.y, a.rect.x)
+            .partial_cmp(&(b.rect.y, b.rect.x))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    Ok(hits.iter().map(|word| word.text.as_str()).collect())
+}
+
+fn rects_overlap(a: &menreiki_core::Rect, b: &menreiki_core::Rect) -> bool {
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
 /// Absolute path of a page image; `rendered` selects the transformed image
 /// under `renders/` instead of the original under `pages/`.
 #[tauri::command]
@@ -761,6 +793,7 @@ pub fn run() {
             suggest_targets,
             list_findings,
             search_project,
+            text_in_region,
             page_image,
             apply_policy,
             export_project,

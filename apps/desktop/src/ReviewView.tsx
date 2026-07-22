@@ -24,6 +24,7 @@ import {
   suggestEntityVariants,
   suggestReplacements,
   suggestTargets,
+  textInRegion,
 } from "./api";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
@@ -832,6 +833,21 @@ export default function ReviewView(props: {
     });
   }
 
+  /// "Detect this": read the OCR text the reviewer boxed on the page and drop
+  /// it into search, so a spot they point at becomes a target without typing.
+  function detectRegion(rect: Rect) {
+    setDrawMode("none");
+    void run("領域のテキストを取得中…", async () => {
+      const text = (await textInRegion(project.projectDir, page, rect)).trim();
+      if (!text) {
+        setNotice("この領域からは文字を取得できませんでした（画像内の文字はVLM検出をお試しください）。");
+        return;
+      }
+      setSearchInput(text);
+      setSearchHits(await searchProject(project.projectDir, text));
+    });
+  }
+
   /// Asks the local model which sensitive terms it would look for in this
   /// document; the reviewer picks one to search and turn into a rule.
   function runSuggestTargets() {
@@ -1189,16 +1205,22 @@ export default function ReviewView(props: {
         <main className="viewer-pane">
           <div className="viewer-toolbar">
             <span>矩形選択:</span>
-            {(["none", "erase", "mask"] as DrawMode[]).map((mode) => (
+            {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
               <button
                 key={mode}
                 className={drawMode === mode ? "mode current" : "mode"}
                 onClick={() => setDrawMode(mode)}
               >
-                {mode === "none" ? "なし" : mode === "erase" ? "消去" : "マスク"}
+                {mode === "none"
+                  ? "なし"
+                  : mode === "erase"
+                    ? "消去"
+                    : mode === "mask"
+                      ? "マスク"
+                      : "ここを検出"}
               </button>
             ))}
-            {drawMode !== "none" && (
+            {(drawMode === "erase" || drawMode === "mask") && (
               <>
                 <span>適用範囲:</span>
                 {(["all", "page"] as const).map((scope) => (
@@ -1212,6 +1234,11 @@ export default function ReviewView(props: {
                 ))}
                 <span className="hint">ドラッグで領域ルールを追加</span>
               </>
+            )}
+            {drawMode === "detect" && (
+              <span className="hint">
+                検出したい箇所をドラッグで囲むと、その文字を検出対象にします
+              </span>
             )}
             <span className="spacer" />
             <label className="toggle">
@@ -1236,7 +1263,11 @@ export default function ReviewView(props: {
             rulePreview={showRulePreview ? previewByText : null}
             focusRect={focus?.rect ?? null}
             focusNonce={focus?.nonce ?? 0}
-            onRegion={(rect) =>
+            onRegion={(rect) => {
+              if (drawMode === "detect") {
+                detectRegion(rect);
+                return;
+              }
               setRegionRules((current) => [
                 ...current,
                 {
@@ -1245,8 +1276,8 @@ export default function ReviewView(props: {
                   scope: drawScope === "all" ? "all" : page,
                   drawnOn: page,
                 },
-              ])
-            }
+              ]);
+            }}
             onRegionRemove={(index) =>
               setRegionRules((current) =>
                 current.filter((_, i) => i !== index),

@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageImageUrl } from "./api";
 import type { Finding, Rect } from "./types";
 
-export type DrawMode = "none" | "erase" | "mask";
+export type DrawMode = "none" | "erase" | "mask" | "detect";
 
 type PreviewAction = "keep" | "erase" | "mask" | "replace";
 export type TextAlign = "left" | "center" | "right";

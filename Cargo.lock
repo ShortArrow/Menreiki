@@ -2371,6 +2371,7 @@ dependencies = [
  "menreiki-adapter-pdfium",
  "menreiki-adapter-windows-ocr",
  "menreiki-audit",
+ "menreiki-core",
  "menreiki-detect",
  "menreiki-entity",
  "menreiki-inference",
