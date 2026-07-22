@@ -710,6 +710,76 @@ button.rule-target:hover {
   gap: 20px;
 }
 
+/* Workflow order: status → input → triage → consolidate → outcome → stock →
+   output. Sections are reordered visually so related conversions sit close. */
+.section-precheck { order: 0; }
+.section-search { order: 1; }
+.findings-section { order: 2; }
+.section-entity { order: 3; }
+.section-rules { order: 4; }
+.section-dictionary { order: 5; }
+.results-section { order: 6; }
+
+/* ---- Unified target actions ---- */
+
+.decision-buttons {
+  display: inline-flex;
+  flex: none;
+}
+
+.decision-btn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  padding: 1px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.decision-btn.current {
+  background: var(--strong-chip-bg);
+  color: var(--strong-chip-text);
+  border-color: var(--strong-chip-bg);
+}
+
+.entity-menu {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.entity-menu .menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 16;
+  margin-top: 4px;
+  min-width: 160px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.entity-menu .menu button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entity-menu .menu button:hover {
+  background: var(--hover);
+}
+
 .search-row {
   display: flex;
   gap: 6px;
@@ -899,6 +969,7 @@ button.rule-target:hover {
 .finding-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 2px;
   border-radius: 4px;

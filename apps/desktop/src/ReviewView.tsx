@@ -254,6 +254,88 @@ function AlignToggle(props: {
   );
 }
 
+/// One-click decision buttons (保持/マスク/消去/置換) with the current state
+/// highlighted; clicking the active one clears back to 未判断. The same
+/// control everywhere a target can be judged, replacing per-place dropdowns.
+function DecisionButtons(props: {
+  value: DecisionAction | undefined;
+  onChange: (action: DecisionAction | "undecided") => void;
+}) {
+  const options: [DecisionAction, string][] = [
+    ["keep", "保持"],
+    ["mask", "マスク"],
+    ["erase", "消去"],
+    ["replace", "置換"],
+  ];
+  return (
+    <span className="decision-buttons">
+      {options.map(([action, label]) => (
+        <button
+          key={action}
+          className={
+            props.value === action ? "decision-btn current" : "decision-btn"
+          }
+          title={props.value === action ? `${label}を解除` : label}
+          onClick={() =>
+            props.onChange(props.value === action ? "undecided" : action)
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/// In-place entity assignment: a small popover right on the row offering
+/// 新規Entity or any existing entity, so consolidating a spelling never
+/// requires jumping to a distant bar.
+function EntityMenu(props: {
+  entities: Entity[];
+  label?: string;
+  onNew: () => void;
+  onAssign: (entityId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="entity-menu">
+      <button
+        className="mini"
+        title="Entityへ（表記揺れを1つの仮称へ統合）"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {props.label ?? "E"}
+      </button>
+      {open && (
+        <>
+          <div className="menu-backdrop" onClick={() => setOpen(false)} />
+          <div className="menu entity-popover">
+            <button
+              onClick={() => {
+                setOpen(false);
+                props.onNew();
+              }}
+            >
+              ＋ 新規Entity
+            </button>
+            {props.entities.map((entity) => (
+              <button
+                key={entity.id}
+                onClick={() => {
+                  setOpen(false);
+                  props.onAssign(entity.id);
+                }}
+              >
+                → {entity.alias || entity.variants[0]}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -284,10 +366,6 @@ export default function ReviewView(props: {
     Record<string, string[]>
   >({});
   const [entityCounts, setEntityCounts] = useState<Record<string, number>>({});
-  const [assignTarget, setAssignTarget] = useState<{
-    category: string;
-    text: string;
-  } | null>(null);
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportPagesInput, setExportPagesInput] = useState("");
@@ -477,22 +555,33 @@ export default function ReviewView(props: {
       variants: [trimmed],
     };
     setEntities((current) => [...current, entity]);
-    setAssignTarget(null);
     void refreshEntityMeta(entity);
   }
 
   function addVariant(entityId: string, text: string) {
     const target = entities.find((entity) => entity.id === entityId);
-    if (!target || target.variants.includes(text)) {
-      setAssignTarget(null);
-      return;
-    }
+    if (!target || target.variants.includes(text)) return;
     const updated = { ...target, variants: [...target.variants, text] };
     setEntities((current) =>
       current.map((entity) => (entity.id === entityId ? updated : entity)),
     );
-    setAssignTarget(null);
     void refreshEntityMeta(updated);
+  }
+
+  /// Registers `text` in the project dictionary under `category` and re-runs
+  /// detection — the shared path behind every "→辞書" conversion.
+  function registerTextToDictionary(category: string, text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    void run("辞書に登録中…", async () => {
+      setDictionary(
+        await addDictionaryEntry(project.projectDir, category, trimmed),
+      );
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
   }
 
   useEffect(() => {
@@ -1333,7 +1422,7 @@ export default function ReviewView(props: {
         />
 
         <aside className="side-pane">
-          <section>
+          <section className="section-precheck">
             <h2>出力前確認</h2>
             <div className={undecidedCount > 0 ? "precheck warn" : "precheck ok"}>
               <span>未判断の候補: {undecidedCount} 種類</span>
@@ -1344,7 +1433,9 @@ export default function ReviewView(props: {
 
           <section
             ref={searchSectionRef}
-            className={searchFlash ? "reveal-flash" : undefined}
+            className={
+              searchFlash ? "section-search reveal-flash" : "section-search"
+            }
           >
             {detectedTarget && (
               <div className="detected-target">
@@ -1364,22 +1455,6 @@ export default function ReviewView(props: {
                 <div className="detected-actions">
                   <button
                     onClick={() => {
-                      createEntity(dictionaryCategory, detectedTarget);
-                      setDetectedTarget(null);
-                    }}
-                  >
-                    Entityへ
-                  </button>
-                  <button
-                    onClick={() => {
-                      addSearchRule("replace");
-                      setDetectedTarget(null);
-                    }}
-                  >
-                    置換
-                  </button>
-                  <button
-                    onClick={() => {
                       addSearchRule("mask");
                       setDetectedTarget(null);
                     }}
@@ -1395,9 +1470,32 @@ export default function ReviewView(props: {
                     消去
                   </button>
                   <button
+                    onClick={() => {
+                      addSearchRule("replace");
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    置換
+                  </button>
+                  <EntityMenu
+                    entities={entities}
+                    label="Entityへ"
+                    onNew={() => {
+                      createEntity(dictionaryCategory, detectedTarget);
+                      setDetectedTarget(null);
+                    }}
+                    onAssign={(id) => {
+                      addVariant(id, detectedTarget);
+                      setDetectedTarget(null);
+                    }}
+                  />
+                  <button
                     disabled={busy !== null}
                     onClick={() => {
-                      registerToDictionary();
+                      registerTextToDictionary(
+                        dictionaryCategory,
+                        detectedTarget,
+                      );
                       setDetectedTarget(null);
                     }}
                   >
@@ -1514,7 +1612,7 @@ export default function ReviewView(props: {
           </section>
 
           {dictionary.length > 0 && (
-            <section>
+            <section className="section-dictionary">
               <h2>辞書（{dictionary.length}件）</h2>
               <div className="rule-list">
                 {dictionary.map((entry) => (
@@ -1523,6 +1621,11 @@ export default function ReviewView(props: {
                     <span className="rule-target" title={entry.text}>
                       <span className="finding-text">{entry.text}</span>
                     </span>
+                    <EntityMenu
+                      entities={entities}
+                      onNew={() => createEntity(entry.category, entry.text)}
+                      onAssign={(id) => addVariant(id, entry.text)}
+                    />
                     <button
                       onClick={() => {
                         void run("辞書から削除中…", async () => {
@@ -1550,7 +1653,7 @@ export default function ReviewView(props: {
             </section>
           )}
 
-          <section>
+          <section className="section-rules">
             <h2>適用予定ルール（{policy.rules.length}件）</h2>
             <div className="rule-list">
               {entities
@@ -1611,6 +1714,17 @@ export default function ReviewView(props: {
                       />
                     </>
                   )}
+                  <EntityMenu
+                    entities={entities}
+                    onNew={() => {
+                      createEntity(entry.finding.category, entry.finding.text);
+                      setDecision(entry.key, "undecided");
+                    }}
+                    onAssign={(id) => {
+                      addVariant(id, entry.finding.text);
+                      setDecision(entry.key, "undecided");
+                    }}
+                  />
                   <button onClick={() => setDecision(entry.key, "undecided")}>
                     解除
                   </button>
@@ -1659,6 +1773,21 @@ export default function ReviewView(props: {
                       />
                     </>
                   )}
+                  <EntityMenu
+                    entities={entities}
+                    onNew={() => {
+                      createEntity(dictionaryCategory, rule.text);
+                      setTextRules((current) =>
+                        current.filter((_, i) => i !== index),
+                      );
+                    }}
+                    onAssign={(id) => {
+                      addVariant(id, rule.text);
+                      setTextRules((current) =>
+                        current.filter((_, i) => i !== index),
+                      );
+                    }}
+                  />
                   <button
                     onClick={() =>
                       setTextRules((current) =>
@@ -1726,31 +1855,8 @@ export default function ReviewView(props: {
             </div>
           </section>
 
-          <section>
+          <section className="section-entity">
             <h2>Entity（{entities.length}件）</h2>
-            {assignTarget && (
-              <div className="assign-bar">
-                <span className="finding-text" title={assignTarget.text}>
-                  「{assignTarget.text}」を追加:
-                </span>
-                <button
-                  onClick={() =>
-                    createEntity(assignTarget.category, assignTarget.text)
-                  }
-                >
-                  新規Entity
-                </button>
-                {entities.map((entity) => (
-                  <button
-                    key={entity.id}
-                    onClick={() => addVariant(entity.id, assignTarget.text)}
-                  >
-                    → {entity.alias || entity.variants[0]}
-                  </button>
-                ))}
-                <button onClick={() => setAssignTarget(null)}>×</button>
-              </div>
-            )}
             <div className="entity-list">
               {entities.map((entity) => (
                 <div key={entity.id} className="entity-card">
@@ -1795,6 +1901,19 @@ export default function ReviewView(props: {
                         )
                       }
                     />
+                    <button
+                      className="mini"
+                      title="代表表記を辞書に登録（以後の解析で自動検出）"
+                      disabled={busy !== null || entity.variants.length === 0}
+                      onClick={() =>
+                        registerTextToDictionary(
+                          entity.category,
+                          entity.variants[0],
+                        )
+                      }
+                    >
+                      →辞書
+                    </button>
                     <button
                       onClick={() =>
                         setEntities((current) =>
@@ -1936,18 +2055,15 @@ export default function ReviewView(props: {
                       </span>
                       <span className="finding-text">{finding.text}</span>
                     </button>
-                    <button
-                      className="mini"
-                      title="Entityへ追加（表記揺れの統合）"
-                      onClick={() =>
-                        setAssignTarget({
-                          category: finding.category,
-                          text: finding.text,
-                        })
-                      }
-                    >
-                      E
-                    </button>
+                    <DecisionButtons
+                      value={decision?.action}
+                      onChange={(action) => setDecision(key, action)}
+                    />
+                    <EntityMenu
+                      entities={entities}
+                      onNew={() => createEntity(finding.category, finding.text)}
+                      onAssign={(id) => addVariant(id, finding.text)}
+                    />
                     <button
                       className="mini"
                       title={`「${finding.text}」を ${finding.category} の検出から除外`}
@@ -1955,21 +2071,6 @@ export default function ReviewView(props: {
                     >
                       無視
                     </button>
-                    <select
-                      value={decision?.action ?? "undecided"}
-                      onChange={(event) =>
-                        setDecision(
-                          key,
-                          event.target.value as DecisionAction | "undecided",
-                        )
-                      }
-                    >
-                      <option value="undecided">未判断</option>
-                      <option value="keep">保持</option>
-                      <option value="mask">マスク</option>
-                      <option value="erase">消去</option>
-                      <option value="replace">置換</option>
-                    </select>
                   </div>
                 );
               })}
