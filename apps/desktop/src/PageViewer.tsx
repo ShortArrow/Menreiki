@@ -19,6 +19,12 @@ function clampZoom(value: number): number {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, value));
 }
 
+/// A rect covering almost the whole page is a location-unknown candidate
+/// (a VLM finding is page-level); it should not be drawn as a page-wide tint.
+function coversWholePage(rect: Rect, size: { w: number; h: number }): boolean {
+  return rect.width >= size.w * 0.85 && rect.height >= size.h * 0.85;
+}
+
 export default function PageViewer(props: {
   projectDir: string;
   pageIndex: number;
@@ -218,24 +224,29 @@ export default function PageViewer(props: {
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
             >
-              {props.findings.map((finding, index) => (
-                <rect
-                  key={index}
-                  className={[
-                    "finding-rect",
-                    finding.category === "search" ? "search" : "",
-                    props.highlightKey === props.findingKey(finding)
-                      ? "highlight"
-                      : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  x={finding.rect.x}
-                  y={finding.rect.y}
-                  width={finding.rect.width}
-                  height={finding.rect.height}
-                />
-              ))}
+              {props.findings.map((finding, index) => {
+                // A finding covering the whole page has no real location (a
+                // VLM candidate is page-level); don't tint the page for it.
+                if (coversWholePage(finding.rect, size)) return null;
+                return (
+                  <rect
+                    key={index}
+                    className={[
+                      "finding-rect",
+                      finding.category === "search" ? "search" : "",
+                      props.highlightKey === props.findingKey(finding)
+                        ? "highlight"
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    x={finding.rect.x}
+                    y={finding.rect.y}
+                    width={finding.rect.width}
+                    height={finding.rect.height}
+                  />
+                );
+              })}
               {props.regions.map((region) => (
                 <rect
                   key={`region-${region.index}`}
@@ -256,6 +267,7 @@ export default function PageViewer(props: {
                 props.findings.map((finding, index) => {
                   const rule = props.rulePreview?.get(finding.text);
                   if (!rule || rule.action === "keep") return null;
+                  if (coversWholePage(finding.rect, size)) return null;
                   const { x, y, width, height } = finding.rect;
                   // Draw the pending result in place: erase/mask are solid
                   // fills; replace paints the substitute text inside the same
