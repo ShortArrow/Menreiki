@@ -21,6 +21,7 @@ fn entities_round_trip_and_survive_clear_analysis() {
             "株式会社アルファ技研".to_string(),
             "アルファ技研".to_string(),
         ],
+        align: Some("right".to_string()),
     }];
     save_entities(&project_dir, &entities).unwrap();
     clear_analysis(&project_dir).unwrap();

@@ -634,7 +634,7 @@ export default function ReviewView(props: {
     };
     for (const entity of entities) {
       for (const variant of entity.variants) {
-        pushTextRule(variant, "replace", entity.alias);
+        pushTextRule(variant, "replace", entity.alias, entity.align);
       }
     }
     for (const entry of decidedEntries) {
@@ -672,7 +672,11 @@ export default function ReviewView(props: {
     for (const entity of entities) {
       for (const variant of entity.variants) {
         if (!map.has(variant))
-          map.set(variant, { action: "replace", value: entity.alias });
+          map.set(variant, {
+            action: "replace",
+            value: entity.alias,
+            align: entity.align,
+          });
       }
     }
     for (const entry of decidedEntries) {
@@ -1571,6 +1575,18 @@ export default function ReviewView(props: {
                           current.map((candidate) =>
                             candidate.id === entity.id
                               ? { ...candidate, alias: value }
+                              : candidate,
+                          ),
+                        )
+                      }
+                    />
+                    <AlignToggle
+                      value={entity.align}
+                      onChange={(align) =>
+                        setEntities((current) =>
+                          current.map((candidate) =>
+                            candidate.id === entity.id
+                              ? { ...candidate, align }
                               : candidate,
                           ),
                         )

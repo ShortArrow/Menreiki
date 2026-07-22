@@ -162,6 +162,11 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
                 let rect = rect_for_range(reported.range(), &words)
                     .or(line_rect)
                     .unwrap_or(EMPTY_RECT);
+                // A rect covering most of the page is a word-mapping artifact
+                // (words scattered across a mis-grouped line), not a real span.
+                if covers_most_of_page(&rect, page) {
+                    continue;
+                }
                 findings.push(Finding {
                     category: rule.category.clone(),
                     text: reported.as_str().to_string(),
@@ -173,6 +178,13 @@ pub fn detect_page(page: &PageOcr, rules: &[RegexRule]) -> Vec<Finding> {
         }
     }
     findings
+}
+
+/// Whether `rect` covers so much of the page that it can only be a mis-mapped
+/// span (e.g. a whole-page tint), not a genuine text finding.
+fn covers_most_of_page(rect: &Rect, page: &PageOcr) -> bool {
+    let page_area = page.width as f32 * page.height as f32;
+    page_area > 0.0 && rect.width * rect.height > page_area * 0.5
 }
 
 /// Finds text lines that repeat at the same vertical position across pages —
@@ -212,6 +224,9 @@ pub fn detect_repeated_lines(pages: &[PageOcr]) -> Vec<Vec<Finding>> {
             continue;
         }
         for (page_index, rect, text) in occurrences {
+            if covers_most_of_page(&rect, &pages[page_index]) {
+                continue;
+            }
             let center = vertical_center(&rect, pages[page_index].height);
             let category = if center < 0.2 {
                 "header"
@@ -407,6 +422,33 @@ mod tests {
         // "ab": 'a' followed by 'b' (alphabetic) -> rejected.
         // "aX": 'a' followed by 'X' (alphabetic) -> rejected too.
         assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn a_match_covering_most_of_the_page_is_dropped() {
+        // Two words that (mis)map to opposite corners would union into a
+        // page-spanning rect — the whole-page-tint bug. Drop it.
+        let page = PageOcr {
+            width: 1000,
+            height: 1000,
+            lines: vec![OcrLine {
+                text: "aX".to_string(),
+                words: vec![
+                    Span {
+                        text: "a".to_string(),
+                        rect: Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 },
+                    },
+                    Span {
+                        text: "X".to_string(),
+                        rect: Rect { x: 0.0, y: 990.0, width: 1000.0, height: 10.0 },
+                    },
+                ],
+            }],
+        };
+        // Pattern matches across both words, so the rect unions to full-page.
+        let rules = vec![RegexRule::new("x", "aX").unwrap()];
+
+        assert!(detect_page(&page, &rules).is_empty());
     }
 
     #[test]

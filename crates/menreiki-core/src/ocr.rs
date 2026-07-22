@@ -43,6 +43,86 @@ pub fn compose_line_text(words: &[Span]) -> String {
     text
 }
 
+/// Rejoins OCR lines that are really one horizontal line split into pieces —
+/// the way an engine fragments widely letter-spaced text (e.g. a company name
+/// in a title block: 「犬 芝 工 業 株 式 会 社」 becoming one line per
+/// character). Two lines merge only when they sit on the same row (their
+/// vertical extents overlap) and are horizontally close, so stacked box text
+/// (two centered lines) and separate labels or columns stay apart.
+pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
+    let mut entries: Vec<(Rect, &OcrLine)> = page
+        .lines
+        .iter()
+        .filter_map(|line| line_bounds(line).map(|rect| (rect, line)))
+        .collect();
+    entries.sort_by(|a, b| {
+        let (ay, by) = (a.0.y + a.0.height / 2.0, b.0.y + b.0.height / 2.0);
+        ay.partial_cmp(&by)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.0.x
+                    .partial_cmp(&b.0.x)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+
+    let mut groups: Vec<Vec<&OcrLine>> = Vec::new();
+    let mut row: Option<Rect> = None;
+    for (rect, line) in entries {
+        if let Some(current) = row {
+            let shared = vertical_overlap(&current, &rect);
+            let ratio = shared / current.height.min(rect.height).max(1.0);
+            let gap = rect.x - (current.x + current.width);
+            let threshold = current.height.max(rect.height) * 2.0;
+            if ratio > 0.5 && gap < threshold {
+                groups.last_mut().expect("row has a group").push(line);
+                row = Some(current.union(&rect));
+                continue;
+            }
+        }
+        groups.push(vec![line]);
+        row = Some(rect);
+    }
+
+    let lines = groups
+        .into_iter()
+        .map(|group| {
+            if group.len() == 1 {
+                return group[0].clone();
+            }
+            let mut words: Vec<Span> =
+                group.iter().flat_map(|line| line.words.iter().cloned()).collect();
+            words.sort_by(|a, b| {
+                a.rect
+                    .x
+                    .partial_cmp(&b.rect.x)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            OcrLine {
+                text: compose_line_text(&words),
+                words,
+            }
+        })
+        .collect();
+    PageOcr {
+        width: page.width,
+        height: page.height,
+        lines,
+    }
+}
+
+fn line_bounds(line: &OcrLine) -> Option<Rect> {
+    let mut words = line.words.iter();
+    let first = words.next()?.rect;
+    Some(words.fold(first, |bounds, word| bounds.union(&word.rect)))
+}
+
+fn vertical_overlap(a: &Rect, b: &Rect) -> f32 {
+    let top = a.y.max(b.y);
+    let bottom = (a.y + a.height).min(b.y + b.height);
+    (bottom - top).max(0.0)
+}
+
 /// OCR result for a single page image, in that image's pixel coordinates.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct PageOcr {
@@ -135,5 +215,74 @@ mod tests {
         ];
 
         assert_eq!(compose_line_text(&words), "アルファ 御中");
+    }
+
+    fn char_line(text: &str, x: f32, y: f32) -> OcrLine {
+        OcrLine {
+            text: text.to_string(),
+            words: vec![Span {
+                text: text.to_string(),
+                rect: Rect {
+                    x,
+                    y,
+                    width: 20.0,
+                    height: 20.0,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn merges_letter_spaced_fragments_on_one_row() {
+        // Each character came back as its own line, all on the same row.
+        let page = PageOcr {
+            width: 400,
+            height: 100,
+            lines: vec![
+                char_line("犬", 0.0, 10.0),
+                char_line("芝", 40.0, 10.0),
+                char_line("工", 80.0, 10.0),
+                char_line("業", 120.0, 10.0),
+            ],
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 1);
+        assert_eq!(merged.lines[0].text.replace(' ', ""), "犬芝工業");
+    }
+
+    #[test]
+    fn keeps_stacked_box_lines_separate() {
+        // A centered two-line box: different rows must not merge.
+        let page = PageOcr {
+            width: 400,
+            height: 200,
+            lines: vec![
+                char_line("操舵指令", 60.0, 10.0),
+                char_line("受信部", 75.0, 40.0),
+            ],
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 2);
+    }
+
+    #[test]
+    fn keeps_distant_columns_on_the_same_row_separate() {
+        // Same row but far apart (two labels / columns): must not merge.
+        let page = PageOcr {
+            width: 800,
+            height: 100,
+            lines: vec![
+                char_line("操舵指令", 0.0, 10.0),
+                char_line("赤外線画像", 400.0, 10.0),
+            ],
+        };
+
+        let merged = merge_row_fragments(&page);
+
+        assert_eq!(merged.lines.len(), 2);
     }
 }

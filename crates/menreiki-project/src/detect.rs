@@ -20,7 +20,10 @@ pub enum DetectPagesError {
 /// finding on the project's ignore list, and writes one findings JSON per
 /// page under `findings/`. Returns the number of pages processed.
 pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, DetectPagesError> {
-    let ocr_pages = load_ocr_pages(project_dir)?;
+    let ocr_pages: Vec<menreiki_core::PageOcr> = load_ocr_pages(project_dir)?
+        .iter()
+        .map(menreiki_core::merge_row_fragments)
+        .collect();
     let repeated = menreiki_detect::detect_repeated_lines(&ocr_pages);
     let ignored = crate::load_project_settings(project_dir)
         .map(|settings| settings.ignored)
@@ -29,7 +32,17 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
 
     for (page_index, ocr) in ocr_pages.iter().enumerate() {
         let mut findings = menreiki_detect::detect_page(ocr, rules);
-        findings.extend(repeated[page_index].iter().cloned());
+        // A content classification (organization, department, …) wins over a
+        // repeated-layout one for the same text: a company name in a title
+        // block is an organization, not a nameless footer.
+        let content: std::collections::HashSet<String> =
+            findings.iter().map(|finding| strip_ws(&finding.text)).collect();
+        findings.extend(
+            repeated[page_index]
+                .iter()
+                .filter(|finding| !content.contains(&strip_ws(&finding.text)))
+                .cloned(),
+        );
         findings.retain(|finding| {
             !ignored
                 .iter()
@@ -41,6 +54,10 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
             .map_err(DetectPagesError::Write)?;
     }
     Ok(ocr_pages.len() as u16)
+}
+
+fn strip_ws(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// Detects on a single page's stored OCR and writes just that page's findings,
@@ -62,6 +79,7 @@ pub fn detect_single_page(
     })?;
     let ocr: menreiki_core::PageOcr =
         serde_json::from_str(&text).map_err(|error| DetectPagesError::Load(error.into()))?;
+    let ocr = menreiki_core::merge_row_fragments(&ocr);
     let ignored = crate::load_project_settings(project_dir)
         .map(|settings| settings.ignored)
         .unwrap_or_default();

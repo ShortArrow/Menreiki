@@ -375,6 +375,49 @@ mod tests {
     }
 
     #[test]
+    fn a_letter_spaced_footer_name_merges_into_an_organization() {
+        // OCR split a title-block company name into one line per character;
+        // after row-merging it must read as one organization, not a pile of
+        // single-character footer candidates.
+        let chars = ["猫", "埼", "電", "工", "株", "式", "会", "社"];
+        let lines = chars
+            .iter()
+            .enumerate()
+            .map(|(index, character)| {
+                let rect = Rect {
+                    x: index as f32 * 40.0,
+                    y: 900.0,
+                    width: 20.0,
+                    height: 24.0,
+                };
+                OcrLine {
+                    text: character.to_string(),
+                    words: vec![Span {
+                        text: character.to_string(),
+                        rect,
+                    }],
+                }
+            })
+            .collect();
+        let page = PageOcr {
+            width: 800,
+            height: 1000,
+            lines,
+        };
+
+        let merged = menreiki_core::merge_row_fragments(&page);
+        let findings = detect_page(&merged, &builtin_rules());
+        let orgs = by_category(&findings, "organization");
+
+        assert!(
+            orgs.iter()
+                .any(|t| t.replace([' ', '　'], "").ends_with("株式会社")),
+            "fragmented footer name not detected as organization: {:?}",
+            findings.iter().map(|f| f.text.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
     fn departments_people_and_places_are_flagged() {
         let page = page(&[
             "技術開発部の田中氏が担当する",

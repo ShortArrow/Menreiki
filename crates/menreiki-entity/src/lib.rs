@@ -12,6 +12,10 @@ pub struct Entity {
     pub alias: String,
     /// All spellings of this entity; the first is the representative.
     pub variants: Vec<String>,
+    /// Horizontal placement of the alias when it replaces a variant
+    /// ("left" / "center" / "right"); `None` means centered.
+    #[serde(default)]
+    pub align: Option<String>,
 }
 
 /// Canonical form for comparing spellings: whitespace dropped, hiragana
@@ -87,6 +91,7 @@ mod tests {
             category: "organization".to_string(),
             alias: "開発会社A".to_string(),
             variants: variants.iter().map(|v| v.to_string()).collect(),
+            align: None,
         }
     }
 

@@ -60,6 +60,7 @@ export interface Entity {
   category: string;
   alias: string;
   variants: string[];
+  align?: TextAlign;
 }
 
 export interface ReviewDecisions {
