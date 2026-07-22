@@ -743,6 +743,32 @@ button.rule-target:hover {
   }
 }
 
+.detected-target {
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 10px;
+  background: var(--highlight-bg);
+}
+
+.detected-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.detected-head .finding-text {
+  flex: 1;
+  font-weight: 600;
+}
+
+.detected-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
 .suggest-targets {
   margin-top: 6px;
 }

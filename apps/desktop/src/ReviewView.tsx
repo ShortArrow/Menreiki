@@ -306,6 +306,7 @@ export default function ReviewView(props: {
   const currentPageRef = useRef<HTMLButtonElement>(null);
   const searchSectionRef = useRef<HTMLElement>(null);
   const [searchFlash, setSearchFlash] = useState(false);
+  const [detectedTarget, setDetectedTarget] = useState<string | null>(null);
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -851,14 +852,22 @@ export default function ReviewView(props: {
   /// search. OCR text is used when present; a box over a figure/logo/rotated
   /// label OCR could not read falls back to the vision model, whose result is
   /// located by the box the reviewer drew.
+  /// Surfaces `text` as a detected target: it becomes the active search string
+  /// (so its other occurrences are listed) and the target bar's one-click
+  /// actions (replace/mask/erase/entity/dictionary) operate on it directly.
+  function offerTarget(text: string) {
+    setDetectedTarget(text);
+    setSearchInput(text);
+    revealSearch();
+  }
+
   function detectRegion(rect: Rect) {
     setDrawMode("none");
     void run("領域のテキストを取得中…", async () => {
       const text = (await textInRegion(project.projectDir, page, rect)).trim();
       if (text) {
-        setSearchInput(text);
         setSearchHits(await searchProject(project.projectDir, text));
-        revealSearch();
+        offerTarget(text);
         return;
       }
       setProgress("OCRで読めない領域をVLMで読み取り中…");
@@ -869,14 +878,13 @@ export default function ReviewView(props: {
         setNotice("この領域からは文字を取得できませんでした。");
         return;
       }
-      setSearchInput(read[0]);
       setSearchHits(
         await searchProject(project.projectDir, read[0]).catch(() => null),
       );
-      setNotice(
-        `VLM読取: ${read.join(" / ")}（本文に無ければ、この箇所はマスク領域で消してください）`,
-      );
-      revealSearch();
+      offerTarget(read[0]);
+      if (read.length > 1) {
+        setNotice(`VLM読取: ${read.join(" / ")}`);
+      }
     });
   }
 
@@ -1338,6 +1346,66 @@ export default function ReviewView(props: {
             ref={searchSectionRef}
             className={searchFlash ? "reveal-flash" : undefined}
           >
+            {detectedTarget && (
+              <div className="detected-target">
+                <div className="detected-head">
+                  <span className="chip-action">検出</span>
+                  <span className="finding-text" title={detectedTarget}>
+                    {detectedTarget}
+                  </span>
+                  <button
+                    className="mini"
+                    title="閉じる"
+                    onClick={() => setDetectedTarget(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="detected-actions">
+                  <button
+                    onClick={() => {
+                      createEntity(dictionaryCategory, detectedTarget);
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    Entityへ
+                  </button>
+                  <button
+                    onClick={() => {
+                      addSearchRule("replace");
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    置換
+                  </button>
+                  <button
+                    onClick={() => {
+                      addSearchRule("mask");
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    マスク
+                  </button>
+                  <button
+                    onClick={() => {
+                      addSearchRule("erase");
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    消去
+                  </button>
+                  <button
+                    disabled={busy !== null}
+                    onClick={() => {
+                      registerToDictionary();
+                      setDetectedTarget(null);
+                    }}
+                  >
+                    辞書へ
+                  </button>
+                </div>
+              </div>
+            )}
             <h2>文字列で検索</h2>
             <div className="search-row">
               <input
