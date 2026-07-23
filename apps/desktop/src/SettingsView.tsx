@@ -1,3 +1,4 @@
+import { ChevronDown, X } from "./icons";
 import { useEffect, useState } from "react";
 import {
   getConfig,
@@ -154,13 +155,14 @@ export default function SettingsView(props: {
                         {text}
                       </span>
                       <button
+                        aria-label="無視リストから削除"
                         onClick={() =>
                           setIgnored((current) =>
                             current.filter((_, i) => i !== index),
                           )
                         }
                       >
-                        ×
+                        <X size={12} />
                       </button>
                     </div>
                   );
@@ -197,21 +199,23 @@ export default function SettingsView(props: {
                       type="button"
                       className="combo-clear"
                       title="クリア"
+                      aria-label="クリア"
                       onClick={() => setModel("")}
                     >
-                      ×
+                      <X size={13} />
                     </button>
                   )}
                 </span>
                 <button
                   type="button"
                   title="検出済みモデルの一覧から選ぶ"
+                  aria-label="モデル一覧を開く"
                   onClick={() => {
                     setModelFilter("");
                     setModelMenuOpen((open) => !open);
                   }}
                 >
-                  ▾
+                  <ChevronDown size={14} />
                 </button>
                 <button
                   type="button"
@@ -270,7 +274,7 @@ export default function SettingsView(props: {
                 : modelsError
                   ? `モデル一覧を取得できませんでした（エンドポイントが起動しているか確認してください）。名前は手入力もできます。`
                   : models.length > 0
-                    ? `${models.length} 個のモデルを検出。▾で一覧から選択、手入力も可能です。`
+                    ? `${models.length} 個のモデルを検出。一覧ボタンから選択、手入力も可能です。`
                     : "候補はありません。名前を手入力してください。"}
             </p>
           </section>

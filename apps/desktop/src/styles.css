@@ -124,6 +124,11 @@ h2 {
   white-space: pre-wrap;
 }
 
+/* lucide icons align with adjacent button text. */
+svg.lucide {
+  vertical-align: -2px;
+}
+
 .theme-toggle {
   position: fixed;
   right: 12px;

@@ -65,9 +65,12 @@ test.beforeAll(async () => {
     shell: true,
     stdio: "ignore",
   });
+  // First-ever transform on this repo's slow filesystem can take minutes
+  // when the vite optimize cache is cold; be generous.
   await waitFor(
     async () => (await fetch("http://localhost:1420")).ok,
     "vite dev server",
+    180_000,
   );
 
   app = spawn(appExe, [projectDir], {
@@ -105,7 +108,7 @@ test.afterAll(async () => {
 
 test("side-pane sections are laid out without overlap", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
-    timeout: 30_000,
+    timeout: 120_000,
   });
 
   // Regression: shrunken flex sections used to let their content paint over
@@ -134,11 +137,11 @@ test("side-pane sections are laid out without overlap", async () => {
 
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
-    timeout: 30_000,
+    timeout: 120_000,
   });
 
   // Settings dialog lists the detector groups and persists a selection.
-  await page.getByRole("button", { name: "⚙ 設定" }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeVisible();
   await expect(
     page.locator(".detector-grid").getByText("date", { exact: true }),
@@ -170,7 +173,7 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 60_000,
   });
 
-  await page.getByRole("button", { name: "PDF出力 ▾" }).click();
+  await page.getByRole("button", { name: "PDF出力" }).click();
   await page.getByRole("button", { name: "すべてのページを出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,

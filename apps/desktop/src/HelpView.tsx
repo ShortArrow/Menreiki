@@ -1,3 +1,11 @@
+import {
+  BadgeCheck,
+  FileText,
+  PenLine,
+  Printer,
+  ScanSearch,
+} from "./icons";
+
 /// Full-page help, written for reviewers who are not IT specialists: what
 /// the tool does, the basic 5-step workflow, task-based recipes, and a plain
 /// glossary up front; the technical diagrams (data flow, state transitions,
@@ -23,15 +31,25 @@ export default function HelpView(props: { onClose: () => void }) {
 
           <div className="help-flow simple">
             <div className="row">
-              <span className="node">📄 書類を取り込む</span>
+              <span className="node">
+                <FileText size={15} /> 書類を取り込む
+              </span>
               <span className="arrow-h">→</span>
-              <span className="node">🔍 解析で印がつく</span>
+              <span className="node">
+                <ScanSearch size={15} /> 解析で印がつく
+              </span>
               <span className="arrow-h">→</span>
-              <span className="node strong">✍️ あなたが決める</span>
+              <span className="node strong">
+                <PenLine size={15} /> あなたが決める
+              </span>
               <span className="arrow-h">→</span>
-              <span className="node">🖨 適用して出力</span>
+              <span className="node">
+                <Printer size={15} /> 適用して出力
+              </span>
               <span className="arrow-h">→</span>
-              <span className="node">✅ 消し残りチェック</span>
+              <span className="node">
+                <BadgeCheck size={15} /> 消し残りチェック
+              </span>
             </div>
           </div>
 
@@ -151,7 +169,7 @@ export default function HelpView(props: { onClose: () => void }) {
               <tr>
                 <th>どこがどう変わるのか、適用前に確認したい</th>
                 <td>
-                  適用予定ルールの各行の「▸」を開くと、出現箇所ごとの
+                  適用予定ルールの各行の開閉ボタンを開くと、出現箇所ごとの
                   <b>変換前 → 変換後</b>の切り抜きが見られます。クリックで
                   その場所へジャンプします。ビューア上部の「適用予定を重ねる」
                   でも紙面上に直接プレビューできます。
@@ -471,7 +489,7 @@ export default function HelpView(props: { onClose: () => void }) {
                     <span className="from">検出候補</span> ⟶{" "}
                     <span className="to">無視リスト</span>
                   </td>
-                  <td>その語×分類のみ除外。⚙設定で解除できる</td>
+                  <td>その語×分類のみ除外。設定画面で解除できる</td>
                 </tr>
                 <tr>
                   <th>検索: ◯◯ルールに追加</th>

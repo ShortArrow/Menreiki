@@ -87,7 +87,11 @@ fn draw_fitted_text(
     font: &FontVec,
     align: TextAlign,
 ) {
-    let mut scale = PxScale::from(area.height() as f32 * 0.8);
+    // The OCR box hugs the glyph ink while PxScale is the full em height
+    // (with leading), so scaling to the box height already renders slightly
+    // smaller than the original — no extra safety factor, or every
+    // replacement looks one size too small.
+    let mut scale = PxScale::from(area.height() as f32);
     let (text_width, _) = text_size(scale, font, text);
     if text_width > 0 && text_width as f32 > area.width() as f32 {
         scale = PxScale::from(scale.y * area.width() as f32 / text_width as f32);

@@ -1,3 +1,4 @@
+import { Minus, Plus } from "./icons";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageImageUrl } from "./api";
 import type { Finding, Rect } from "./types";
@@ -231,8 +232,9 @@ export default function PageViewer(props: {
         <button
           onClick={() => setZoom((current) => clampZoom(current / 1.15))}
           title="縮小"
+          aria-label="縮小"
         >
-          −
+          <Minus size={13} />
         </button>
         <button onClick={() => setZoom(1)} title="幅に合わせる">
           {Math.round(zoom * 100)}%
@@ -240,8 +242,9 @@ export default function PageViewer(props: {
         <button
           onClick={() => setZoom((current) => clampZoom(current * 1.15))}
           title="拡大"
+          aria-label="拡大"
         >
-          ＋
+          <Plus size={13} />
         </button>
         <span className="hint">Ctrl+ホイールで拡大縮小 / Shift+ホイールで左右</span>
       </div>

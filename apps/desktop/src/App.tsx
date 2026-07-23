@@ -1,3 +1,4 @@
+import { Moon, Sun } from "./icons";
 import { useEffect, useState } from "react";
 import { getConfig, initialProject, setConfig } from "./api";
 import HomeView from "./HomeView";
@@ -54,8 +55,9 @@ export default function App() {
             className="theme-toggle"
             onClick={toggleTheme}
             title="テーマを切り替える"
+            aria-label="テーマを切り替える"
           >
-            {theme === "dark" ? "☀" : "🌙"}
+            {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
         </>
       )}

@@ -1,3 +1,16 @@
+import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
+  ChevronDown,
+  ChevronRight,
+  CircleHelp,
+  Moon,
+  Settings2,
+  Sparkles,
+  Sun,
+  X,
+} from "./icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -224,7 +237,7 @@ function AliasSuggest(props: {
         disabled={loading}
         onClick={fetchSuggestions}
       >
-        {loading ? "…" : "✨"}
+        {loading ? "…" : <Sparkles size={13} />}
       </button>
       {items?.map((suggestion) => (
         <button
@@ -283,10 +296,10 @@ function AlignToggle(props: {
   onChange: (align: TextAlign) => void;
 }) {
   const current = props.value ?? "center";
-  const options: [TextAlign, string, string][] = [
-    ["left", "⇤", "左揃え"],
-    ["center", "≡", "中央揃え"],
-    ["right", "⇥", "右揃え"],
+  const options: [TextAlign, React.ReactNode, string][] = [
+    ["left", <AlignLeft key="l" size={12} />, "左揃え"],
+    ["center", <AlignCenter key="c" size={12} />, "中央揃え"],
+    ["right", <AlignRight key="r" size={12} />, "右揃え"],
   ];
   return (
     <span className="align-toggle">
@@ -295,6 +308,7 @@ function AlignToggle(props: {
           key={align}
           className={current === align ? "align-btn current" : "align-btn"}
           title={title}
+          aria-label={title}
           onClick={() => props.onChange(align)}
         >
           {glyph}
@@ -1526,7 +1540,7 @@ export default function ReviewView(props: {
               disabled={busy !== null}
               onClick={() => setReanalyzeOpen((open) => !open)}
             >
-              再解析… ▾
+              再解析… <ChevronDown size={13} />
             </button>
             {reanalyzeOpen && (
               <>
@@ -1597,7 +1611,7 @@ export default function ReviewView(props: {
           disabled={busy !== null}
           title="設定（検出器・ローカルLLM）"
         >
-          ⚙ 設定
+          <Settings2 size={14} /> 設定
         </button>
         <label className="toggle">
           <input
@@ -1620,7 +1634,7 @@ export default function ReviewView(props: {
             onClick={() => setExportMenuOpen((open) => !open)}
             disabled={busy !== null || !hasRenders}
           >
-            PDF出力 ▾
+            PDF出力 <ChevronDown size={13} />
           </button>
           {exportMenuOpen && (
             <>
@@ -1685,14 +1699,14 @@ export default function ReviewView(props: {
           onClick={() => setHelpOpen(true)}
           title="ヘルプ（各要素の対応関係とデータの流れ）"
         >
-          ❓
+          <CircleHelp size={16} />
         </button>
         <button
           className="theme-button"
           onClick={props.onToggleTheme}
           title="テーマを切り替える"
         >
-          {props.theme === "dark" ? "☀" : "🌙"}
+          {props.theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </header>
 
@@ -1929,9 +1943,10 @@ export default function ReviewView(props: {
                   <button
                     className="mini"
                     title="閉じる"
+                    aria-label="閉じる"
                     onClick={() => setDetectedTarget(null)}
                   >
-                    ×
+                    <X size={12} />
                   </button>
                 </div>
                 <div className="detected-actions">
@@ -2016,7 +2031,13 @@ export default function ReviewView(props: {
                 onClick={runSuggestTargets}
                 disabled={suggestingTargets || busy !== null}
               >
-                {suggestingTargets ? "提案中…" : "✨ AIに検出対象を提案させる"}
+                {suggestingTargets ? (
+                  "提案中…"
+                ) : (
+                  <>
+                    <Sparkles size={13} /> AIに検出対象を提案させる
+                  </>
+                )}
               </button>
               {targetSuggestions?.length === 0 && (
                 <span className="hint">提案はありませんでした</span>
@@ -2161,7 +2182,11 @@ export default function ReviewView(props: {
                         title="出現箇所のビフォー/アフターを開閉"
                         onClick={() => toggleRuleExpansion(`ent-${entity.id}`)}
                       >
-                        {expandedRules.has(`ent-${entity.id}`) ? "▾" : "▸"}
+                        {expandedRules.has(`ent-${entity.id}`) ? (
+                          <ChevronDown size={13} />
+                        ) : (
+                          <ChevronRight size={13} />
+                        )}
                       </button>
                       <span className="chip-action">置換</span>
                       <span className="rule-target" title={entity.variants.join("、")}>
@@ -2192,7 +2217,11 @@ export default function ReviewView(props: {
                     title="出現箇所のビフォー/アフターを開閉"
                     onClick={() => toggleRuleExpansion(`dec-${entry.key}`)}
                   >
-                    {expandedRules.has(`dec-${entry.key}`) ? "▾" : "▸"}
+                    {expandedRules.has(`dec-${entry.key}`) ? (
+                      <ChevronDown size={13} />
+                    ) : (
+                      <ChevronRight size={13} />
+                    )}
                   </button>
                   <span className="chip-action">
                     {
@@ -2276,7 +2305,11 @@ export default function ReviewView(props: {
                     title="出現箇所のビフォー/アフターを開閉"
                     onClick={() => toggleRuleExpansion(`txt-${rule.text}`)}
                   >
-                    {expandedRules.has(`txt-${rule.text}`) ? "▾" : "▸"}
+                    {expandedRules.has(`txt-${rule.text}`) ? (
+                      <ChevronDown size={13} />
+                    ) : (
+                      <ChevronRight size={13} />
+                    )}
                   </button>
                   <span className="chip-action">
                     {ACTION_LABELS[rule.action]}
@@ -2519,8 +2552,9 @@ export default function ReviewView(props: {
                             );
                             void refreshEntityMeta(updated);
                           }}
+                          aria-label="表記を外す"
                         >
-                          ×
+                          <X size={11} />
                         </button>
                       </span>
                     ))}
