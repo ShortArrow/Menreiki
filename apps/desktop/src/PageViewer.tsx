@@ -381,6 +381,18 @@ export default function PageViewer(props: {
                   height={dragRect.height}
                 />
               )}
+              {props.focusRect && (
+                // Keyed by nonce so every jump restarts the blink, making the
+                // jumped-to spot unmistakable among many rects.
+                <rect
+                  key={`focus-${props.focusNonce}`}
+                  className="focus-flash"
+                  x={props.focusRect.x - 4}
+                  y={props.focusRect.y - 4}
+                  width={props.focusRect.width + 8}
+                  height={props.focusRect.height + 8}
+                />
+              )}
             </svg>
           )}
         </div>

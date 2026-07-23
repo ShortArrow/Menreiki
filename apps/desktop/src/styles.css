@@ -458,6 +458,34 @@ h2 {
   stroke: rgba(151, 71, 255, 0.95);
 }
 
+/* Blinking accent ring at the jump target, fading out when done. */
+.focus-flash {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  pointer-events: none;
+  animation: focus-flash 1.6s ease-out forwards;
+}
+
+@keyframes focus-flash {
+  0% {
+    opacity: 1;
+    stroke-width: 10;
+  }
+  25% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* ---- Pending-rule preview overlay ---- */
 
 .rule-preview {
