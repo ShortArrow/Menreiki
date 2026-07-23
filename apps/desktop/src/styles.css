@@ -891,6 +891,54 @@ button.rule-target:hover {
   color: var(--muted);
 }
 
+/* Nested grouping diagram: Entity > 候補グループ > 出現. */
+.help-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.help-tree .tree-node {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 5px 10px;
+}
+
+.help-tree .level-1 {
+  margin-left: 28px;
+}
+
+.help-tree .level-2 {
+  margin-left: 56px;
+  color: var(--muted);
+}
+
+.help-tree .tree-tag {
+  display: inline-block;
+  font-size: 11px;
+  border-radius: 3px;
+  padding: 0 6px;
+  margin-right: 6px;
+  font-weight: 600;
+}
+
+.help-tree .entity-tag {
+  border: 2px solid var(--accent);
+}
+
+.help-tree .group-tag {
+  background: var(--strong-chip-bg);
+  color: var(--strong-chip-text);
+}
+
+.help-tree .occ-tag {
+  background: rgba(232, 89, 12, 0.18);
+  border: 1px solid rgba(232, 89, 12, 0.7);
+}
+
 .help-table {
   width: 100%;
   border-collapse: collapse;

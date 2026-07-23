@@ -124,6 +124,67 @@ export default function HelpView(props: { onClose: () => void }) {
           「ここを検出」で囲み直すかマスク領域で対処します。
         </p>
 
+        <h2>グルーピングの構造（何が「同じもの」として扱われるか）</h2>
+        <p>
+          粒度は3段階の入れ子です。各操作がどの範囲に効くかはこの構造で決まります。
+        </p>
+        <div className="help-tree">
+          <div className="tree-node level-0">
+            <span className="tree-tag entity-tag">Entity</span>
+            「開発会社A」 — 表記揺れの束。置換先は1つの仮称
+          </div>
+          <div className="tree-node level-1">
+            <span className="tree-tag group-tag">候補グループ</span>
+            分類 × 文字列（organization ×「株式会社アルファ技研」）
+          </div>
+          <div className="tree-node level-2">
+            <span className="tree-tag occ-tag">出現</span> p.1 — 位置つきの1件
+            （メインビューの矩形1つ）
+          </div>
+          <div className="tree-node level-2">
+            <span className="tree-tag occ-tag">出現</span> p.4
+          </div>
+          <div className="tree-node level-1">
+            <span className="tree-tag group-tag">候補グループ</span>
+            organization ×「アルファ技研」
+          </div>
+          <div className="tree-node level-2">
+            <span className="tree-tag occ-tag">出現</span> p.2
+          </div>
+        </div>
+        <table className="help-table">
+          <tbody>
+            <tr>
+              <th>出現</th>
+              <td>
+                位置＋文字列を持つ1件。ジャンプ・切り抜き・矩形クリックの単位です。
+              </td>
+            </tr>
+            <tr>
+              <th>候補グループ</th>
+              <td>
+                「分類 × 文字列」が同じ出現の集まり。<b>グループのIDは分類と
+                文字列の組</b>で、位置は含まれません。検出候補リストの1行が
+                これで、「p.3+2」は他ページにも出現がある印。
+                <b>判断・無視・「既存候補へ」の統合は、この単位で文書全体に効きます</b>
+                （p.3の1件だけ判断する、はできません — その場合はマスク領域を使います）。
+              </td>
+            </tr>
+            <tr>
+              <th>Entity</th>
+              <td>
+                複数の候補グループ（表記揺れ）を1つの仮称へ束ねる最上位。
+                どの表記も文書全体で同じ仮称に置換されるため、
+                意味・関係性を保ったまま同一対象を隠せます。
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p>
+          同じ文字列に複数の指定が重なった場合、適用予定ルールは1つに集約されます
+          （優先順: <b>Entity ＞ 候補の判断 ＞ 検索ルール</b>。先に登録された方が勝ち）。
+        </p>
+
         <h2>右ペインの各セクション</h2>
         <table className="help-table">
           <tbody>
