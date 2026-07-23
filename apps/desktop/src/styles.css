@@ -721,6 +721,74 @@ button.rule-target:hover {
   text-decoration: line-through;
 }
 
+/* ---- Pending-rule occurrence crops (accordion body) ---- */
+
+.rule-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rule-crops {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 0 6px 26px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.rule-crops > * {
+  flex: none;
+}
+
+.rule-crop-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rule-crop-row:hover {
+  background: var(--hover);
+}
+
+.after-sim {
+  position: relative;
+  display: inline-flex;
+}
+
+.after-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  font-size: 11px;
+  padding: 0 3px;
+  white-space: nowrap;
+}
+
+.after-overlay.erase {
+  background: #ffffff;
+  border: 1px solid var(--border-soft);
+}
+
+.after-overlay.mask {
+  background: #111111;
+}
+
+.after-overlay.replace {
+  background: #ffffff;
+  color: #111111;
+  border: 1px solid var(--border-soft);
+}
+
 /* ---- Applied before/after gallery ---- */
 
 .applied-list {

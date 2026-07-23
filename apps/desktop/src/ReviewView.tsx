@@ -414,6 +414,116 @@ interface DetectedTarget {
   rect: Rect;
 }
 
+const stripWs = (value: string) => value.replace(/[\s　]/g, "");
+
+/// Accordion body of a pending rule: every occurrence of the rule's texts in
+/// the document as a before → simulated-after crop pair. The after side
+/// paints the rule's outcome (erase/mask fill, replacement text with its
+/// alignment) over the same crop, so the result is previewable before 適用.
+/// Clicking a pair jumps the main view to that spot.
+function RuleCropsPanel(props: {
+  projectDir: string;
+  texts: string[];
+  action: Exclude<DecisionAction, "keep">;
+  value: string;
+  align?: TextAlign;
+  pinned: { page: number; rect: Rect }[];
+  onJump: (page: number, rect: Rect) => void;
+}) {
+  const [items, setItems] = useState<{ page: number; rect: Rect }[] | null>(
+    null,
+  );
+  const pinnedRef = useRef(props.pinned);
+  pinnedRef.current = props.pinned;
+  const textsRef = useRef(props.texts);
+  textsRef.current = props.texts;
+  const textsKey = props.texts.join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const seen = new Set<string>();
+      const found: { page: number; rect: Rect }[] = [];
+      const push = (page: number, rect: Rect) => {
+        const key = `${page}|${Math.round(rect.x)}|${Math.round(rect.y)}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          found.push({ page, rect });
+        }
+      };
+      for (const pin of pinnedRef.current) push(pin.page, pin.rect);
+      for (const text of textsRef.current) {
+        if (!text.trim()) continue;
+        const hits = await searchProject(props.projectDir, text).catch(
+          () => [],
+        );
+        for (const page of hits) {
+          for (const finding of page.findings) {
+            push(page.page_index, finding.rect);
+          }
+        }
+      }
+      found.sort((a, b) => a.page - b.page || a.rect.y - b.rect.y);
+      if (!cancelled) setItems(found);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [props.projectDir, textsKey]);
+
+  if (!items) return <p className="status">出現箇所を検索中…</p>;
+  if (items.length === 0)
+    return (
+      <p className="status">
+        本文中に出現箇所が見つかりません（位置未特定の可能性）
+      </p>
+    );
+  return (
+    <div className="rule-crops">
+      {items.map((item, index) => (
+        <button
+          key={index}
+          className="rule-crop-row"
+          title="クリックで該当箇所へジャンプ"
+          onClick={() => props.onJump(item.page, item.rect)}
+        >
+          <span className="page-tag">p.{item.page + 1}</span>
+          <RegionThumb
+            projectDir={props.projectDir}
+            pageIndex={item.page}
+            rect={item.rect}
+            maxWidth={140}
+            maxHeight={40}
+          />
+          <span className="applied-arrow">→</span>
+          <span className="after-sim">
+            <RegionThumb
+              projectDir={props.projectDir}
+              pageIndex={item.page}
+              rect={item.rect}
+              maxWidth={140}
+              maxHeight={40}
+            />
+            <span
+              className={`after-overlay ${props.action}`}
+              style={{
+                justifyContent:
+                  props.align === "left"
+                    ? "flex-start"
+                    : props.align === "right"
+                      ? "flex-end"
+                      : "center",
+              }}
+            >
+              {props.action === "replace" ? props.value || "■■■" : ""}
+            </span>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -471,6 +581,7 @@ export default function ReviewView(props: {
   );
   const findingRowRefs = useRef(new Map<string, HTMLDivElement>());
   const [flashKey, setFlashKey] = useState<string | null>(null);
+  const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -1095,6 +1206,34 @@ export default function ReviewView(props: {
       }
       jumpTo(first.page_index, first.findings[0]);
     });
+  }
+
+  function toggleRuleExpansion(key: string) {
+    setExpandedRules((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  function jumpToRect(page: number, rect: Rect) {
+    setPage(page);
+    setFocus((current) => ({ rect, nonce: (current?.nonce ?? 0) + 1 }));
+  }
+
+  /// Occurrence pins from currently loaded findings whose text matches one of
+  /// `texts` — gives the crops panel the manually boxed rects OCR search
+  /// cannot find. Location-unknown (whole-page VLM) findings are excluded.
+  function pinnedFor(texts: string[]) {
+    const needles = texts.map(stripWs);
+    return flatFindings
+      .filter(
+        ({ finding }) =>
+          needles.includes(stripWs(finding.text)) &&
+          !finding.note?.startsWith("位置未特定"),
+      )
+      .map(({ pageIndex, finding }) => ({ page: pageIndex, rect: finding.rect }));
   }
 
   /// Scrolls the findings list to the row for `finding` and flashes it — the
@@ -1886,18 +2025,46 @@ export default function ReviewView(props: {
               {entities
                 .filter((entity) => entity.variants.length > 0)
                 .map((entity) => (
-                  <div key={entity.id} className="rule-entry">
-                    <span className="chip-action">置換</span>
-                    <span className="rule-target" title={entity.variants.join("、")}>
-                      <span className="category-tag">Entity</span>
-                      <span className="finding-text">
-                        {entity.variants.length}表記 → {entity.alias || "（仮称未設定）"}
+                  <div key={entity.id} className="rule-block">
+                    <div className="rule-entry">
+                      <button
+                        className="mini"
+                        title="出現箇所のビフォー/アフターを開閉"
+                        onClick={() => toggleRuleExpansion(`ent-${entity.id}`)}
+                      >
+                        {expandedRules.has(`ent-${entity.id}`) ? "▾" : "▸"}
+                      </button>
+                      <span className="chip-action">置換</span>
+                      <span className="rule-target" title={entity.variants.join("、")}>
+                        <span className="category-tag">Entity</span>
+                        <span className="finding-text">
+                          {entity.variants.length}表記 → {entity.alias || "（仮称未設定）"}
+                        </span>
                       </span>
-                    </span>
+                    </div>
+                    {expandedRules.has(`ent-${entity.id}`) && (
+                      <RuleCropsPanel
+                        projectDir={project.projectDir}
+                        texts={entity.variants}
+                        action="replace"
+                        value={entity.alias}
+                        align={entity.align}
+                        pinned={pinnedFor(entity.variants)}
+                        onJump={jumpToRect}
+                      />
+                    )}
                   </div>
                 ))}
               {decidedEntries.map((entry) => (
-                <div key={entry.key} className="rule-entry">
+                <div key={entry.key} className="rule-block">
+                <div className="rule-entry">
+                  <button
+                    className="mini"
+                    title="出現箇所のビフォー/アフターを開閉"
+                    onClick={() => toggleRuleExpansion(`dec-${entry.key}`)}
+                  >
+                    {expandedRules.has(`dec-${entry.key}`) ? "▾" : "▸"}
+                  </button>
                   <span className="chip-action">
                     {
                       ACTION_LABELS[
@@ -1956,10 +2123,32 @@ export default function ReviewView(props: {
                     解除
                   </button>
                 </div>
+                {expandedRules.has(`dec-${entry.key}`) && (
+                  <RuleCropsPanel
+                    projectDir={project.projectDir}
+                    texts={[entry.finding.text]}
+                    action={
+                      entry.decision.action as Exclude<DecisionAction, "keep">
+                    }
+                    value={entry.decision.value}
+                    align={entry.decision.align}
+                    pinned={pinnedFor([entry.finding.text])}
+                    onJump={jumpToRect}
+                  />
+                )}
+                </div>
               ))}
 
               {textRules.map((rule, index) => (
-                <div key={`text-${index}`} className="rule-entry">
+                <div key={`text-${index}`} className="rule-block">
+                <div className="rule-entry">
+                  <button
+                    className="mini"
+                    title="出現箇所のビフォー/アフターを開閉"
+                    onClick={() => toggleRuleExpansion(`txt-${rule.text}`)}
+                  >
+                    {expandedRules.has(`txt-${rule.text}`) ? "▾" : "▸"}
+                  </button>
                   <span className="chip-action">
                     {ACTION_LABELS[rule.action]}
                   </span>
@@ -2028,6 +2217,18 @@ export default function ReviewView(props: {
                   >
                     削除
                   </button>
+                </div>
+                {expandedRules.has(`txt-${rule.text}`) && (
+                  <RuleCropsPanel
+                    projectDir={project.projectDir}
+                    texts={[rule.text]}
+                    action={rule.action}
+                    value={rule.value}
+                    align={rule.align}
+                    pinned={pinnedFor([rule.text])}
+                    onJump={jumpToRect}
+                  />
+                )}
                 </div>
               ))}
 
