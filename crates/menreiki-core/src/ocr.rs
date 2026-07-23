@@ -140,6 +140,55 @@ pub fn merge_row_fragments(page: &PageOcr) -> PageOcr {
     }
 }
 
+/// Orders arbitrary word boxes into natural reading order: words are
+/// clustered into rows by vertical overlap (tolerant of the per-glyph
+/// jitter in OCR box tops), rows read top-to-bottom, words left-to-right
+/// within a row, rows joined by a space.
+///
+/// This is the path for region extraction ("ここを検出"): letter-spaced text
+/// reaches OCR as one *line per character* whose stored order follows the
+/// jittered tops, so neither the stored order nor a naive (y, x) sort reads
+/// correctly — 犬芝重工業株式会社 came out as 芝株重業式社犬工.
+pub fn reading_order_text(words: &[Span]) -> String {
+    let mut sorted: Vec<&Span> = words.iter().collect();
+    sorted.sort_by(|a, b| {
+        (a.rect.y + a.rect.height / 2.0)
+            .partial_cmp(&(b.rect.y + b.rect.height / 2.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let mut rows: Vec<(Rect, Vec<&Span>)> = Vec::new();
+    for word in sorted {
+        if let Some((band, members)) = rows.last_mut() {
+            let shared = vertical_overlap(band, &word.rect);
+            if shared / band.height.min(word.rect.height).max(1.0) > 0.5 {
+                members.push(word);
+                *band = band.union(&word.rect);
+                continue;
+            }
+        }
+        rows.push((word.rect, vec![word]));
+    }
+
+    rows.iter_mut().for_each(|(_, members)| {
+        members.sort_by(|a, b| {
+            a.rect
+                .x
+                .partial_cmp(&b.rect.x)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    });
+    rows.iter()
+        .map(|(_, members)| {
+            members
+                .iter()
+                .map(|word| word.text.as_str())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn is_single_char(line: &OcrLine) -> bool {
     line.text.chars().filter(|c| !c.is_whitespace()).count() == 1
 }
@@ -345,6 +394,54 @@ mod tests {
         let merged = merge_row_fragments(&page);
 
         assert_eq!(merged.lines.len(), 2);
+    }
+
+    fn jittered(text: &str, x: f32, y: f32) -> Span {
+        Span {
+            text: text.to_string(),
+            rect: Rect {
+                x,
+                y,
+                width: 20.0,
+                height: 20.0,
+            },
+        }
+    }
+
+    #[test]
+    fn reading_order_survives_jittered_tops_in_scrambled_input() {
+        // Regression: letter-spaced 犬芝重工業株式会社 arrived as one line per
+        // character, ordered by jittered glyph tops, and read back as
+        // 芝株重業式社犬工. Whatever the input order and top jitter, one
+        // visual row must read left to right.
+        let chars = ["犬", "芝", "重", "工", "業", "株", "式", "会", "社"];
+        let mut words: Vec<Span> = chars
+            .iter()
+            .enumerate()
+            .map(|(index, character)| {
+                // Alternate the top a few pixels to defeat naive (y, x) sorts.
+                let wobble = if index % 2 == 0 { 0.0 } else { 3.0 };
+                jittered(character, index as f32 * 30.0, 100.0 + wobble)
+            })
+            .collect();
+        words.reverse();
+        words.swap(0, 4);
+
+        assert_eq!(reading_order_text(&words), "犬芝重工業株式会社");
+    }
+
+    #[test]
+    fn reading_order_keeps_rows_apart_and_in_order() {
+        let words = [
+            jittered("部", 30.0, 200.0),
+            jittered("モ", 0.0, 100.0),
+            jittered("ル", 60.0, 103.0),
+            jittered("ジ", 20.0, 102.0),
+            jittered("ュ", 40.0, 99.0),
+            jittered("ー", 50.0, 101.0),
+        ];
+
+        assert_eq!(reading_order_text(&words), "モジュール 部");
     }
 
     #[test]

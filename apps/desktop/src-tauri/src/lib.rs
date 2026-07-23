@@ -601,18 +601,17 @@ fn text_in_region(
     let ocr = pages
         .get(page as usize)
         .ok_or_else(|| "ページが範囲外です".to_string())?;
-    // Keep the OCR's own reading order (lines top-to-bottom, words in sequence).
-    // Re-sorting by coordinates scrambles a single line whose glyph tops vary
-    // by a pixel or two, producing gibberish like "芝株重業式社犬工".
-    let mut text = String::new();
-    for line in &ocr.lines {
-        for word in &line.words {
-            if rects_overlap(&word.rect, &rect) {
-                text.push_str(&word.text);
-            }
-        }
-    }
-    Ok(text)
+    // Letter-spaced text reaches OCR as one line per character in jittered-top
+    // order, so neither the stored order nor a naive coordinate sort reads
+    // correctly; cluster into rows and read each row left to right instead.
+    let hits: Vec<menreiki_core::Span> = ocr
+        .lines
+        .iter()
+        .flat_map(|line| &line.words)
+        .filter(|word| rects_overlap(&word.rect, &rect))
+        .cloned()
+        .collect();
+    Ok(menreiki_core::reading_order_text(&hits))
 }
 
 fn rects_overlap(a: &menreiki_core::Rect, b: &menreiki_core::Rect) -> bool {
