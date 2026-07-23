@@ -786,6 +786,35 @@ button.rule-target:hover {
   background: var(--hover);
 }
 
+.group-popover {
+  min-width: 220px;
+}
+
+.group-popover input {
+  margin: 2px 4px 6px;
+}
+
+/* Bare-text jump buttons (entity spellings, detected target). */
+.chip-text,
+.detected-jump {
+  border: none;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chip-text:hover,
+.detected-jump:hover {
+  text-decoration: underline;
+}
+
+.finding-rect {
+  cursor: pointer;
+}
+
 .search-row {
   display: flex;
   gap: 6px;

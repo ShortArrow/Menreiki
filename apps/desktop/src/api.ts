@@ -123,6 +123,20 @@ export function addManualFinding(
   });
 }
 
+export function removeManualFinding(
+  project: string,
+  page: number,
+  category: string,
+  text: string,
+) {
+  return invoke<void>("remove_manual_finding", {
+    project,
+    page,
+    category,
+    text,
+  });
+}
+
 export function vlmInRegion(project: string, page: number, rect: Rect) {
   return invoke<string[]>("vlm_in_region", { project, page, rect });
 }

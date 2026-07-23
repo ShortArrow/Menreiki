@@ -45,6 +45,9 @@ export default function PageViewer(props: {
   focusNonce: number;
   onRegion: (rect: Rect) => void;
   onRegionRemove: (index: number) => void;
+  /// Clicking a finding's overlay rect (outside drawing modes) — used to
+  /// reveal the matching row in the side pane.
+  onFindingClick?: (finding: Finding) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -244,7 +247,13 @@ export default function PageViewer(props: {
                     y={finding.rect.y}
                     width={finding.rect.width}
                     height={finding.rect.height}
-                  />
+                    onClick={() => {
+                      if (props.drawMode === "none")
+                        props.onFindingClick?.(finding);
+                    }}
+                  >
+                    <title>クリックで右ペインの該当候補を表示</title>
+                  </rect>
                 );
               })}
               {props.regions.map((region) => (

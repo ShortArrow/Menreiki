@@ -22,6 +22,7 @@ import {
   saveReviewDecisions,
   addManualFinding,
   readRegion,
+  removeManualFinding,
   searchProject,
   suggestEntityVariants,
   suggestReplacements,
@@ -338,6 +339,78 @@ function EntityMenu(props: {
   );
 }
 
+/// Popover that assigns a just-detected box to an existing candidate group
+/// (category + text) — "this is a missed occurrence of that finding". Groups
+/// related to the read text rank first; the filter narrows long lists.
+function FindingGroupMenu(props: {
+  groups: { category: string; text: string }[];
+  seed: string;
+  onPick: (group: { category: string; text: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const strip = (value: string) => value.replace(/[\s　]/g, "");
+  const seed = strip(props.seed);
+  const query = strip(filter).toLowerCase();
+  const related = (group: { text: string }) => {
+    const text = strip(group.text);
+    return text.includes(seed) || seed.includes(text) ? 0 : 1;
+  };
+  const listed = (
+    query
+      ? props.groups.filter((group) =>
+          strip(group.text).toLowerCase().includes(query),
+        )
+      : [...props.groups].sort((a, b) => related(a) - related(b))
+  ).slice(0, 30);
+  return (
+    <span className="entity-menu">
+      <button
+        className="mini"
+        title="既存の検出候補グループの検出漏れとして統合する"
+        onClick={() => setOpen((current) => !current)}
+      >
+        既存候補へ
+      </button>
+      {open && (
+        <>
+          <div className="menu-backdrop" onClick={() => setOpen(false)} />
+          <div className="menu entity-popover group-popover">
+            <input
+              autoFocus
+              placeholder="候補を絞り込み"
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            />
+            {listed.map((group) => (
+              <button
+                key={`${group.category}|${group.text}`}
+                onClick={() => {
+                  setOpen(false);
+                  props.onPick(group);
+                }}
+              >
+                <span className="category-tag">{group.category}</span>{" "}
+                {group.text}
+              </button>
+            ))}
+            {listed.length === 0 && (
+              <span className="hint">一致する候補がありません</span>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+interface DetectedTarget {
+  text: string;
+  category: string;
+  page: number;
+  rect: Rect;
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -386,7 +459,11 @@ export default function ReviewView(props: {
   const currentPageRef = useRef<HTMLButtonElement>(null);
   const searchSectionRef = useRef<HTMLElement>(null);
   const [searchFlash, setSearchFlash] = useState(false);
-  const [detectedTarget, setDetectedTarget] = useState<string | null>(null);
+  const [detectedTarget, setDetectedTarget] = useState<DetectedTarget | null>(
+    null,
+  );
+  const findingRowRefs = useRef(new Map<string, HTMLDivElement>());
+  const [flashKey, setFlashKey] = useState<string | null>(null);
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
   const [version, setVersion] = useState(0);
@@ -712,6 +789,18 @@ export default function ReviewView(props: {
     return [...byKey.values()];
   }, [filteredFindings]);
 
+  // Every candidate group (category + text) in the document, for assigning a
+  // boxed detection to an existing group as a missed occurrence.
+  const candidateGroups = useMemo(() => {
+    const byKey = new Map<string, { category: string; text: string }>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      if (!byKey.has(key))
+        byKey.set(key, { category: finding.category, text: finding.text });
+    }
+    return [...byKey.values()];
+  }, [flatFindings]);
+
   const decidedEntries = useMemo(() => {
     const unique = new Map<string, Finding>();
     for (const { finding } of flatFindings) {
@@ -943,13 +1032,69 @@ export default function ReviewView(props: {
   /// search. OCR text is used when present; a box over a figure/logo/rotated
   /// label OCR could not read falls back to the vision model, whose result is
   /// located by the box the reviewer drew.
-  /// Surfaces `text` as a detected target: it becomes the active search string
+  /// Surfaces a detected target: its text becomes the active search string
   /// (so its other occurrences are listed) and the target bar's one-click
-  /// actions (replace/mask/erase/entity/dictionary) operate on it directly.
-  function offerTarget(text: string) {
-    setDetectedTarget(text);
-    setSearchInput(text);
+  /// actions (replace/mask/erase/entity/dictionary/group) operate on it,
+  /// with the box coordinates kept for jumping and re-assignment.
+  function offerTarget(target: DetectedTarget) {
+    setDetectedTarget(target);
+    setSearchInput(target.text);
     revealSearch();
+  }
+
+  /// Re-labels the just-detected box as a missed occurrence of an existing
+  /// candidate group: the misread stand-in is removed and the box is pinned
+  /// with the group's text, so it joins that row and shares its decision.
+  function assignDetectedToGroup(group: { category: string; text: string }) {
+    const target = detectedTarget;
+    if (!target) return;
+    void run("既存候補へ統合中…", async () => {
+      await removeManualFinding(
+        project.projectDir,
+        target.page,
+        target.category,
+        target.text,
+      ).catch(() => {});
+      await addManualFinding(
+        project.projectDir,
+        target.page,
+        target.rect,
+        group.category,
+        group.text,
+      );
+      setFindings(await listFindings(project.projectDir));
+      setDetectedTarget(null);
+      setHighlightKey(`${group.category}|::|${group.text}`);
+    });
+  }
+
+  /// Jumps the main view to the first occurrence of `text` in the document —
+  /// the generic jump for right-pane items that carry no coordinates of their
+  /// own (text rules, dictionary entries, entity spellings).
+  function jumpToText(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    void run("本文を検索中…", async () => {
+      const hits = await searchProject(project.projectDir, trimmed);
+      const first = hits.find((entry) => entry.findings.length > 0);
+      if (!first) {
+        setNotice(`「${trimmed}」は本文中に見つかりませんでした`);
+        return;
+      }
+      jumpTo(first.page_index, first.findings[0]);
+    });
+  }
+
+  /// Scrolls the findings list to the row for `finding` and flashes it — the
+  /// reverse direction of jumpTo, for clicks on rects in the main view.
+  function revealFindingRow(finding: Finding) {
+    const key = findingKey(finding);
+    setHighlightKey(key);
+    findingRowRefs.current
+      .get(key)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setFlashKey(key);
+    window.setTimeout(() => setFlashKey(null), 1300);
   }
 
   function detectRegion(rect: Rect) {
@@ -991,7 +1136,7 @@ export default function ReviewView(props: {
       setSearchHits(
         await searchProject(project.projectDir, text).catch(() => null),
       );
-      offerTarget(text);
+      offerTarget({ text, category: dictionaryCategory, page, rect });
     });
   }
 
@@ -1430,6 +1575,7 @@ export default function ReviewView(props: {
                 current.filter((_, i) => i !== index),
               )
             }
+            onFindingClick={revealFindingRow}
           />
         </main>
 
@@ -1459,9 +1605,19 @@ export default function ReviewView(props: {
               <div className="detected-target">
                 <div className="detected-head">
                   <span className="chip-action">検出</span>
-                  <span className="finding-text" title={detectedTarget}>
-                    {detectedTarget}
-                  </span>
+                  <button
+                    className="finding-text detected-jump"
+                    title={`${detectedTarget.text}（クリックで該当箇所へ）`}
+                    onClick={() => {
+                      setPage(detectedTarget.page);
+                      setFocus((current) => ({
+                        rect: detectedTarget.rect,
+                        nonce: (current?.nonce ?? 0) + 1,
+                      }));
+                    }}
+                  >
+                    {detectedTarget.text}
+                  </button>
                   <button
                     className="mini"
                     title="閉じる"
@@ -1499,20 +1655,29 @@ export default function ReviewView(props: {
                     entities={entities}
                     label="Entityへ"
                     onNew={() => {
-                      createEntity(dictionaryCategory, detectedTarget);
+                      createEntity(dictionaryCategory, detectedTarget.text);
                       setDetectedTarget(null);
                     }}
                     onAssign={(id) => {
-                      addVariant(id, detectedTarget);
+                      addVariant(id, detectedTarget.text);
                       setDetectedTarget(null);
                     }}
+                  />
+                  <FindingGroupMenu
+                    groups={candidateGroups.filter(
+                      (group) =>
+                        group.text !== detectedTarget.text ||
+                        group.category !== detectedTarget.category,
+                    )}
+                    seed={detectedTarget.text}
+                    onPick={assignDetectedToGroup}
                   />
                   <button
                     disabled={busy !== null}
                     onClick={() => {
                       registerTextToDictionary(
                         dictionaryCategory,
-                        detectedTarget,
+                        detectedTarget.text,
                       );
                       setDetectedTarget(null);
                     }}
@@ -1636,9 +1801,13 @@ export default function ReviewView(props: {
                 {dictionary.map((entry) => (
                   <div key={entry.text} className="rule-entry">
                     <span className="category-tag">{entry.category}</span>
-                    <span className="rule-target" title={entry.text}>
+                    <button
+                      className="rule-target"
+                      title={`${entry.text}（クリックで該当箇所へ）`}
+                      onClick={() => jumpToText(entry.text)}
+                    >
                       <span className="finding-text">{entry.text}</span>
-                    </span>
+                    </button>
                     <EntityMenu
                       entities={entities}
                       onNew={() => createEntity(entry.category, entry.text)}
@@ -1754,10 +1923,14 @@ export default function ReviewView(props: {
                   <span className="chip-action">
                     {ACTION_LABELS[rule.action]}
                   </span>
-                  <span className="rule-target" title={rule.text}>
+                  <button
+                    className="rule-target"
+                    title={`${rule.text}（クリックで該当箇所へ）`}
+                    onClick={() => jumpToText(rule.text)}
+                  >
                     <span className="category-tag">検索</span>
                     <span className="finding-text">{rule.text}</span>
-                  </span>
+                  </button>
                   {rule.action === "replace" && (
                     <>
                       <input
@@ -1947,7 +2120,13 @@ export default function ReviewView(props: {
                   <div className="entity-variants">
                     {entity.variants.map((variant) => (
                       <span key={variant} className="variant-chip">
-                        <span title={variant}>{variant}</span>
+                        <button
+                          className="chip-text"
+                          title={`${variant}（クリックで該当箇所へ）`}
+                          onClick={() => jumpToText(variant)}
+                        >
+                          {variant}
+                        </button>
                         {entityCounts[variant] !== undefined && (
                           <span className="variant-count">
                             ×{entityCounts[variant]}
@@ -2047,10 +2226,15 @@ export default function ReviewView(props: {
                 return (
                   <div
                     key={index}
+                    ref={(element) => {
+                      if (element) findingRowRefs.current.set(key, element);
+                      else findingRowRefs.current.delete(key);
+                    }}
                     className={[
                       "finding-row",
                       highlightKey === key ? "highlight" : "",
                       decision ? "decided" : "",
+                      flashKey === key ? "reveal-flash" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}

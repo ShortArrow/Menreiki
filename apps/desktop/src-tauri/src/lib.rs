@@ -709,6 +709,30 @@ fn add_manual_finding(
     Ok(())
 }
 
+/// Removes a reviewer-asserted candidate again — the counterpart to
+/// [`add_manual_finding`], used when the boxed text is re-assigned to an
+/// existing candidate group and the misread stand-in must not linger.
+#[tauri::command]
+fn remove_manual_finding(
+    project: String,
+    page: u16,
+    category: String,
+    text: String,
+) -> Result<(), String> {
+    let path = menreiki_project::page_findings_path(Path::new(&project), page);
+    if !path.exists() {
+        return Ok(());
+    }
+    let mut findings: Vec<menreiki_core::Finding> =
+        serde_json::from_str(&std::fs::read_to_string(&path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    findings.retain(|finding| {
+        !(finding.detector == "manual" && finding.category == category && finding.text == text)
+    });
+    let json = serde_json::to_string_pretty(&findings).expect("findings are always serializable");
+    std::fs::write(&path, json).map_err(|error| error.to_string())
+}
+
 /// Reads a page rectangle with the vision model — the "detect this" path for a
 /// figure, logo, or rotated label OCR could not read. The position is the box
 /// the reviewer drew, so unlike whole-page VLM detection the result is located.
@@ -930,6 +954,7 @@ pub fn run() {
             text_in_region,
             read_region,
             add_manual_finding,
+            remove_manual_finding,
             vlm_in_region,
             page_image,
             apply_policy,
