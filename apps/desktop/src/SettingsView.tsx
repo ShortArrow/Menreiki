@@ -24,6 +24,8 @@ export default function SettingsView(props: {
   const [models, setModels] = useState<string[]>([]);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelFilter, setModelFilter] = useState("");
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,18 +185,34 @@ export default function SettingsView(props: {
             </label>
             <label className="field">
               モデル
-              <div className="field-row">
-                <input
-                  list="model-options"
-                  value={model}
-                  placeholder="qwen3（VLM検出は vision モデル）"
-                  onChange={(event) => setModel(event.target.value)}
-                />
-                <datalist id="model-options">
-                  {models.map((id) => (
-                    <option key={id} value={id} />
-                  ))}
-                </datalist>
+              <div className="field-row combo">
+                <span className="combo-input-wrap">
+                  <input
+                    value={model}
+                    placeholder="qwen3（VLM検出は vision モデル）"
+                    onChange={(event) => setModel(event.target.value)}
+                  />
+                  {model && (
+                    <button
+                      type="button"
+                      className="combo-clear"
+                      title="クリア"
+                      onClick={() => setModel("")}
+                    >
+                      ×
+                    </button>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  title="検出済みモデルの一覧から選ぶ"
+                  onClick={() => {
+                    setModelFilter("");
+                    setModelMenuOpen((open) => !open);
+                  }}
+                >
+                  ▾
+                </button>
                 <button
                   type="button"
                   onClick={() => void refreshModels(baseUrl)}
@@ -202,6 +220,48 @@ export default function SettingsView(props: {
                 >
                   {loadingModels ? "取得中…" : "再取得"}
                 </button>
+                {modelMenuOpen && (
+                  <>
+                    <div
+                      className="menu-backdrop"
+                      onClick={() => setModelMenuOpen(false)}
+                    />
+                    <div className="menu combo-popover">
+                      <input
+                        autoFocus
+                        placeholder="絞り込み（選択値には影響しません）"
+                        value={modelFilter}
+                        onChange={(event) =>
+                          setModelFilter(event.target.value)
+                        }
+                      />
+                      {models
+                        .filter((id) =>
+                          id
+                            .toLowerCase()
+                            .includes(modelFilter.trim().toLowerCase()),
+                        )
+                        .map((id) => (
+                          <button
+                            key={id}
+                            type="button"
+                            className={id === model ? "current" : undefined}
+                            onClick={() => {
+                              setModel(id);
+                              setModelMenuOpen(false);
+                            }}
+                          >
+                            {id}
+                          </button>
+                        ))}
+                      {models.length === 0 && (
+                        <span className="hint">
+                          候補がありません（「再取得」をお試しください）
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </label>
             <p className="hint">
@@ -210,7 +270,7 @@ export default function SettingsView(props: {
                 : modelsError
                   ? `モデル一覧を取得できませんでした（エンドポイントが起動しているか確認してください）。名前は手入力もできます。`
                   : models.length > 0
-                    ? `${models.length} 個のモデルを検出。欄をクリックすると候補から選べます。`
+                    ? `${models.length} 個のモデルを検出。▾で一覧から選択、手入力も可能です。`
                     : "候補はありません。名前を手入力してください。"}
             </p>
           </section>
