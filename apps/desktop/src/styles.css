@@ -973,6 +973,13 @@ button.rule-target:hover {
   background: var(--hover);
 }
 
+/* Items in a max-height flex column must not flex-shrink, or they get
+   squashed instead of the list scrolling. */
+.entity-menu .menu > *,
+.combo .combo-popover > * {
+  flex: none;
+}
+
 .group-popover {
   min-width: 220px;
 }
