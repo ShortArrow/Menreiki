@@ -48,6 +48,11 @@ export default function PageViewer(props: {
   /// Clicking a finding's overlay rect (outside drawing modes) — used to
   /// reveal the matching row in the side pane.
   onFindingClick?: (finding: Finding) => void;
+  /// Scroll-to-flip mode: a plain wheel at the page's edge turns to the
+  /// next/previous page instead of stopping dead.
+  pageCount?: number;
+  scrollPageFlip?: boolean;
+  onPageChange?: (page: number) => void;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -66,9 +71,27 @@ export default function PageViewer(props: {
     viewX: number;
     viewY: number;
   } | null>(null);
+  // Scroll-to-flip bookkeeping: the wheel listener is registered once, so it
+  // reads the latest props through this mirror. The accumulator requires a
+  // deliberate amount of wheel at the edge before flipping, and the cooldown
+  // stops trackpad momentum from skipping several pages.
+  const flip = useRef({
+    enabled: false,
+    pageIndex: 0,
+    pageCount: 0,
+    onPageChange: undefined as ((page: number) => void) | undefined,
+    accumulated: 0,
+    lastWheelAt: 0,
+    cooldownUntil: 0,
+  });
+  flip.current.enabled = props.scrollPageFlip ?? false;
+  flip.current.pageIndex = props.pageIndex;
+  flip.current.pageCount = props.pageCount ?? 0;
+  flip.current.onPageChange = props.onPageChange;
 
   useEffect(() => {
     setZoom(1);
+    wrapRef.current?.scrollTo({ top: 0 });
   }, [props.pageIndex]);
 
   // Ctrl+wheel zooms (anchored at the cursor), Shift+wheel scrolls
@@ -102,6 +125,29 @@ export default function PageViewer(props: {
       } else if (event.shiftKey) {
         event.preventDefault();
         wrap.scrollLeft += event.deltaY;
+      } else if (flip.current.enabled) {
+        const state = flip.current;
+        const goingDown = event.deltaY > 0;
+        const atEdge = goingDown
+          ? wrap.scrollTop + wrap.clientHeight >= wrap.scrollHeight - 2
+          : wrap.scrollTop <= 1;
+        if (!atEdge) return; // scroll within the page as usual until the edge
+        event.preventDefault();
+        const now = performance.now();
+        if (now < state.cooldownUntil) return;
+        if (now - state.lastWheelAt > 400) state.accumulated = 0;
+        state.lastWheelAt = now;
+        state.accumulated += event.deltaY;
+        const threshold = 100;
+        if (state.accumulated >= threshold && state.pageIndex + 1 < state.pageCount) {
+          state.accumulated = 0;
+          state.cooldownUntil = now + 350;
+          state.onPageChange?.(state.pageIndex + 1);
+        } else if (state.accumulated <= -threshold && state.pageIndex > 0) {
+          state.accumulated = 0;
+          state.cooldownUntil = now + 350;
+          state.onPageChange?.(state.pageIndex - 1);
+        }
       }
     }
     wrap.addEventListener("wheel", onWheel, { passive: false });

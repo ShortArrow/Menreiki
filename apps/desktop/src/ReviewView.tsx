@@ -451,6 +451,9 @@ export default function ReviewView(props: {
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
+  const [scrollPageFlip, setScrollPageFlip] = useState(
+    () => localStorage.getItem("menreiki.scrollPageFlip") === "1",
+  );
   const [findingFilter, setFindingFilter] = useState("");
   const [findingCategoryFilter, setFindingCategoryFilter] = useState("all");
   const [findingUndecidedOnly, setFindingUndecidedOnly] = useState(false);
@@ -1533,6 +1536,23 @@ export default function ReviewView(props: {
               </span>
             )}
             <span className="spacer" />
+            <label
+              className="toggle"
+              title="ページ下端/上端でさらにスクロールすると次/前のページへ"
+            >
+              <input
+                type="checkbox"
+                checked={scrollPageFlip}
+                onChange={(event) => {
+                  setScrollPageFlip(event.target.checked);
+                  localStorage.setItem(
+                    "menreiki.scrollPageFlip",
+                    event.target.checked ? "1" : "0",
+                  );
+                }}
+              />
+              スクロールでページ送り
+            </label>
             <label className="toggle">
               <input
                 type="checkbox"
@@ -1576,6 +1596,9 @@ export default function ReviewView(props: {
               )
             }
             onFindingClick={revealFindingRow}
+            pageCount={project.pageCount}
+            scrollPageFlip={scrollPageFlip}
+            onPageChange={setPage}
           />
         </main>
 
