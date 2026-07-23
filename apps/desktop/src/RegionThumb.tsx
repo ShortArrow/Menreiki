@@ -10,6 +10,10 @@ export default function RegionThumb(props: {
   rect: Rect;
   maxWidth: number;
   maxHeight: number;
+  /// Crop from the transformed page under renders/ instead of the original.
+  rendered?: boolean;
+  /// Cache-buster for rendered crops, bumped after each 適用.
+  version?: number;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(
@@ -20,9 +24,11 @@ export default function RegionThumb(props: {
     let cancelled = false;
     setUrl(null);
     setNatural(null);
-    pageImageUrl(props.projectDir, props.pageIndex, false)
-      .then((loaded) => {
+    pageImageUrl(props.projectDir, props.pageIndex, props.rendered ?? false)
+      .then((base) => {
         if (cancelled) return;
+        const loaded =
+          props.version === undefined ? base : `${base}?v=${props.version}`;
         setUrl(loaded);
         const image = new Image();
         image.onload = () => {
@@ -35,7 +41,7 @@ export default function RegionThumb(props: {
     return () => {
       cancelled = true;
     };
-  }, [props.projectDir, props.pageIndex]);
+  }, [props.projectDir, props.pageIndex, props.rendered, props.version]);
 
   if (!url || !natural) {
     return <div className="region-thumb loading" />;

@@ -11,6 +11,7 @@ import {
   getProjectSettings,
   setProjectSettings,
   exportProject,
+  listAppliedEdits,
   listDictionary,
   listEntities,
   listFindings,
@@ -36,6 +37,7 @@ import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
 import type {
   AnalysisScope,
+  AppliedEdit,
   ApplySummary,
   AuditReport,
   DictionaryEntry,
@@ -477,6 +479,7 @@ export default function ReviewView(props: {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
+  const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([]);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
@@ -711,6 +714,7 @@ export default function ReviewView(props: {
         setSearchHits(null);
         setAudit(null);
         setApplySummary(null);
+        setAppliedEdits([]);
         setExportPath(null);
         setHasRenders(false);
         setShowRendered(false);
@@ -965,6 +969,9 @@ export default function ReviewView(props: {
     void run("変換を適用中…", async () => {
       const summary = await applyPolicy(project.projectDir, policy);
       setApplySummary(summary);
+      setAppliedEdits(
+        await listAppliedEdits(project.projectDir).catch(() => []),
+      );
       setHasRenders(true);
       setShowRendered(true);
       setVersion((current) => current + 1);
@@ -2329,6 +2336,53 @@ export default function ReviewView(props: {
                 適用済み: {applySummary.edit_count} 箇所 /{" "}
                 {applySummary.page_count} ページ
               </p>
+            )}
+            {applySummary && appliedEdits.length > 0 && (
+              <div className="applied-list">
+                {appliedEdits.map((edit, index) => (
+                  <div key={index} className="applied-row">
+                    <button
+                      className="page-tag"
+                      title="該当箇所へジャンプ"
+                      onClick={() => {
+                        setPage(edit.page);
+                        setFocus((current) => ({
+                          rect: edit.rect,
+                          nonce: (current?.nonce ?? 0) + 1,
+                        }));
+                      }}
+                    >
+                      p.{edit.page + 1}
+                    </button>
+                    <span className="chip-action">
+                      {edit.action === "replace"
+                        ? "置換"
+                        : edit.action === "mask"
+                          ? "マスク"
+                          : "消去"}
+                    </span>
+                    <span className="applied-pair">
+                      <RegionThumb
+                        projectDir={project.projectDir}
+                        pageIndex={edit.page}
+                        rect={edit.rect}
+                        maxWidth={150}
+                        maxHeight={44}
+                      />
+                      <span className="applied-arrow">→</span>
+                      <RegionThumb
+                        projectDir={project.projectDir}
+                        pageIndex={edit.page}
+                        rect={edit.rect}
+                        maxWidth={150}
+                        maxHeight={44}
+                        rendered
+                        version={version}
+                      />
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
             {exportPath && (
               <p className="export-path" title={exportPath}>

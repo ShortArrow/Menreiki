@@ -692,6 +692,72 @@ button.rule-target:hover {
   font-size: 12px;
 }
 
+.help-flow .badge,
+.help-body .inline-badge {
+  display: inline-block;
+  font-size: 10px;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 4px;
+  vertical-align: 1px;
+}
+
+.help-flow .badge.pos,
+.help-body .inline-badge.pos {
+  background: rgba(24, 150, 90, 0.18);
+  border: 1px solid rgba(24, 150, 90, 0.7);
+}
+
+.help-flow .badge.txt,
+.help-body .inline-badge.txt {
+  background: rgba(40, 90, 200, 0.15);
+  border: 1px solid rgba(40, 90, 200, 0.6);
+}
+
+.help-flow .badge.lost {
+  background: transparent;
+  border: 1px dashed var(--border);
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* ---- Applied before/after gallery ---- */
+
+.applied-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.applied-list > * {
+  flex: none;
+}
+
+.applied-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.applied-row button.page-tag {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.applied-pair {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.applied-arrow {
+  color: var(--muted);
+}
+
 .help-table {
   width: 100%;
   border-collapse: collapse;

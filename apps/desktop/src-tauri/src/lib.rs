@@ -474,6 +474,52 @@ async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
     .map_err(|error| error.to_string())?
 }
 
+/// One applied edit from the persisted plan, for the before/after gallery.
+#[derive(serde::Serialize)]
+struct AppliedEdit {
+    /// 0-based page index.
+    page: u16,
+    rect: menreiki_core::Rect,
+    /// "erase" | "mask" | "replace".
+    action: String,
+    text: Option<String>,
+}
+
+/// The edits the last 適用 actually performed, read back from
+/// `decisions/plan.json` — the source for a before/after crop list.
+#[tauri::command]
+fn list_applied_edits(project: String) -> Result<Vec<AppliedEdit>, String> {
+    #[derive(serde::Deserialize)]
+    struct PlanPage {
+        page: u32,
+        edits: Vec<menreiki_core::PageEdit>,
+    }
+    let path = menreiki_project::plan_path(Path::new(&project));
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let pages: Vec<PlanPage> =
+        serde_json::from_str(&std::fs::read_to_string(&path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?;
+    let mut out = Vec::new();
+    for page in pages {
+        for edit in page.edits {
+            let (action, text) = match edit.style {
+                menreiki_core::EditStyle::Erase => ("erase", None),
+                menreiki_core::EditStyle::Mask => ("mask", None),
+                menreiki_core::EditStyle::ReplaceText { text, .. } => ("replace", Some(text)),
+            };
+            out.push(AppliedEdit {
+                page: page.page.saturating_sub(1) as u16,
+                rect: edit.rect,
+                action: action.to_string(),
+                text,
+            });
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 fn list_findings(project: String) -> Result<Vec<menreiki_project::PageFindings>, String> {
     menreiki_project::load_findings(Path::new(&project)).map_err(|error| error.to_string())
@@ -958,6 +1004,7 @@ pub fn run() {
             vlm_in_region,
             page_image,
             apply_policy,
+            list_applied_edits,
             export_project,
             export_markdown,
             audit_project,

@@ -50,6 +50,80 @@ export default function HelpView(props: { onClose: () => void }) {
           </div>
         </div>
 
+        <h2>検出データの状態遷移（位置と文字列）</h2>
+        <p>
+          1つの検出データは<span className="inline-badge pos">位置</span>と
+          <span className="inline-badge txt">文字列</span>の2つの情報を持ちます。
+          どの状態でどちらが保持され、どこで一旦失われ、いつ再解決されるかの図です。
+        </p>
+        <div className="help-flow">
+          <div className="row">
+            <span className="node">
+              ページ画像<span className="badge pos">位置</span>
+            </span>
+          </div>
+          <span className="arrow">↓ OCR</span>
+          <div className="row">
+            <span className="node">
+              単語ボックス<span className="badge pos">位置</span>
+              <span className="badge txt">文字列</span>
+            </span>
+          </div>
+          <span className="arrow">
+            ↓ 自動検出・ここを検出（手動）・LLM照合
+          </span>
+          <div className="row">
+            <span className="node strong">
+              検出候補<span className="badge pos">位置</span>
+              <span className="badge txt">文字列</span>
+            </span>
+            <span className="node">
+              VLM位置未特定<span className="badge lost">位置</span>
+              <span className="badge txt">文字列</span>
+            </span>
+          </div>
+          <span className="arrow">↓ 判断・Entity・検索・辞書（位置はここで一旦捨てられる）</span>
+          <div className="row">
+            <span className="node">
+              ルール / Entity表記 / 辞書語
+              <span className="badge lost">位置</span>
+              <span className="badge txt">文字列</span>
+            </span>
+            <span className="node">
+              無視リスト<span className="badge txt">文字列×分類</span>
+            </span>
+          </div>
+          <span className="arrow">
+            ↓ 適用 = 位置の再解決（結合OCRの文字一致 ＋ 同名候補の矩形）
+          </span>
+          <div className="row">
+            <span className="node strong">
+              edit<span className="badge pos">位置</span>
+              <span className="badge txt">変換内容</span>
+            </span>
+          </div>
+          <span className="arrow">↓ ページ画像へ焼き込み</span>
+          <div className="row">
+            <span className="node">
+              変換後画像<span className="badge pos">位置</span>
+            </span>
+          </div>
+          <span className="arrow">↓ 監査 = 出力を再OCRして残存を照合</span>
+          <div className="row">
+            <span className="node">
+              残存箇所<span className="badge pos">位置</span>
+              <span className="badge txt">文字列</span>
+            </span>
+          </div>
+        </div>
+        <p>
+          ポイント: ルール・Entity・辞書は<b>文字列だけ</b>を持ち、位置は適用の
+          瞬間に再解決されます。文字一致に加えて<b>同じ文字列の候補が持つ矩形</b>も
+          使われるため、「ここを検出」でピン留めした位置はOCRが誤読していても
+          適用に反映されます。VLMの位置未特定候補だけは矩形が無いため適用できず、
+          「ここを検出」で囲み直すかマスク領域で対処します。
+        </p>
+
         <h2>右ペインの各セクション</h2>
         <table className="help-table">
           <tbody>

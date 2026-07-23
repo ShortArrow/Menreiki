@@ -108,6 +108,13 @@ export interface ApplySummary {
   edit_count: number;
 }
 
+export interface AppliedEdit {
+  page: number;
+  rect: Rect;
+  action: "erase" | "mask" | "replace";
+  text?: string | null;
+}
+
 export interface Residual {
   page: number;
   term: string;

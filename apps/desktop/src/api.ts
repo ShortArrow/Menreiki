@@ -3,6 +3,7 @@ import type {
   AnalysisScope,
   AnalyzeOutcome,
   AppConfig,
+  AppliedEdit,
   ApplySummary,
   AuditReport,
   DictionaryEntry,
@@ -143,6 +144,10 @@ export function vlmInRegion(project: string, page: number, rect: Rect) {
 
 export function listFindings(project: string) {
   return invoke<PageFindings[]>("list_findings", { project });
+}
+
+export function listAppliedEdits(project: string) {
+  return invoke<AppliedEdit[]>("list_applied_edits", { project });
 }
 
 export function loadReviewDecisions(project: string) {
