@@ -31,7 +31,14 @@ $bitmapJp.Save((Join-Path $outDir 'ocr-japanese.png'), [System.Drawing.Imaging.I
 $bitmapJp.Dispose()
 
 if (Get-Command typst -ErrorAction SilentlyContinue) {
-    typst compile (Join-Path $outDir 'typst' 'dummy-spec.typ') (Join-Path $outDir 'dummy-spec.pdf')
+    # Every .typ under typst/ is a use-case fixture (see typst/README.jp.md);
+    # each compiles to test-documents/<name>.pdf.
+    foreach ($source in Get-ChildItem (Join-Path $outDir 'typst') -Filter '*.typ') {
+        $pdf = Join-Path $outDir ($source.BaseName + '.pdf')
+        typst compile $source.FullName $pdf
+        if ($LASTEXITCODE -ne 0) { throw "typst compile failed for $($source.Name)" }
+        Write-Host "compiled $($source.Name) -> $(Split-Path $pdf -Leaf)"
+    }
     typst compile (Join-Path $outDir 'typst' 'dummy-spec.typ') (Join-Path $outDir 'dummy-page.png') --format png --pages 1 --ppi 144
 } else {
     Write-Warning 'typst not found; skipping dummy PDF generation'
