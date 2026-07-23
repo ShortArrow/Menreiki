@@ -333,6 +333,34 @@ h2 {
   background: #ffffff;
 }
 
+.thumb-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  padding-bottom: 2px;
+}
+
+.thumb-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.thumb-mark {
+  position: absolute;
+  background: rgba(232, 89, 12, 0.55);
+  min-width: 2px;
+  min-height: 2px;
+  pointer-events: none;
+}
+
+.thumb-mark.region {
+  background: rgba(40, 90, 200, 0.5);
+}
+
 .page-button .thumb-placeholder {
   display: block;
   width: 100%;

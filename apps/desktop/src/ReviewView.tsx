@@ -131,8 +131,14 @@ function PageThumb(props: {
   projectDir: string;
   pageIndex: number;
   version: number;
+  /// Approximate rect positions painted over the thumbnail (findings and
+  /// region rules), for an at-a-glance map of where candidates sit.
+  marks?: { rect: Rect; kind: "finding" | "region" }[];
 }) {
   const [url, setUrl] = useState<string | null>(null);
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -151,7 +157,44 @@ function PageThumb(props: {
   if (!url) {
     return <span className="thumb-placeholder" />;
   }
-  return <img className="thumb" src={url} loading="lazy" alt="" />;
+  return (
+    <span className="thumb-wrap">
+      <img
+        className="thumb"
+        src={url}
+        loading="lazy"
+        alt=""
+        onLoad={(event) =>
+          setNatural({
+            w: event.currentTarget.naturalWidth,
+            h: event.currentTarget.naturalHeight,
+          })
+        }
+      />
+      {natural &&
+        props.marks?.map((mark, index) => {
+          // Whole-page rects (location-unknown candidates) would tint the
+          // entire thumbnail; skip them.
+          if (
+            mark.rect.width >= natural.w * 0.85 &&
+            mark.rect.height >= natural.h * 0.85
+          )
+            return null;
+          return (
+            <span
+              key={index}
+              className={`thumb-mark ${mark.kind}`}
+              style={{
+                left: `${(mark.rect.x / natural.w) * 100}%`,
+                top: `${(mark.rect.y / natural.h) * 100}%`,
+                width: `${(mark.rect.width / natural.w) * 100}%`,
+                height: `${(mark.rect.height / natural.h) * 100}%`,
+              }}
+            />
+          );
+        })}
+    </span>
+  );
 }
 
 function AliasSuggest(props: {
@@ -590,6 +633,9 @@ export default function ReviewView(props: {
   const [showRulePreview, setShowRulePreview] = useState(true);
   const [scrollPageFlip, setScrollPageFlip] = useState(
     () => localStorage.getItem("menreiki.scrollPageFlip") === "1",
+  );
+  const [showThumbMarks, setShowThumbMarks] = useState(
+    () => localStorage.getItem("menreiki.thumbMarks") !== "0",
   );
   const [findingFilter, setFindingFilter] = useState("");
   const [findingCategoryFilter, setFindingCategoryFilter] = useState("all");
@@ -1669,6 +1715,23 @@ export default function ReviewView(props: {
         }}
       >
         <nav className="page-list">
+          <label
+            className="thumb-toggle"
+            title="検出候補と領域ルールのおおよその位置をサムネイルに重ねる"
+          >
+            <input
+              type="checkbox"
+              checked={showThumbMarks}
+              onChange={(event) => {
+                setShowThumbMarks(event.target.checked);
+                localStorage.setItem(
+                  "menreiki.thumbMarks",
+                  event.target.checked ? "1" : "0",
+                );
+              }}
+            />
+            位置
+          </label>
           {Array.from({ length: project.pageCount }, (_, index) => (
             <button
               key={index}
@@ -1682,6 +1745,29 @@ export default function ReviewView(props: {
                 projectDir={project.projectDir}
                 pageIndex={index}
                 version={version}
+                marks={
+                  showThumbMarks
+                    ? [
+                        ...(
+                          findings.find(
+                            (entry) => entry.page_index === index,
+                          )?.findings ?? []
+                        ).map((finding) => ({
+                          rect: finding.rect,
+                          kind: "finding" as const,
+                        })),
+                        ...regionRules
+                          .filter(
+                            (rule) =>
+                              rule.scope === "all" || rule.scope === index,
+                          )
+                          .map((rule) => ({
+                            rect: rule.rect,
+                            kind: "region" as const,
+                          })),
+                      ]
+                    : undefined
+                }
               />
               <span className="page-number">{index + 1}</span>
               {(findings.find((entry) => entry.page_index === index)?.findings
