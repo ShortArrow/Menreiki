@@ -8,8 +8,10 @@ import { test, expect, chromium, Browser, Page } from "@playwright/test";
 const CDP_PORT = 9333;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
-const cliExe = path.join(repoRoot, "target", "debug", "menreiki.exe");
-const appExe = path.join(repoRoot, "target", "debug", "menreiki-desktop.exe");
+// Builds may be redirected off the repo drive (CARGO_TARGET_DIR); honor it.
+const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repoRoot, "target");
+const cliExe = path.join(targetDir, "debug", "menreiki.exe");
+const appExe = path.join(targetDir, "debug", "menreiki-desktop.exe");
 const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
 const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
@@ -43,6 +45,13 @@ function killTree(child: ChildProcess | undefined) {
 }
 
 test.beforeAll(async () => {
+  // A leftover app from an aborted run keeps the CDP port and hands us a
+  // stale page; clear it before spawning ours.
+  try {
+    execSync("taskkill /IM menreiki-desktop.exe /F /T", { stdio: "ignore" });
+  } catch {
+    // none running
+  }
   workDir = mkdtempSync(path.join(tmpdir(), "menreiki-e2e-"));
   projectDir = path.join(workDir, "spec.menreiki");
   const cliEnv = { ...process.env, MENREIKI_PDFIUM_PATH: pdfiumDir };
@@ -94,15 +103,46 @@ test.afterAll(async () => {
   if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
+test("side-pane sections are laid out without overlap", async () => {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Regression: shrunken flex sections used to let their content paint over
+  // the next section. Every section must fully contain its content...
+  const sections = await page.$$eval(".side-pane > section", (nodes) =>
+    nodes.map((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+      };
+    }),
+  );
+  expect(sections.length).toBeGreaterThan(3);
+  for (const section of sections) {
+    expect(section.scrollHeight).toBeLessThanOrEqual(section.clientHeight + 1);
+  }
+  // ...and no two section boxes may overlap vertically.
+  const ordered = [...sections].sort((a, b) => a.top - b.top);
+  for (let i = 1; i < ordered.length; i++) {
+    expect(ordered[i].top).toBeGreaterThanOrEqual(ordered[i - 1].bottom - 1);
+  }
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
-  await expect(page.getByText(/検出候補（\d+件）/)).toBeVisible({
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 30_000,
   });
 
   // Settings dialog lists the detector groups and persists a selection.
   await page.getByRole("button", { name: "⚙ 設定" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeVisible();
-  await expect(page.getByText("date", { exact: true })).toBeVisible();
+  await expect(
+    page.locator(".detector-grid").getByText("date", { exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
 
@@ -130,7 +170,8 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 60_000,
   });
 
-  await page.getByRole("button", { name: "PDF出力" }).click();
+  await page.getByRole("button", { name: "PDF出力 ▾" }).click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });

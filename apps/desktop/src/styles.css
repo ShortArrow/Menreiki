@@ -710,6 +710,12 @@ button.rule-target:hover {
   gap: 20px;
 }
 
+/* Sections must never flex-shrink: the pane itself scrolls. A shrunk section
+   lets its content paint over the next one (the overlapping-sections bug). */
+.side-pane > section {
+  flex: none;
+}
+
 /* Workflow order: status → input → triage → consolidate → outcome → stock →
    output. Sections are reordered visually so related conversions sit close. */
 .section-precheck { order: 0; }
@@ -934,9 +940,6 @@ button.rule-target:hover {
 
 /* ---- Findings ---- */
 
-.findings-section {
-  min-height: 0;
-}
 
 .finding-filter {
   display: flex;
