@@ -229,6 +229,10 @@ export function exportProject(
   return invoke<string>("export_project", { project, dpi, pages });
 }
 
+export function exportImages(project: string, pages?: number[]) {
+  return invoke<string>("export_images", { project, pages });
+}
+
 export function exportMarkdown(project: string, ocrLanguage = "ja") {
   return invoke<string>("export_markdown", { project, ocrLanguage });
 }

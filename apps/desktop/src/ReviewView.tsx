@@ -10,6 +10,7 @@ import {
   exportMarkdown,
   getProjectSettings,
   setProjectSettings,
+  exportImages,
   exportProject,
   listAppliedEdits,
   listDictionary,
@@ -416,6 +417,28 @@ interface DetectedTarget {
 
 const stripWs = (value: string) => value.replace(/[\s　]/g, "");
 
+/// An exported path with a copy-to-clipboard button.
+function ExportPathLine(props: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <p className="export-path" title={props.path}>
+      <button
+        className="mini"
+        title="パスをコピー"
+        onClick={() => {
+          void navigator.clipboard.writeText(props.path).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          });
+        }}
+      >
+        {copied ? "✓" : "コピー"}
+      </button>{" "}
+      出力: {props.path}
+    </p>
+  );
+}
+
 /// Accordion body of a pending rule: every occurrence of the rule's texts in
 /// the document as a before → simulated-after crop pair. The after side
 /// paints the rule's outcome (erase/mask fill, replacement text with its
@@ -593,6 +616,7 @@ export default function ReviewView(props: {
   const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([]);
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
+  const [imagesPath, setImagesPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
@@ -827,6 +851,7 @@ export default function ReviewView(props: {
         setApplySummary(null);
         setAppliedEdits([]);
         setExportPath(null);
+        setImagesPath(null);
         setHasRenders(false);
         setShowRendered(false);
         setHighlightKey(null);
@@ -1104,6 +1129,17 @@ export default function ReviewView(props: {
         );
       } else if (scopeNote) {
         setNotice(scopeNote);
+      }
+    });
+  }
+
+  function runExportImages() {
+    void run("画像を出力中…", async () => {
+      setImagesPath(await exportImages(project.projectDir));
+      if (undecidedCount > 0) {
+        setNotice(
+          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+        );
       }
     });
   }
@@ -1587,6 +1623,13 @@ export default function ReviewView(props: {
           disabled={busy !== null || !hasRenders}
         >
           Markdown出力
+        </button>
+        <button
+          onClick={runExportImages}
+          disabled={busy !== null || !hasRenders}
+          title="変換後ページをPNG画像として output/images/ に出力"
+        >
+          画像出力
         </button>
         <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
           監査
@@ -2585,16 +2628,9 @@ export default function ReviewView(props: {
                 ))}
               </div>
             )}
-            {exportPath && (
-              <p className="export-path" title={exportPath}>
-                出力: {exportPath}
-              </p>
-            )}
-            {markdownPath && (
-              <p className="export-path" title={markdownPath}>
-                出力: {markdownPath}
-              </p>
-            )}
+            {exportPath && <ExportPathLine path={exportPath} />}
+            {markdownPath && <ExportPathLine path={markdownPath} />}
+            {imagesPath && <ExportPathLine path={imagesPath} />}
             {audit && (
               <div
                 className={

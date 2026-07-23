@@ -94,6 +94,21 @@ fn export_with_an_empty_selection_is_no_pages() {
 }
 
 #[test]
+fn export_images_copies_selected_pages_and_clears_stale_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 3);
+
+    let out = menreiki_project::export_images(&project_dir, None).unwrap();
+    assert_eq!(fs::read_dir(&out).unwrap().count(), 3);
+    assert!(out.join("page-0001.png").exists());
+
+    // A narrower re-export must not leave pages from the previous run.
+    let out = menreiki_project::export_images(&project_dir, Some(&[1])).unwrap();
+    assert_eq!(fs::read_dir(&out).unwrap().count(), 1);
+    assert!(out.join("page-0002.png").exists());
+}
+
+#[test]
 fn audit_fails_when_a_denied_term_is_still_readable() {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = project_with_renders(&tmp, 2);

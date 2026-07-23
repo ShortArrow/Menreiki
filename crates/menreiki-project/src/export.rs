@@ -58,3 +58,46 @@ pub fn export_pdf(
     fs::write(&output, pdf).map_err(ExportError::Write)?;
     Ok(output)
 }
+
+/// Copies the page images into `output/images/` as `page-0001.png`… and
+/// returns that directory — the loose-image sibling of [`export_pdf`], with
+/// the same source selection (transformed renders when present, originals
+/// otherwise) and the same optional 0-based page selection. The directory is
+/// rebuilt from scratch so a narrower re-export leaves no stale pages.
+pub fn export_images(
+    project_dir: &Path,
+    pages: Option<&[u16]>,
+) -> Result<PathBuf, ExportError> {
+    let use_renders = page_render_path(project_dir, 0).exists();
+    let page_path = |index: u16| {
+        if use_renders {
+            page_render_path(project_dir, index)
+        } else {
+            page_image_path(project_dir, index)
+        }
+    };
+
+    let out_dir = project_dir.join(OUTPUT_DIR).join("images");
+    if out_dir.exists() {
+        fs::remove_dir_all(&out_dir).map_err(ExportError::Write)?;
+    }
+    fs::create_dir_all(&out_dir).map_err(ExportError::Write)?;
+
+    let mut copied: u16 = 0;
+    let mut page_index: u16 = 0;
+    while page_path(page_index).exists() {
+        if pages.map_or(true, |selected| selected.contains(&page_index)) {
+            fs::copy(
+                page_path(page_index),
+                out_dir.join(format!("page-{:04}.png", page_index + 1)),
+            )
+            .map_err(ExportError::Write)?;
+            copied += 1;
+        }
+        page_index += 1;
+    }
+    if copied == 0 {
+        return Err(ExportError::NoPages);
+    }
+    Ok(out_dir)
+}

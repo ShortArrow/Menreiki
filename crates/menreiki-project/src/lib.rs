@@ -38,7 +38,7 @@ pub use dictionary::{
     DictionaryEntry, DictionaryError,
 };
 pub use entities::{load_entities, save_entities, EntitiesError};
-pub use export::{export_pdf, ExportError};
+pub use export::{export_images, export_pdf, ExportError};
 pub use import::{import, ImportError};
 pub use layout::{
     audit_report_path, decisions_path, dictionary_path, entities_path, page_findings_path,

@@ -854,6 +854,23 @@ async fn apply_policy(
     .map_err(|error| error.to_string())?
 }
 
+/// Exports the (transformed) page images as loose PNGs under
+/// `output/images/`; `pages` (0-based) selects which pages, None = all.
+#[tauri::command]
+async fn export_images(
+    project: String,
+    pages: Option<Vec<u16>>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let pages = pages.filter(|list| !list.is_empty());
+        menreiki_project::export_images(Path::new(&project), pages.as_deref())
+            .map(|path| path.display().to_string())
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 /// Rebuilds the PDF. `pages` (0-based) selects which pages to include; an
 /// empty/None selection exports every page.
 #[tauri::command]
@@ -1006,6 +1023,7 @@ pub fn run() {
             apply_policy,
             list_applied_edits,
             export_project,
+            export_images,
             export_markdown,
             audit_project,
         ])
