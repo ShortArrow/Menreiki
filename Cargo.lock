@@ -2377,6 +2377,7 @@ dependencies = [
  "menreiki-entity",
  "menreiki-inference",
  "menreiki-lang-ja",
+ "menreiki-ocr",
  "menreiki-policy",
  "menreiki-project",
  "menreiki-render",

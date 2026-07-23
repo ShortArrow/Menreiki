@@ -618,6 +618,97 @@ fn rects_overlap(a: &menreiki_core::Rect, b: &menreiki_core::Rect) -> bool {
     a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
 }
 
+/// Re-runs OCR on just the boxed page region (padded and upscaled), which
+/// reads far more accurately than fishing words out of the whole-page result:
+/// the engine sees only the target text, and small glyphs gain resolution.
+#[tauri::command]
+async fn read_region(
+    project: String,
+    page: u16,
+    rect: menreiki_core::Rect,
+    ocr_language: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        use menreiki_ocr::OcrEngine;
+
+        let png = std::fs::read(menreiki_project::page_image_path(Path::new(&project), page))
+            .map_err(|error| error.to_string())?;
+        let image = image::load_from_memory(&png).map_err(|error| error.to_string())?;
+        let (iw, ih) = (image.width() as f32, image.height() as f32);
+        // Pad a few pixels so glyph edges at the box border survive.
+        let pad = 4.0;
+        let x = (rect.x - pad).max(0.0);
+        let y = (rect.y - pad).max(0.0);
+        let w = (rect.width + pad * 2.0).min(iw - x).max(1.0);
+        let h = (rect.height + pad * 2.0).min(ih - y).max(1.0);
+        let crop = image.crop_imm(x as u32, y as u32, w as u32, h as u32);
+        // Upscale small crops: OCR accuracy improves with glyph resolution.
+        let scale = (200.0 / h).clamp(1.0, 4.0);
+        let crop = if scale > 1.0 {
+            crop.resize(
+                (w * scale) as u32,
+                (h * scale) as u32,
+                image::imageops::FilterType::Lanczos3,
+            )
+        } else {
+            crop
+        };
+        let mut buffer = Vec::new();
+        crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+            .map_err(|error| error.to_string())?;
+
+        let engine = ocr_engine(&ocr_language)?;
+        let recognized = engine.recognize(&buffer).map_err(|error| error.to_string())?;
+        let words: Vec<menreiki_core::Span> = recognized
+            .lines
+            .iter()
+            .flat_map(|line| line.words.iter().cloned())
+            .collect();
+        Ok(menreiki_core::reading_order_text(&words))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Adds a reviewer-asserted candidate at the exact box they drew — the
+/// coordinates are ground truth, so the finding is pinned there even when
+/// page OCR misread the text and a literal search would miss it.
+#[tauri::command]
+fn add_manual_finding(
+    project: String,
+    page: u16,
+    rect: menreiki_core::Rect,
+    category: String,
+    text: String,
+) -> Result<(), String> {
+    let path = menreiki_project::page_findings_path(Path::new(&project), page);
+    let mut findings: Vec<menreiki_core::Finding> = if path.exists() {
+        serde_json::from_str(&std::fs::read_to_string(&path).map_err(|error| error.to_string())?)
+            .map_err(|error| error.to_string())?
+    } else {
+        Vec::new()
+    };
+    let duplicate = findings
+        .iter()
+        .any(|known| known.category == category && known.text == text);
+    if !duplicate {
+        findings.push(menreiki_core::Finding {
+            category,
+            text,
+            rect,
+            detector: "manual".to_string(),
+            note: Some("手動指定（ここを検出）".to_string()),
+        });
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let json =
+            serde_json::to_string_pretty(&findings).expect("findings are always serializable");
+        std::fs::write(&path, json).map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
 /// Reads a page rectangle with the vision model — the "detect this" path for a
 /// figure, logo, or rotated label OCR could not read. The position is the box
 /// the reviewer drew, so unlike whole-page VLM detection the result is located.
@@ -837,6 +928,8 @@ pub fn run() {
             list_findings,
             search_project,
             text_in_region,
+            read_region,
+            add_manual_finding,
             vlm_in_region,
             page_image,
             apply_policy,

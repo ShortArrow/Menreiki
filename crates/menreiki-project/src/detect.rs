@@ -43,6 +43,7 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
                 .filter(|finding| !content.contains(&strip_ws(&finding.text)))
                 .cloned(),
         );
+        findings.extend(manual_findings(project_dir, page_index as u16));
         findings.retain(|finding| {
             !ignored
                 .iter()
@@ -58,6 +59,23 @@ pub fn detect_pages(project_dir: &Path, rules: &[RegexRule]) -> Result<u16, Dete
 
 fn strip_ws(text: &str) -> String {
     text.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Reviewer-asserted candidates ("ここを検出") already stored for a page.
+/// Their box is ground truth the reviewer drew, so re-running detection must
+/// carry them over instead of erasing them with the rewritten file.
+fn manual_findings(project_dir: &Path, page_index: u16) -> Vec<Finding> {
+    let path = page_findings_path(project_dir, page_index);
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(findings) = serde_json::from_str::<Vec<Finding>>(&text) else {
+        return Vec::new();
+    };
+    findings
+        .into_iter()
+        .filter(|finding| finding.detector == "manual")
+        .collect()
 }
 
 /// Detects on a single page's stored OCR and writes just that page's findings,
@@ -84,6 +102,7 @@ pub fn detect_single_page(
         .map(|settings| settings.ignored)
         .unwrap_or_default();
     let mut findings = menreiki_detect::detect_page(&ocr, rules);
+    findings.extend(manual_findings(project_dir, page_index));
     findings.retain(|finding| {
         !ignored
             .iter()

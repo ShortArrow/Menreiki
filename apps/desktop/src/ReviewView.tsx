@@ -20,6 +20,8 @@ import {
   removeDictionaryEntry,
   saveEntities,
   saveReviewDecisions,
+  addManualFinding,
+  readRegion,
   searchProject,
   suggestEntityVariants,
   suggestReplacements,
@@ -952,28 +954,44 @@ export default function ReviewView(props: {
 
   function detectRegion(rect: Rect) {
     setDrawMode("none");
-    void run("領域のテキストを取得中…", async () => {
-      const text = (await textInRegion(project.projectDir, page, rect)).trim();
-      if (text) {
-        setSearchHits(await searchProject(project.projectDir, text));
-        offerTarget(text);
-        return;
+    void run("領域を読み取り中…", async () => {
+      // The box is ground truth for both position and extent. Read its text
+      // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
+      // to the whole-page words in the box, then to the vision model.
+      let text = (
+        await readRegion(project.projectDir, page, rect).catch(() => "")
+      ).trim();
+      if (!text) {
+        text = (
+          await textInRegion(project.projectDir, page, rect).catch(() => "")
+        ).trim();
       }
-      setProgress("OCRで読めない領域をVLMで読み取り中…");
-      const read = await vlmInRegion(project.projectDir, page, rect).catch(
-        () => [] as string[],
-      );
-      if (read.length === 0) {
+      if (!text) {
+        setProgress("OCRで読めない領域をVLMで読み取り中…");
+        const read = await vlmInRegion(project.projectDir, page, rect).catch(
+          () => [] as string[],
+        );
+        text = (read[0] ?? "").trim();
+        if (read.length > 1) setNotice(`VLM読取: ${read.join(" / ")}`);
+      }
+      if (!text) {
         setNotice("この領域からは文字を取得できませんでした。");
         return;
       }
+      // Pin the candidate at the exact box, so it appears in 検出候補 with
+      // the reviewer's own coordinates even if page OCR misread the text.
+      await addManualFinding(
+        project.projectDir,
+        page,
+        rect,
+        dictionaryCategory,
+        text,
+      ).catch(() => {});
+      setFindings(await listFindings(project.projectDir).catch(() => findings));
       setSearchHits(
-        await searchProject(project.projectDir, read[0]).catch(() => null),
+        await searchProject(project.projectDir, text).catch(() => null),
       );
-      offerTarget(read[0]);
-      if (read.length > 1) {
-        setNotice(`VLM読取: ${read.join(" / ")}`);
-      }
+      offerTarget(text);
     });
   }
 

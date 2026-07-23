@@ -98,6 +98,31 @@ export function textInRegion(project: string, page: number, rect: Rect) {
   return invoke<string>("text_in_region", { project, page, rect });
 }
 
+export function readRegion(
+  project: string,
+  page: number,
+  rect: Rect,
+  ocrLanguage = "ja",
+) {
+  return invoke<string>("read_region", { project, page, rect, ocrLanguage });
+}
+
+export function addManualFinding(
+  project: string,
+  page: number,
+  rect: Rect,
+  category: string,
+  text: string,
+) {
+  return invoke<void>("add_manual_finding", {
+    project,
+    page,
+    rect,
+    category,
+    text,
+  });
+}
+
 export function vlmInRegion(project: string, page: number, rect: Rect) {
   return invoke<string[]>("vlm_in_region", { project, page, rect });
 }

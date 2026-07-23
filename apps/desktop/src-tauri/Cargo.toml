@@ -26,6 +26,7 @@ menreiki-detect.workspace = true
 menreiki-lang-ja.workspace = true
 menreiki-entity.workspace = true
 menreiki-inference.workspace = true
+menreiki-ocr.workspace = true
 image.workspace = true
 menreiki-policy.workspace = true
 menreiki-project.workspace = true
