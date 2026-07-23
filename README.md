@@ -14,7 +14,7 @@ Menreiki detects identifying information in PDFs and images — names, organizat
 
 ## Documentation
 
-The full documentation is currently in Japanese — see **[README.jp.md](README.jp.md)** for setup, CLI usage, and testing, and [docs/PRD.jp.md](docs/PRD.jp.md) for the product requirements.
+The full documentation is currently in Japanese — see **[README.jp.md](docs/README.jp.md)** for setup, CLI usage, and testing, and [docs/PRD.jp.md](docs/PRD.jp.md) for the product requirements.
 
 An English version of the documentation is planned but not yet written. Until then, the Japanese README is the authoritative reference.
 

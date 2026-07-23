@@ -55,7 +55,7 @@ menreiki export  <project>                         # output/sanitized.pdf を再
 menreiki audit   <project> --policy policy.yaml [--deny-wordlist words.txt]
 ```
 
-ポリシーの例は [examples/policy-dummy-spec.yaml](examples/policy-dummy-spec.yaml) を参照してください。
+ポリシーの例は [examples/policy-dummy-spec.yaml](../examples/policy-dummy-spec.yaml) を参照してください。
 
 ## ローカルLLM / VLM（任意）
 
@@ -101,13 +101,13 @@ test-documents/  生成可能なテストフィクスチャ（実在の名称は
 schemas/ docs/   スキーマとドキュメント
 ```
 
-検出エンジン・OCR・PDFレンダラーはアダプターとして交換可能な設計です。製品要求の全体は [docs/PRD.jp.md](docs/PRD.jp.md) を参照してください。
+検出エンジン・OCR・PDFレンダラーはアダプターとして交換可能な設計です。製品要求の全体は [docs/PRD.jp.md](PRD.jp.md) を参照してください。
 
 ## ライセンス
 
 以下のいずれかのライセンスを選択できます。
 
-- MIT License（[LICENSE-MIT](LICENSE-MIT)）
-- Apache License, Version 2.0（[LICENSE-APACHE](LICENSE-APACHE)）
+- MIT License（[LICENSE-MIT](../LICENSE-MIT)）
+- Apache License, Version 2.0（[LICENSE-APACHE](../LICENSE-APACHE)）
 
 このリポジトリへの意図的な貢献は、追加の条件なく上記デュアルライセンスで提供されるものとします。
