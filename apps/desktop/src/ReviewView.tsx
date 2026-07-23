@@ -30,6 +30,7 @@ import {
   textInRegion,
   vlmInRegion,
 } from "./api";
+import HelpView from "./HelpView";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
@@ -442,6 +443,7 @@ export default function ReviewView(props: {
   >({});
   const [entityCounts, setEntityCounts] = useState<Record<string, number>>({});
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportPagesInput, setExportPagesInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -1445,6 +1447,13 @@ export default function ReviewView(props: {
         </button>
         <button
           className="theme-button"
+          onClick={() => setHelpOpen(true)}
+          title="ヘルプ（各要素の対応関係とデータの流れ）"
+        >
+          ❓
+        </button>
+        <button
+          className="theme-button"
           onClick={props.onToggleTheme}
           title="テーマを切り替える"
         >
@@ -2362,6 +2371,8 @@ export default function ReviewView(props: {
           </section>
         </aside>
       </div>
+
+      {helpOpen && <HelpView onClose={() => setHelpOpen(false)} />}
 
       {settingsOpen && (
         <SettingsView

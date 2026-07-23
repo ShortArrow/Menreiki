@@ -607,6 +607,98 @@ button.rule-target:hover {
   background: var(--chip-bg);
 }
 
+/* ---- Help page ---- */
+
+.help-view {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.help-body {
+  flex: 1;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 8px 24px 64px;
+  box-sizing: border-box;
+  line-height: 1.7;
+}
+
+.help-body h2 {
+  font-size: 15px;
+  color: var(--text);
+  margin: 28px 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: 4px;
+}
+
+.help-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 14px 0;
+}
+
+.help-flow .row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.help-flow .node {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 12px;
+  background: var(--panel);
+  font-size: 13px;
+}
+
+.help-flow .node.strong {
+  border-color: var(--accent);
+  border-width: 2px;
+  font-weight: 600;
+}
+
+.help-flow .arrow {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.help-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.help-table th {
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+  padding: 6px 14px 6px 0;
+  color: var(--text);
+}
+
+.help-table td {
+  padding: 6px 0;
+  color: var(--muted);
+}
+
+.help-table tr {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.help-body ul {
+  padding-left: 1.4em;
+  color: var(--muted);
+}
+
 /* ---- Preview modal ---- */
 
 .modal-backdrop {
