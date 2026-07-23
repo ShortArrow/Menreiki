@@ -7,7 +7,8 @@ export default function HelpView(props: { onClose: () => void }) {
         <button onClick={props.onClose}>← レビューに戻る</button>
         <span className="file-name">ヘルプ — 画面の対応関係とデータの流れ</span>
       </header>
-      <div className="help-body">
+      <div className="help-scroll">
+        <div className="help-body">
         <h2>全体の流れ</h2>
         <p>
           Menreiki のレビューは「候補を集める → 判断してルールにする →
@@ -200,6 +201,111 @@ export default function HelpView(props: { onClose: () => void }) {
           </tbody>
         </table>
 
+        <h2>変換ボタンの行き先マップ</h2>
+        <p>
+          各所の変換ボタンを押すと、その項目が「どこから → どこへ」動くかの一覧です。
+        </p>
+        <table className="help-table convert-table">
+          <thead>
+            <tr>
+              <th>場所・ボタン</th>
+              <th>移動</th>
+              <th>補足</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>候補行: 保持/マスク/消去/置換</th>
+              <td>
+                <span className="from">検出候補</span> ⟶{" "}
+                <span className="to">適用予定ルール</span>
+              </td>
+              <td>再クリックまたは「解除」で候補に戻る</td>
+            </tr>
+            <tr>
+              <th>候補行: E</th>
+              <td>
+                <span className="from">検出候補</span> ⟶{" "}
+                <span className="to">Entity</span>
+              </td>
+              <td>全表記が置換ルールとして適用予定へ流れる</td>
+            </tr>
+            <tr>
+              <th>候補行: 無視</th>
+              <td>
+                <span className="from">検出候補</span> ⟶{" "}
+                <span className="to">無視リスト</span>
+              </td>
+              <td>その語×分類のみ除外。⚙設定で解除できる</td>
+            </tr>
+            <tr>
+              <th>検索: ◯◯ルールに追加</th>
+              <td>
+                <span className="from">検索語</span> ⟶{" "}
+                <span className="to">適用予定ルール</span>
+              </td>
+              <td>文書全体のテキストルールになる</td>
+            </tr>
+            <tr>
+              <th>検索: Entityとして登録</th>
+              <td>
+                <span className="from">検索語</span> ⟶{" "}
+                <span className="to">Entity</span>
+              </td>
+              <td></td>
+            </tr>
+            <tr>
+              <th>検索/検出バー: 辞書に登録</th>
+              <td>
+                <span className="from">語</span> ⟶{" "}
+                <span className="to">辞書</span> ⟶{" "}
+                <span className="to">検出候補</span>
+              </td>
+              <td>辞書登録後、再解析で候補として自動検出される</td>
+            </tr>
+            <tr>
+              <th>検出バー: マスク/消去/置換</th>
+              <td>
+                <span className="from">検出テキスト</span> ⟶{" "}
+                <span className="to">適用予定ルール</span>
+              </td>
+              <td></td>
+            </tr>
+            <tr>
+              <th>検出バー: 既存候補へ</th>
+              <td>
+                <span className="from">検出テキスト</span> ⟶{" "}
+                <span className="to">検出候補の既存グループ</span>
+              </td>
+              <td>検出漏れとして合流し、判断を共有する</td>
+            </tr>
+            <tr>
+              <th>ルール行: E</th>
+              <td>
+                <span className="from">適用予定ルール</span> ⟶{" "}
+                <span className="to">Entity</span>
+              </td>
+              <td>元のルール/判断は自動で解除される</td>
+            </tr>
+            <tr>
+              <th>辞書行: E</th>
+              <td>
+                <span className="from">辞書</span> ⟶{" "}
+                <span className="to">Entity</span>
+              </td>
+              <td>辞書には残る</td>
+            </tr>
+            <tr>
+              <th>Entity: →辞書</th>
+              <td>
+                <span className="from">Entity</span> ⟶{" "}
+                <span className="to">辞書</span>
+              </td>
+              <td>代表表記を登録。Entityには残る</td>
+            </tr>
+          </tbody>
+        </table>
+
         <h2>覚えておくと速い操作</h2>
         <ul>
           <li>Ctrl+ホイール: 拡大縮小（カーソル位置基準）／ Shift+ホイール: 左右スクロール</li>
@@ -208,6 +314,7 @@ export default function HelpView(props: { onClose: () => void }) {
           <li>判断ボタンは再クリックで未判断に戻ります</li>
           <li>誤検出は候補行の「無視」— その語×分類だけをこのプロジェクトから除外します</li>
         </ul>
+        </div>
       </div>
     </div>
   );

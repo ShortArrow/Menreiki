@@ -618,15 +618,36 @@ button.rule-target:hover {
   flex-direction: column;
 }
 
-.help-body {
+/* The scroll container spans the full app width so the scrollbar sits at the
+   window edge; only the content column inside is width-capped. */
+.help-scroll {
   flex: 1;
   overflow-y: auto;
+}
+
+.help-body {
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
   padding: 8px 24px 64px;
   box-sizing: border-box;
   line-height: 1.7;
+}
+
+.convert-table .from,
+.convert-table .to {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  background: var(--panel);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.convert-table .to {
+  border-color: var(--accent);
+  font-weight: 600;
 }
 
 .help-body h2 {

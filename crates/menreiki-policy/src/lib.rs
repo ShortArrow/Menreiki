@@ -138,7 +138,37 @@ pub fn plan_page_edits(
             }
         }
     }
-    Ok(plans)
+    Ok(plans.into_iter().map(suppress_covered_edits).collect())
+}
+
+/// Drops edits whose rect is mostly covered by a larger edit on the same
+/// page. Nested matches (犬芝重工業株式会社 and 芝重工業) would otherwise both
+/// draw, the smaller one re-erasing part of the larger one's replacement and
+/// leaving mixed glyph sizes inside a single box.
+fn suppress_covered_edits(edits: Vec<PageEdit>) -> Vec<PageEdit> {
+    let area = |rect: &Rect| rect.width * rect.height;
+    let overlap = |a: &Rect, b: &Rect| {
+        let width = (a.x + a.width).min(b.x + b.width) - a.x.max(b.x);
+        let height = (a.y + a.height).min(b.y + b.height) - a.y.max(b.y);
+        width.max(0.0) * height.max(0.0)
+    };
+    let mut ordered = edits;
+    ordered.sort_by(|a, b| {
+        area(&b.rect)
+            .partial_cmp(&area(&a.rect))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut kept: Vec<PageEdit> = Vec::new();
+    for edit in ordered {
+        let own = area(&edit.rect).max(1.0);
+        let covered = kept
+            .iter()
+            .any(|previous| overlap(&previous.rect, &edit.rect) / own >= 0.7);
+        if !covered {
+            kept.push(edit);
+        }
+    }
+    kept
 }
 
 fn edit_style(action: &Action) -> Option<EditStyle> {
@@ -287,6 +317,26 @@ rules:
                 align: TextAlign::Right,
             }
         );
+    }
+
+    #[test]
+    fn a_nested_match_does_not_double_draw() {
+        // Two rules whose matches occupy the same box: without suppression
+        // both would draw, the second erasing part of the first's replacement
+        // and leaving mixed glyph sizes inside one rect.
+        let policy = parse_policy(
+            "rules:\n  - match: { text: 犬芝重工業株式会社 }\n    action: { type: replace, value: A社 }\n  - match: { text: 芝重工業 }\n    action: { type: replace, value: B社 }\n",
+        )
+        .unwrap();
+        let ocr = vec![page_with_text("納入元は犬芝重工業株式会社です")];
+
+        let plans = plan_page_edits(&policy, &ocr, &[vec![]]).unwrap();
+
+        assert_eq!(plans[0].len(), 1, "covered edit kept: {:?}", plans[0]);
+        assert!(matches!(
+            &plans[0][0].style,
+            EditStyle::ReplaceText { text, .. } if text == "A社"
+        ));
     }
 
     #[test]
