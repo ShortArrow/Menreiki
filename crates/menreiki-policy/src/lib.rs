@@ -94,6 +94,13 @@ pub fn plan_page_edits(
     findings_pages: &[Vec<Finding>],
 ) -> Result<Vec<Vec<PageEdit>>, PlanError> {
     let mut plans: Vec<Vec<PageEdit>> = vec![Vec::new(); ocr_pages.len()];
+    // Locate text the same way detection does — over row-merged OCR — or a
+    // letter-spaced name that shows up as a candidate would silently produce
+    // no edit at apply time.
+    let merged: Vec<PageOcr> = ocr_pages
+        .iter()
+        .map(menreiki_core::merge_row_fragments)
+        .collect();
 
     for rule in &policy.rules {
         let Some(style) = edit_style(&rule.action) else {
@@ -116,8 +123,28 @@ pub fn plan_page_edits(
 
         if let Some(text) = &rule.r#match.text {
             let literal = [literal_rule("policy-text", text)];
-            for (page_index, ocr) in ocr_pages.iter().enumerate() {
+            for (page_index, ocr) in merged.iter().enumerate() {
                 for finding in detect_page(ocr, &literal) {
+                    plans[page_index].push(PageEdit {
+                        rect: finding.rect,
+                        style: style.clone(),
+                    });
+                }
+            }
+            // A rule usually originates from a candidate row; the stored
+            // finding rect is authoritative even when OCR never read this
+            // exact string (a manually boxed candidate, a text corrected via
+            // group assignment). Whole-page rects (位置未特定 VLM candidates)
+            // are skipped — blacking the entire page is never intended.
+            let needle = strip_ws(text);
+            for (page_index, findings) in findings_pages.iter().enumerate() {
+                if page_index >= plans.len() {
+                    break;
+                }
+                let page = &ocr_pages[page_index];
+                for finding in findings.iter().filter(|f| {
+                    strip_ws(&f.text) == needle && !covers_whole_page(&f.rect, page)
+                }) {
                     plans[page_index].push(PageEdit {
                         rect: finding.rect,
                         style: style.clone(),
@@ -139,6 +166,19 @@ pub fn plan_page_edits(
         }
     }
     Ok(plans.into_iter().map(suppress_covered_edits).collect())
+}
+
+fn strip_ws(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
+}
+
+/// Whether a finding rect spans essentially the whole page — the shape of a
+/// location-unknown candidate, not a real text position.
+fn covers_whole_page(rect: &Rect, page: &PageOcr) -> bool {
+    page.width > 0
+        && page.height > 0
+        && rect.width >= page.width as f32 * 0.85
+        && rect.height >= page.height as f32 * 0.85
 }
 
 /// Drops edits whose rect is mostly covered by a larger edit on the same
@@ -316,6 +356,104 @@ rules:
                 text: "A".to_string(),
                 align: TextAlign::Right,
             }
+        );
+    }
+
+    fn char_line(text: &str, x: f32) -> OcrLine {
+        OcrLine {
+            text: text.to_string(),
+            words: vec![Span {
+                text: text.to_string(),
+                rect: Rect {
+                    x,
+                    y: 100.0,
+                    width: 20.0,
+                    height: 20.0,
+                },
+            }],
+        }
+    }
+
+    #[test]
+    fn letter_spaced_candidates_still_get_edits_at_apply_time() {
+        // A letter-spaced name reaches OCR as one line per character; detection
+        // sees it via row-merging, so apply-time planning must too — otherwise
+        // the candidate silently produces no edit.
+        let policy = parse_policy(
+            "rules:\n  - match: { text: 犬芝工業株式会社 }\n    action: { type: mask }\n",
+        )
+        .unwrap();
+        let chars = ["犬", "芝", "工", "業", "株", "式", "会", "社"];
+        let ocr = vec![PageOcr {
+            width: 1000,
+            height: 1000,
+            lines: chars
+                .iter()
+                .enumerate()
+                .map(|(index, character)| char_line(character, index as f32 * 30.0))
+                .collect(),
+        }];
+
+        let plans = plan_page_edits(&policy, &ocr, &[vec![]]).unwrap();
+
+        assert!(!plans[0].is_empty(), "letter-spaced name produced no edit");
+    }
+
+    #[test]
+    fn a_pinned_finding_supplies_its_rect_when_ocr_never_read_the_text() {
+        // "ここを検出" pins a corrected text at the reviewer's box; OCR misread
+        // it, so a literal search finds nothing — the finding rect must be
+        // used instead of silently dropping the rule.
+        let policy = parse_policy(
+            "rules:\n  - match: { text: 犬芝重工業株式会社 }\n    action: { type: mask }\n",
+        )
+        .unwrap();
+        let ocr = vec![page_with_text("納入元は犬芝重工業株式です")];
+        let findings = vec![vec![Finding {
+            category: "organization".to_string(),
+            text: "犬芝重工業株式会社".to_string(),
+            rect: Rect {
+                x: 40.0,
+                y: 40.0,
+                width: 180.0,
+                height: 22.0,
+            },
+            detector: "manual".to_string(),
+            note: None,
+        }]];
+
+        let plans = plan_page_edits(&policy, &ocr, &findings).unwrap();
+
+        assert_eq!(plans[0].len(), 1, "pinned finding produced no edit");
+        assert_eq!(plans[0][0].rect.x, 40.0);
+    }
+
+    #[test]
+    fn an_unlocated_whole_page_finding_never_blacks_the_page() {
+        let policy = parse_policy(
+            "rules:\n  - match: { text: 図中の機密語 }\n    action: { type: mask }\n",
+        )
+        .unwrap();
+        let ocr = vec![page_with_text("無関係な本文")];
+        let findings = vec![vec![Finding {
+            category: "other".to_string(),
+            text: "図中の機密語".to_string(),
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 1000.0,
+                height: 1000.0,
+            },
+            detector: "vlm".to_string(),
+            note: Some("位置未特定".to_string()),
+        }]];
+
+        let plans = plan_page_edits(&policy, &ocr, &findings).unwrap();
+
+        assert!(
+            plans[0].is_empty(),
+            "whole-page rect became an edit: {:?}",
+            plans[0]
         );
     }
 
