@@ -891,6 +891,109 @@ button.rule-target:hover {
   color: var(--muted);
 }
 
+/* ---- Plain diagrams for the beginner half of the help ---- */
+
+.help-flow.simple .node {
+  font-size: 14px;
+  padding: 10px 14px;
+}
+
+.help-flow.simple .row {
+  align-items: center;
+}
+
+.arrow-h {
+  color: var(--muted);
+  align-self: center;
+}
+
+.arrow-h.big {
+  font-size: 18px;
+}
+
+.decide-demo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.decide-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.demo-before,
+.demo-after {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111111;
+  font-size: 13px;
+}
+
+.demo-after.mask {
+  background: #111111;
+  color: #ffffff;
+}
+
+.demo-after.erase {
+  background: #ffffff;
+  border-style: dashed;
+}
+
+.demo-after.replace {
+  background: rgba(24, 150, 90, 0.15);
+  border-color: rgba(24, 150, 90, 0.8);
+}
+
+.demo-after.keep {
+  opacity: 0.85;
+}
+
+.decide-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.entity-demo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.entity-demo-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Collapsible advanced sections. */
+.help-details {
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  margin: 10px 0;
+  padding: 8px 12px;
+}
+
+.help-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.help-details[open] summary {
+  margin-bottom: 8px;
+}
+
 /* Nested grouping diagram: Entity > 候補グループ > 出現. */
 .help-tree {
   display: flex;
