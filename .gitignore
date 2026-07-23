@@ -8,3 +8,8 @@ node_modules/
 
 # Machine-local build-speed config (fast NTFS target, LLD, no PDB)
 .cargo/
+
+# Generated fixture PDFs (rebuild with scripts/make-test-documents.ps1).
+# dummy-spec.pdf stays tracked so tests run without typst installed.
+/test-documents/*.pdf
+!/test-documents/dummy-spec.pdf
