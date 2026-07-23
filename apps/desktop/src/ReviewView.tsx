@@ -2691,7 +2691,11 @@ export default function ReviewView(props: {
                           ? "マスク"
                           : "消去"}
                     </span>
-                    <span className="applied-pair">
+                    <button
+                      className="applied-pair"
+                      title="クリックで該当箇所へジャンプ"
+                      onClick={() => jumpToRect(edit.page, edit.rect)}
+                    >
                       <RegionThumb
                         projectDir={project.projectDir}
                         pageIndex={edit.page}
@@ -2709,7 +2713,7 @@ export default function ReviewView(props: {
                         rendered
                         version={version}
                       />
-                    </span>
+                    </button>
                   </div>
                 ))}
               </div>

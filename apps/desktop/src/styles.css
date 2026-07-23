@@ -876,6 +876,15 @@ button.rule-target:hover {
   display: flex;
   align-items: center;
   gap: 4px;
+  border: none;
+  background: transparent;
+  padding: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.applied-pair:hover {
+  background: var(--hover);
 }
 
 .applied-arrow {
