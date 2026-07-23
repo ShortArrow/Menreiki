@@ -1100,8 +1100,9 @@ export default function ReviewView(props: {
     window.setTimeout(() => setFlashKey(null), 1300);
   }
 
+  // The mode stays active afterwards (like erase/mask), so several spots can
+  // be boxed in a row without re-selecting it.
   function detectRegion(rect: Rect) {
-    setDrawMode("none");
     void run("領域を読み取り中…", async () => {
       // The box is ground truth for both position and extent. Read its text
       // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
