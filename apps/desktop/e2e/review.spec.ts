@@ -135,6 +135,42 @@ test("side-pane sections are laid out without overlap", async () => {
   }
 });
 
+test("a jump focus never replays on plain page navigation", async () => {
+  // Regression: after a right-pane jump, clicking pages in the left list
+  // replayed the stale focus (same-position blink and scroll) on every page.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.locator(".finding-label").first().click();
+  await expect(page.locator(".focus-flash")).toBeVisible();
+
+  await page.locator(".page-button").nth(1).click();
+  await expect(page.locator(".focus-flash")).toHaveCount(0);
+  await page.locator(".page-button").nth(2).click();
+  await expect(page.locator(".focus-flash")).toHaveCount(0);
+  await page.locator(".page-button").first().click();
+  await expect(page.locator(".focus-flash")).toHaveCount(0);
+});
+
+test("the entity popover of the last finding row stays operable", async () => {
+  // Regression: the findings list is an overflow container; the popover of
+  // its last row opened into the clipped area and could not be used.
+  const trigger = page
+    .locator(".findings-list .entity-menu > button")
+    .last();
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+  const menu = page.locator(".entity-popover");
+  await expect(menu).toBeVisible();
+  const box = await menu.boundingBox();
+  const viewportHeight = await page.evaluate(() => window.innerHeight);
+  expect(box).not.toBeNull();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewportHeight + 1);
+  await page.locator(".menu-backdrop").click();
+  await expect(menu).toHaveCount(0);
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
