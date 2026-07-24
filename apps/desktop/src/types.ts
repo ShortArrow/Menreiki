@@ -63,6 +63,13 @@ export interface Entity {
   align?: TextAlign;
 }
 
+export interface AlignOverride {
+  owner: string;
+  page: number;
+  rect: Rect;
+  align: TextAlign;
+}
+
 export interface ReviewDecisions {
   findings: {
     category: string;
@@ -78,6 +85,7 @@ export interface ReviewDecisions {
     page: number | null;
     drawn_on: number;
   }[];
+  align_overrides?: AlignOverride[];
 }
 
 export type TextAlign = "left" | "center" | "right";

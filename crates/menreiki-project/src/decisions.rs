@@ -17,6 +17,20 @@ pub struct ReviewDecisions {
     pub texts: Vec<TextDecision>,
     #[serde(default)]
     pub regions: Vec<RegionDecision>,
+    #[serde(default)]
+    pub align_overrides: Vec<AlignOverride>,
+}
+
+/// Per-occurrence alignment override for a replace rule: the rule identified
+/// by `owner` keeps its base alignment everywhere except this one box.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AlignOverride {
+    /// Owning rule, e.g. "ent-<id>", "dec-<category|::|text>", "txt-<text>".
+    pub owner: String,
+    /// 0-based page of the occurrence.
+    pub page: u16,
+    pub rect: Rect,
+    pub align: TextAlign,
 }
 
 /// Decision on a detected finding, identified by category and text so it

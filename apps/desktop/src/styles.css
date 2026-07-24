@@ -227,7 +227,10 @@ svg.lucide {
   left: 0;
   z-index: 16;
   margin-top: 4px;
-  min-width: 200px;
+  /* Size to the widest item instead of a fixed guess. */
+  width: max-content;
+  min-width: 120px;
+  max-width: 360px;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -235,6 +238,10 @@ svg.lucide {
   border-radius: 6px;
   padding: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.reanalyze-menu .menu button {
+  white-space: nowrap;
 }
 
 .reanalyze-menu .menu button {
@@ -803,7 +810,19 @@ button.rule-target:hover {
   flex: none;
 }
 
+.rule-crops-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .rule-crop-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-crop-jump {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -815,7 +834,7 @@ button.rule-target:hover {
   text-align: left;
 }
 
-.rule-crop-row:hover {
+.rule-crop-jump:hover {
   background: var(--hover);
 }
 
@@ -1527,9 +1546,16 @@ button.rule-target:hover {
   flex-wrap: wrap;
 }
 
-.finding-filter input {
+/* Only the filter text box stretches; the 未判断のみ checkbox inside the
+   label must stay snug against its text. */
+.finding-filter > input {
   flex: 1;
   min-width: 100px;
+}
+
+.finding-filter .toggle {
+  white-space: nowrap;
+  flex: none;
 }
 
 .findings-list {

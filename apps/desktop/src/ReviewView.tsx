@@ -52,6 +52,7 @@ import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
 import type {
+  AlignOverride,
   AnalysisScope,
   AppliedEdit,
   ApplySummary,
@@ -511,6 +512,12 @@ function RuleCropsPanel(props: {
   align?: TextAlign;
   pinned: { page: number; rect: Rect }[];
   onJump: (page: number, rect: Rect) => void;
+  /// Bulk alignment for the whole rule (also clears per-occurrence
+  /// exceptions); shown for replace rules only.
+  onBulkAlign?: (align: TextAlign) => void;
+  /// Per-occurrence alignment exception lookup/setter.
+  overrideFor?: (page: number, rect: Rect) => TextAlign | undefined;
+  onOverride?: (page: number, rect: Rect, align: TextAlign) => void;
 }) {
   const [items, setItems] = useState<{ page: number; rect: Rect }[] | null>(
     null,
@@ -562,46 +569,65 @@ function RuleCropsPanel(props: {
     );
   return (
     <div className="rule-crops">
-      {items.map((item, index) => (
-        <button
-          key={index}
-          className="rule-crop-row"
-          title="クリックで該当箇所へジャンプ"
-          onClick={() => props.onJump(item.page, item.rect)}
-        >
-          <span className="page-tag">p.{item.page + 1}</span>
-          <RegionThumb
-            projectDir={props.projectDir}
-            pageIndex={item.page}
-            rect={item.rect}
-            maxWidth={140}
-            maxHeight={40}
-          />
-          <span className="applied-arrow">→</span>
-          <span className="after-sim">
-            <RegionThumb
-              projectDir={props.projectDir}
-              pageIndex={item.page}
-              rect={item.rect}
-              maxWidth={140}
-              maxHeight={40}
-            />
-            <span
-              className={`after-overlay ${props.action}`}
-              style={{
-                justifyContent:
-                  props.align === "left"
-                    ? "flex-start"
-                    : props.align === "right"
-                      ? "flex-end"
-                      : "center",
-              }}
+      {props.action === "replace" && props.onBulkAlign && (
+        <div className="rule-crops-bulk">
+          <span className="hint">全体の揃え（個別指定はリセット）:</span>
+          <AlignToggle value={props.align} onChange={props.onBulkAlign} />
+        </div>
+      )}
+      {items.map((item, index) => {
+        const effective =
+          props.overrideFor?.(item.page, item.rect) ?? props.align ?? "center";
+        return (
+          <div key={index} className="rule-crop-row">
+            <button
+              className="rule-crop-jump"
+              title="クリックで該当箇所へジャンプ"
+              onClick={() => props.onJump(item.page, item.rect)}
             >
-              {props.action === "replace" ? props.value || "■■■" : ""}
-            </span>
-          </span>
-        </button>
-      ))}
+              <span className="page-tag">p.{item.page + 1}</span>
+              <RegionThumb
+                projectDir={props.projectDir}
+                pageIndex={item.page}
+                rect={item.rect}
+                maxWidth={140}
+                maxHeight={40}
+              />
+              <span className="applied-arrow">→</span>
+              <span className="after-sim">
+                <RegionThumb
+                  projectDir={props.projectDir}
+                  pageIndex={item.page}
+                  rect={item.rect}
+                  maxWidth={140}
+                  maxHeight={40}
+                />
+                <span
+                  className={`after-overlay ${props.action}`}
+                  style={{
+                    justifyContent:
+                      effective === "left"
+                        ? "flex-start"
+                        : effective === "right"
+                          ? "flex-end"
+                          : "center",
+                  }}
+                >
+                  {props.action === "replace" ? props.value || "■■■" : ""}
+                </span>
+              </span>
+            </button>
+            {props.action === "replace" && props.onOverride && (
+              <AlignToggle
+                value={effective}
+                onChange={(align) =>
+                  props.onOverride?.(item.page, item.rect, align)
+                }
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -619,6 +645,7 @@ export default function ReviewView(props: {
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [textRules, setTextRules] = useState<TextRule[]>([]);
   const [regionRules, setRegionRules] = useState<RegionRule[]>([]);
+  const [alignOverrides, setAlignOverrides] = useState<AlignOverride[]>([]);
   const [drawMode, setDrawMode] = useState<DrawMode>("none");
   const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
@@ -716,6 +743,7 @@ export default function ReviewView(props: {
             drawnOn: region.drawn_on,
           })),
         );
+        setAlignOverrides(saved.align_overrides ?? []);
         setHydrated(true);
       })
       .catch(() => {
@@ -752,11 +780,19 @@ export default function ReviewView(props: {
           page: rule.scope === "all" ? null : rule.scope,
           drawn_on: rule.drawnOn,
         })),
+        align_overrides: alignOverrides,
       };
       void saveReviewDecisions(project.projectDir, payload).catch(() => {});
     }, 400);
     return () => clearTimeout(timer);
-  }, [decisions, textRules, regionRules, hydrated, project.projectDir]);
+  }, [
+    decisions,
+    textRules,
+    regionRules,
+    alignOverrides,
+    hydrated,
+    project.projectDir,
+  ]);
 
   useEffect(() => {
     if (!project.analyzed) return;
@@ -1052,6 +1088,34 @@ export default function ReviewView(props: {
   const policy: Policy = useMemo(() => {
     const rules: PolicyRule[] = [];
     const seenTexts = new Set<string>();
+    // Per-occurrence alignment exceptions become region-scoped replace rules
+    // pushed FIRST: the planner keeps the first of two same-box edits, so
+    // these one-spot rules win over the document-wide text rule below.
+    const replaceValueByOwner = new Map<string, string>();
+    for (const entity of entities) {
+      replaceValueByOwner.set(`ent-${entity.id}`, entity.alias || "■■■");
+    }
+    for (const entry of decidedEntries) {
+      if (entry.decision.action === "replace") {
+        replaceValueByOwner.set(
+          `dec-${entry.key}`,
+          entry.decision.value || "■■■",
+        );
+      }
+    }
+    for (const rule of textRules) {
+      if (rule.action === "replace") {
+        replaceValueByOwner.set(`txt-${rule.text}`, rule.value || "■■■");
+      }
+    }
+    for (const override of alignOverrides) {
+      const value = replaceValueByOwner.get(override.owner);
+      if (value === undefined) continue; // owning rule is gone
+      rules.push({
+        match: { region: override.rect, pages: [override.page + 1] },
+        action: { type: "replace", value, align: override.align },
+      });
+    }
     const pushTextRule = (
       text: string,
       action: Exclude<DecisionAction, "keep">,
@@ -1097,7 +1161,7 @@ export default function ReviewView(props: {
       });
     }
     return { rules };
-  }, [entities, decidedEntries, textRules, regionRules]);
+  }, [entities, decidedEntries, textRules, regionRules, alignOverrides]);
 
   /// Text → pending transformation, so the viewer can paint what each
   /// finding on the page will become (green replace / blue mask / red erase),
@@ -1327,6 +1391,48 @@ export default function ReviewView(props: {
       }
       jumpTo(first.page_index, first.findings[0]);
     });
+  }
+
+  const sameOccurrence = (
+    override: AlignOverride,
+    page: number,
+    rect: Rect,
+  ) =>
+    override.page === page &&
+    Math.abs(override.rect.x - rect.x) < 2 &&
+    Math.abs(override.rect.y - rect.y) < 2;
+
+  function overrideFor(
+    owner: string,
+    page: number,
+    rect: Rect,
+  ): TextAlign | undefined {
+    return alignOverrides.find(
+      (candidate) =>
+        candidate.owner === owner && sameOccurrence(candidate, page, rect),
+    )?.align;
+  }
+
+  function setOccurrenceAlign(
+    owner: string,
+    page: number,
+    rect: Rect,
+    align: TextAlign,
+  ) {
+    setAlignOverrides((current) => [
+      ...current.filter(
+        (candidate) =>
+          !(candidate.owner === owner && sameOccurrence(candidate, page, rect)),
+      ),
+      { owner, page, rect, align },
+    ]);
+  }
+
+  /// Bulk alignment resets every per-occurrence exception of the rule.
+  function clearOverridesFor(owner: string) {
+    setAlignOverrides((current) =>
+      current.filter((candidate) => candidate.owner !== owner),
+    );
   }
 
   function toggleRuleExpansion(key: string) {
@@ -2285,6 +2391,27 @@ export default function ReviewView(props: {
                         align={entity.align}
                         pinned={pinnedFor(entity.variants)}
                         onJump={jumpToRect}
+                        onBulkAlign={(align) => {
+                          setEntities((current) =>
+                            current.map((candidate) =>
+                              candidate.id === entity.id
+                                ? { ...candidate, align }
+                                : candidate,
+                            ),
+                          );
+                          clearOverridesFor(`ent-${entity.id}`);
+                        }}
+                        overrideFor={(page, rect) =>
+                          overrideFor(`ent-${entity.id}`, page, rect)
+                        }
+                        onOverride={(page, rect, align) =>
+                          setOccurrenceAlign(
+                            `ent-${entity.id}`,
+                            page,
+                            rect,
+                            align,
+                          )
+                        }
                       />
                     )}
                   </div>
@@ -2372,6 +2499,16 @@ export default function ReviewView(props: {
                     align={entry.decision.align}
                     pinned={pinnedFor([entry.finding.text])}
                     onJump={jumpToRect}
+                    onBulkAlign={(align) => {
+                      setDecisionAlign(entry.key, align);
+                      clearOverridesFor(`dec-${entry.key}`);
+                    }}
+                    overrideFor={(page, rect) =>
+                      overrideFor(`dec-${entry.key}`, page, rect)
+                    }
+                    onOverride={(page, rect, align) =>
+                      setOccurrenceAlign(`dec-${entry.key}`, page, rect, align)
+                    }
                   />
                 )}
                 </div>
@@ -2469,6 +2606,16 @@ export default function ReviewView(props: {
                     align={rule.align}
                     pinned={pinnedFor([rule.text])}
                     onJump={jumpToRect}
+                    onBulkAlign={(align) => {
+                      setTextRuleAlign(index, align);
+                      clearOverridesFor(`txt-${rule.text}`);
+                    }}
+                    overrideFor={(page, rect) =>
+                      overrideFor(`txt-${rule.text}`, page, rect)
+                    }
+                    onOverride={(page, rect, align) =>
+                      setOccurrenceAlign(`txt-${rule.text}`, page, rect, align)
+                    }
                   />
                 )}
                 </div>

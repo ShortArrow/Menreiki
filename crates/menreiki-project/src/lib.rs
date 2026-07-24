@@ -26,8 +26,8 @@ pub use analyze::{analyze, AnalyzeError};
 pub use apply::{apply, ApplyError, ApplySummary};
 pub use audit::{audit_output, AuditOutputError};
 pub use decisions::{
-    load_decisions, save_decisions, DecisionsError, FindingDecision, RegionDecision,
-    ReviewDecisions, TextDecision,
+    load_decisions, save_decisions, AlignOverride, DecisionsError, FindingDecision,
+    RegionDecision, ReviewDecisions, TextDecision,
 };
 pub use detect::{
     detect_pages, detect_single_page, load_findings, DetectPagesError, LoadFindingsError,

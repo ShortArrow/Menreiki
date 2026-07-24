@@ -40,6 +40,17 @@ fn sample_decisions() -> ReviewDecisions {
             page: None,
             drawn_on: 0,
         }],
+        align_overrides: vec![menreiki_project::AlignOverride {
+            owner: "txt-株式会社アルファ技研".to_string(),
+            page: 2,
+            rect: Rect {
+                x: 100.0,
+                y: 200.0,
+                width: 300.0,
+                height: 30.0,
+            },
+            align: menreiki_core::TextAlign::Left,
+        }],
     }
 }
 
