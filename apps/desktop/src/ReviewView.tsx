@@ -1482,6 +1482,13 @@ export default function ReviewView(props: {
     setFocus((current) => ({ rect, nonce: (current?.nonce ?? 0) + 1 }));
   }
 
+  /// Plain page navigation (page list, scroll flip): clears any leftover
+  /// jump focus so its scroll target and blink never replay on the new page.
+  function goToPage(index: number) {
+    setPage(index);
+    setFocus(null);
+  }
+
   /// Occurrence pins from currently loaded findings whose text matches one of
   /// `texts` — gives the crops panel the manually boxed rects OCR search
   /// cannot find. Location-unknown (whole-page VLM) findings are excluded.
@@ -1917,7 +1924,7 @@ export default function ReviewView(props: {
               className={
                 index === page ? "page-button current" : "page-button"
               }
-              onClick={() => setPage(index)}
+              onClick={() => goToPage(index)}
             >
               <PageThumb
                 projectDir={project.projectDir}
@@ -2061,7 +2068,7 @@ export default function ReviewView(props: {
             onFindingClick={revealFindingRow}
             pageCount={project.pageCount}
             scrollPageFlip={scrollPageFlip}
-            onPageChange={setPage}
+            onPageChange={goToPage}
           />
         </main>
 

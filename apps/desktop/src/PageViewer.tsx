@@ -190,10 +190,16 @@ export default function PageViewer(props: {
     };
   }, [props.projectDir, props.pageIndex, props.rendered, props.version]);
 
+  // Scroll to the jump target once per jump. `size` is a dependency only so
+  // a cross-page jump waits for the new image; the handled-nonce guard stops
+  // later size changes (plain page switches) from replaying a stale jump.
+  const handledFocusNonce = useRef(0);
   useEffect(() => {
     const wrap = wrapRef.current;
     const image = imageRef.current;
     if (!wrap || !image || !size || !props.focusRect) return;
+    if (handledFocusNonce.current === props.focusNonce) return;
+    handledFocusNonce.current = props.focusNonce;
     const scale = image.clientWidth / size.w;
     const centerX = (props.focusRect.x + props.focusRect.width / 2) * scale;
     const centerY = (props.focusRect.y + props.focusRect.height / 2) * scale;
