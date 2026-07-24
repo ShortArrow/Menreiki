@@ -13,3 +13,4 @@ node_modules/
 # dummy-spec.pdf stays tracked so tests run without typst installed.
 /test-documents/*.pdf
 !/test-documents/dummy-spec.pdf
+/out/

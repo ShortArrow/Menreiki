@@ -108,6 +108,21 @@ jobs:
           Compress-Archive -Path portable/* -DestinationPath "menreiki-$version-x64-portable.zip"
           Get-ChildItem menreiki-*
 
+      - name: Build MSIX (Microsoft Store)
+        # Skipped until the Partner Center identity variables exist — see
+        # packaging/msstore/README.jp.md. The package is unsigned; the Store
+        # signs it on publication.
+        if: vars.MSSTORE_IDENTITY_NAME != ''
+        shell: pwsh
+        env:
+          MSSTORE_IDENTITY_NAME: ${{ vars.MSSTORE_IDENTITY_NAME }}
+          MSSTORE_PUBLISHER: ${{ vars.MSSTORE_PUBLISHER }}
+          MSSTORE_PUBLISHER_DISPLAY: ${{ vars.MSSTORE_PUBLISHER_DISPLAY }}
+        run: |
+          .\scripts\build-msix.ps1 -SkipBuild
+          $version = "${env:GITHUB_REF_NAME}".TrimStart("v")
+          Copy-Item out/msix/*.msix "menreiki-$version-x64.msix"
+
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: menreiki-windows-x64

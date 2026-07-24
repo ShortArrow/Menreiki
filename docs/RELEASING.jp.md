@@ -25,6 +25,11 @@
 | release | 全成果物に SLSA provenance を付与（attest-build-provenance）してから GitHub Release を作成（`--generate-notes`） |
 | winget | `WINGET_TOKEN` があれば microsoft/winget-pkgs へ更新PRを自動送信（初回のみ手動投稿 — [packaging/winget/README.jp.md](../packaging/winget/README.jp.md)） |
 
+build ジョブは `MSSTORE_IDENTITY_NAME` などのリポジトリ変数が設定されて
+いれば **Microsoft Store 用の無署名 MSIX** も成果物に含める（Store が
+署名するため SmartScreen 警告なしで配布できる主経路 —
+[packaging/msstore/README.jp.md](../packaging/msstore/README.jp.md)）。
+
 ## 補足
 
 - **E2E（Playwright）はリリースゲートに含めていない**（CIランナーでのデスクトップ
