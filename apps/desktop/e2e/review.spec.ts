@@ -97,6 +97,17 @@ test.beforeAll(async () => {
     page = candidate;
     return true;
   }, "app page over CDP");
+
+  // Wait for React to actually render before touching the usage notice: when
+  // the page is first found by URL the app may not have mounted yet, so a
+  // one-shot visibility sample missed the notice and left the modal blocking
+  // the whole run. The notice mounts together with the app, so once the side
+  // pane exists it is present too; dismiss it if this profile has not.
+  await page.locator(".side-pane").waitFor({ timeout: 60_000 });
+  const ack = page.getByRole("button", { name: "理解しました" });
+  if (await ack.isVisible().catch(() => false)) {
+    await ack.click();
+  }
 });
 
 test.afterAll(async () => {
@@ -133,6 +144,16 @@ test("side-pane sections are laid out without overlap", async () => {
   for (let i = 1; i < ordered.length; i++) {
     expect(ordered[i].top).toBeGreaterThanOrEqual(ordered[i - 1].bottom - 1);
   }
+});
+
+test("the usage notice is acknowledged and does not reappear", async () => {
+  // beforeAll dismissed it; it must stay gone and expose the app underneath.
+  await expect(
+    page.getByRole("button", { name: "理解しました" }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
 });
 
 test("a jump focus never replays on plain page navigation", async () => {

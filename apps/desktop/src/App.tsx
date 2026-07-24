@@ -1,6 +1,7 @@
 import { Moon, Sun } from "./icons";
 import { useEffect, useState } from "react";
 import { getConfig, initialProject, setConfig } from "./api";
+import FirstRunNotice, { needsAcknowledgement } from "./FirstRunNotice";
 import HomeView from "./HomeView";
 import ReviewView from "./ReviewView";
 import type { ProjectInfo } from "./types";
@@ -10,6 +11,7 @@ type ThemeName = "light" | "dark";
 export default function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [theme, setTheme] = useState<ThemeName>("light");
+  const [showNotice, setShowNotice] = useState(needsAcknowledgement);
 
   useEffect(() => {
     initialProject()
@@ -38,6 +40,9 @@ export default function App() {
 
   return (
     <>
+      {showNotice && (
+        <FirstRunNotice onAcknowledge={() => setShowNotice(false)} />
+      )}
       {project ? (
         <ReviewView
           project={project}
