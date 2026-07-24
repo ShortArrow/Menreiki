@@ -354,6 +354,24 @@ function DecisionButtons(props: {
   );
 }
 
+/// Viewport-fixed placement for a popover anchored to `anchor`, opening
+/// upward when the space below is short. position:fixed escapes the
+/// overflow clipping of scrollable lists (the findings list cut off the
+/// popover of its last row).
+function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
+  if (!anchor) return {};
+  const rect = anchor.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom;
+  return {
+    position: "fixed",
+    zIndex: 30,
+    top: spaceBelow > 280 ? rect.bottom + 4 : "auto",
+    bottom: spaceBelow > 280 ? "auto" : window.innerHeight - rect.top + 4,
+    left: "auto",
+    right: Math.max(8, window.innerWidth - rect.right),
+  };
+}
+
 /// In-place entity assignment: a small popover right on the row offering
 /// 新規Entity or any existing entity, so consolidating a spelling never
 /// requires jumping to a distant bar.
@@ -364,19 +382,25 @@ function EntityMenu(props: {
   onAssign: (entityId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   return (
     <span className="entity-menu">
       <button
+        ref={anchorRef}
         className="mini"
         title="Entityへ（表記揺れを1つの仮称へ統合）"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setMenuStyle(popoverPosition(anchorRef.current));
+          setOpen((current) => !current);
+        }}
       >
         {props.label ?? "E"}
       </button>
       {open && (
         <>
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
-          <div className="menu entity-popover">
+          <div className="menu entity-popover" style={menuStyle}>
             <button
               onClick={() => {
                 setOpen(false);
@@ -413,6 +437,8 @@ function FindingGroupMenu(props: {
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
   const strip = (value: string) => value.replace(/[\s　]/g, "");
   const seed = strip(props.seed);
   const query = strip(filter).toLowerCase();
@@ -430,16 +456,23 @@ function FindingGroupMenu(props: {
   return (
     <span className="entity-menu">
       <button
+        ref={anchorRef}
         className="mini"
         title="既存の検出候補グループの検出漏れとして統合する"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          setMenuStyle(popoverPosition(anchorRef.current));
+          setOpen((current) => !current);
+        }}
       >
         既存候補へ
       </button>
       {open && (
         <>
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
-          <div className="menu entity-popover group-popover">
+          <div
+            className="menu entity-popover group-popover"
+            style={menuStyle}
+          >
             <input
               autoFocus
               placeholder="候補を絞り込み"
