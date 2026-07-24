@@ -1,0 +1,16 @@
+# Template for the winget installer manifest (the live copy is maintained
+# in microsoft/winget-pkgs). Replace 0.1.0 with the released version.
+PackageIdentifier: ShortArrow.Menreiki
+PackageVersion: 0.1.0
+InstallerType: nullsoft
+InstallModes:
+  - interactive
+  - silent
+UpgradeBehavior: install
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/ShortArrow/Menreiki/releases/download/v0.1.0/menreiki-0.1.0-x64-setup.exe
+    InstallerSha256: <sha256 of the setup exe>
+    Scope: user
+ManifestType: installer
+ManifestVersion: 1.6.0

@@ -1,0 +1,7 @@
+# Template for the winget version manifest (the live copy is maintained in
+# microsoft/winget-pkgs).
+PackageIdentifier: ShortArrow.Menreiki
+PackageVersion: 0.1.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

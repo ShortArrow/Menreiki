@@ -1,0 +1,26 @@
+# Template for the winget default-locale manifest (the live copy is
+# maintained in microsoft/winget-pkgs).
+PackageIdentifier: ShortArrow.Menreiki
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: ShortArrow
+PublisherUrl: https://github.com/ShortArrow
+PackageName: Menreiki
+PackageUrl: https://github.com/ShortArrow/Menreiki
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/ShortArrow/Menreiki/blob/main/LICENSE-MIT
+ShortDescription: Local-first document de-identification, pseudonymization and generalization workbench.
+Description: >-
+  Menreiki detects identifying information in PDFs and images — names,
+  organizations, model numbers, locations, reference numbers — entirely on
+  your machine, and lets a human reviewer remove, mask, pseudonymize, or
+  generalize it. Output PDFs are rebuilt from transformed page pixels alone,
+  so hidden text layers and metadata of the source can never leak into them.
+Tags:
+  - anonymization
+  - de-identification
+  - pdf
+  - privacy
+  - redaction
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
