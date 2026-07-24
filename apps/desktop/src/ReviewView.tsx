@@ -2,10 +2,12 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
   Moon,
+  Pencil,
   Settings2,
   Sparkles,
   Sun,
@@ -626,6 +628,10 @@ export default function ReviewView(props: {
   );
   const [suggestingTargets, setSuggestingTargets] = useState(false);
   const [dictionary, setDictionary] = useState<DictionaryEntry[]>([]);
+  const [dictionaryEdit, setDictionaryEdit] = useState<{
+    original: string;
+    draft: string;
+  } | null>(null);
   const [dictionaryCategory, setDictionaryCategory] = useState("organization");
   const [dictionaryNote, setDictionaryNote] = useState<string | null>(null);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -848,6 +854,25 @@ export default function ReviewView(props: {
       current.map((entity) => (entity.id === entityId ? updated : entity)),
     );
     void refreshEntityMeta(updated);
+  }
+
+  /// Renames a dictionary entry in place (remove old, add corrected) and
+  /// re-runs detection — the fix-a-typo path, so a small correction never
+  /// requires delete-and-retype.
+  function saveDictionaryEdit(entry: DictionaryEntry, draft: string) {
+    const corrected = draft.trim();
+    setDictionaryEdit(null);
+    if (!corrected || corrected === entry.text) return;
+    void run("辞書を更新中…", async () => {
+      await removeDictionaryEntry(project.projectDir, entry.text);
+      setDictionary(
+        await addDictionaryEntry(project.projectDir, entry.category, corrected),
+      );
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
   }
 
   /// Registers `text` in the project dictionary under `category` and re-runs
@@ -2130,13 +2155,68 @@ export default function ReviewView(props: {
                 {dictionary.map((entry) => (
                   <div key={entry.text} className="rule-entry">
                     <span className="category-tag">{entry.category}</span>
-                    <button
-                      className="rule-target"
-                      title={`${entry.text}（クリックで該当箇所へ）`}
-                      onClick={() => jumpToText(entry.text)}
-                    >
-                      <span className="finding-text">{entry.text}</span>
-                    </button>
+                    {dictionaryEdit?.original === entry.text ? (
+                      <>
+                        <input
+                          className="replace-input"
+                          autoFocus
+                          value={dictionaryEdit.draft}
+                          onChange={(event) =>
+                            setDictionaryEdit({
+                              original: entry.text,
+                              draft: event.target.value,
+                            })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter")
+                              saveDictionaryEdit(entry, dictionaryEdit.draft);
+                            if (event.key === "Escape") setDictionaryEdit(null);
+                          }}
+                        />
+                        <button
+                          className="mini"
+                          title="保存"
+                          aria-label="保存"
+                          disabled={busy !== null}
+                          onClick={() =>
+                            saveDictionaryEdit(entry, dictionaryEdit.draft)
+                          }
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          className="mini"
+                          title="取消"
+                          aria-label="取消"
+                          onClick={() => setDictionaryEdit(null)}
+                        >
+                          <X size={12} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          className="rule-target"
+                          title={`${entry.text}（クリックで該当箇所へ）`}
+                          onClick={() => jumpToText(entry.text)}
+                        >
+                          <span className="finding-text">{entry.text}</span>
+                        </button>
+                        <button
+                          className="mini"
+                          title="文字列を修正"
+                          aria-label="文字列を修正"
+                          onClick={() =>
+                            setDictionaryEdit({
+                              original: entry.text,
+                              draft: entry.text,
+                            })
+                          }
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </>
+                    )}
                     <EntityMenu
                       entities={entities}
                       onNew={() => createEntity(entry.category, entry.text)}
@@ -2402,8 +2482,12 @@ export default function ReviewView(props: {
                     </span>
                     <button
                       className="rule-target"
+                      title="クリックで該当領域へジャンプ"
                       onClick={() =>
-                        setPage(rule.scope === "all" ? rule.drawnOn : rule.scope)
+                        jumpToRect(
+                          rule.scope === "all" ? rule.drawnOn : rule.scope,
+                          rule.rect,
+                        )
                       }
                     >
                       <span className="category-tag">領域</span>

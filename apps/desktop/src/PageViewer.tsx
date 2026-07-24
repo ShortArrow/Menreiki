@@ -95,6 +95,17 @@ export default function PageViewer(props: {
     wrapRef.current?.scrollTo({ top: 0 });
   }, [props.pageIndex]);
 
+  // The focus ring is only drawn in a short window after a jump. Without
+  // this, a page switch remounts the SVG and replays the stale ring from an
+  // earlier jump — an unrelated rect blinking at the old coordinates.
+  const [flashOn, setFlashOn] = useState(false);
+  useEffect(() => {
+    if (!props.focusRect) return;
+    setFlashOn(true);
+    const timer = window.setTimeout(() => setFlashOn(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [props.focusNonce]);
+
   // Ctrl+wheel zooms (anchored at the cursor), Shift+wheel scrolls
   // horizontally; a plain wheel keeps the browser's vertical scroll. The
   // listener is non-passive so it can preventDefault the browser's own
@@ -384,7 +395,7 @@ export default function PageViewer(props: {
                   height={dragRect.height}
                 />
               )}
-              {props.focusRect && (
+              {flashOn && props.focusRect && (
                 // Keyed by nonce so every jump restarts the blink, making the
                 // jumped-to spot unmistakable among many rects.
                 <rect
