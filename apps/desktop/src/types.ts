@@ -123,6 +123,16 @@ export interface AppliedEdit {
   text?: string | null;
 }
 
+export interface PackInfo {
+  name: string;
+  displayName: string;
+  version: string;
+  publisher: string;
+  description: string;
+  ruleCount: number;
+  wordCount: number;
+}
+
 export interface Residual {
   page: number;
   term: string;

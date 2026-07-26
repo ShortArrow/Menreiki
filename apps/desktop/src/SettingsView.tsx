@@ -1,14 +1,18 @@
 import { ChevronDown, X } from "./icons";
 import { useEffect, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import {
   getConfig,
   getProjectSettings,
+  importDetectorPack,
+  listDetectorPacks,
   listDetectors,
   listModels,
+  removeDetectorPack,
   setConfig,
   setProjectSettings,
 } from "./api";
-import type { IgnoreEntry } from "./types";
+import type { IgnoreEntry, PackInfo } from "./types";
 
 /// Settings dialog: project-scoped detector selection (persisted in the
 /// project.mnrk) and app-level local-LLM configuration (config.toml).
@@ -30,6 +34,44 @@ export default function SettingsView(props: {
   const [ready, setReady] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [packs, setPacks] = useState<PackInfo[]>([]);
+  const [packError, setPackError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void listDetectorPacks()
+      .then(setPacks)
+      .catch(() => {});
+  }, []);
+
+  /// Imports a pack file (validated by the backend) and refreshes the list;
+  /// packs apply to every project's next detection run.
+  async function importPack() {
+    setPackError(null);
+    const file = await open({
+      multiple: false,
+      filters: [
+        { name: "検出パック", extensions: ["json", "mnrkpack"] },
+      ],
+    });
+    if (typeof file !== "string") return;
+    try {
+      await importDetectorPack(file);
+      setPacks(await listDetectorPacks());
+      props.onDetectorsChanged();
+    } catch (failure) {
+      setPackError(String(failure));
+    }
+  }
+
+  async function removePack(name: string) {
+    try {
+      await removeDetectorPack(name);
+      setPacks(await listDetectorPacks());
+      props.onDetectorsChanged();
+    } catch (failure) {
+      setPackError(String(failure));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -277,6 +319,42 @@ export default function SettingsView(props: {
                     ? `${models.length} 個のモデルを検出。一覧ボタンから選択、手入力も可能です。`
                     : "候補はありません。名前を手入力してください。"}
             </p>
+          </section>
+
+          <section>
+            <h2>検出パック（アプリ全体）</h2>
+            <p className="hint">
+              業種別の検出ルール・用語をまとめたデータファイル
+              （*.mnrkpack.json）。取り込むと全プロジェクトの解析に
+              参加し、候補には pack:名前 として出典が付きます。
+            </p>
+            {packs.length === 0 && (
+              <p className="hint">取り込まれたパックはありません。</p>
+            )}
+            {packs.map((pack) => (
+              <div key={pack.name} className="rule-entry">
+                <span className="category-tag">{pack.version}</span>
+                <span className="rule-target" title={pack.description}>
+                  <span className="finding-text">
+                    {pack.displayName}（ルール{pack.ruleCount}・語
+                    {pack.wordCount}
+                    {pack.publisher ? `・${pack.publisher}` : ""}）
+                  </span>
+                </span>
+                <button
+                  aria-label="パックを削除"
+                  onClick={() => void removePack(pack.name)}
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            <div className="field-row">
+              <button type="button" onClick={() => void importPack()}>
+                パックを取り込む…
+              </button>
+            </div>
+            {packError && <p className="error">{packError}</p>}
           </section>
 
           {error && <p className="error">{error}</p>}

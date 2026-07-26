@@ -8,6 +8,7 @@ import type {
   AuditReport,
   DictionaryEntry,
   Entity,
+  PackInfo,
   PageFindings,
   Policy,
   ProjectInfo,
@@ -148,6 +149,18 @@ export function listFindings(project: string) {
 
 export function listAppliedEdits(project: string) {
   return invoke<AppliedEdit[]>("list_applied_edits", { project });
+}
+
+export function listDetectorPacks() {
+  return invoke<PackInfo[]>("list_detector_packs");
+}
+
+export function importDetectorPack(path: string) {
+  return invoke<PackInfo>("import_detector_pack", { path });
+}
+
+export function removeDetectorPack(name: string) {
+  return invoke<void>("remove_detector_pack", { name });
 }
 
 export function loadReviewDecisions(project: string) {

@@ -1,0 +1,18 @@
+{
+  "name": "sample-fictional",
+  "displayName": "サンプル検出パック（架空メーカー）",
+  "version": "1.0.0",
+  "publisher": "ShortArrow",
+  "description": "形式のデモ用。架空の型番体系と架空の企業名だけを含みます。",
+  "rules": [
+    {
+      "category": "model-number",
+      "pattern": "MNR-\\d{4}",
+      "note": "架空の型番体系 MNR-0000"
+    }
+  ],
+  "words": [
+    { "category": "organization", "text": "猫埼電工" },
+    { "category": "organization", "text": "犬芝重工業株式会社" }
+  ]
+}

@@ -7,6 +7,8 @@
 //! matching a user-supplied string. A future `menreiki-lang-en` can plug
 //! into the same engine without touching it.
 
+pub mod pack;
+
 use menreiki_detect::{DetectorGroup, DetectorSet, RegexRule};
 
 /// Japanese detector groups: the name heuristics (organization, department,

@@ -223,7 +223,105 @@ fn build_detection_rules(
     let dictionary =
         menreiki_project::load_dictionary(project_dir).map_err(|error| error.to_string())?;
     rules.extend(menreiki_project::dictionary_rules(&dictionary));
+    for pack in installed_packs() {
+        rules.extend(pack.detection_rules());
+    }
     Ok(rules)
+}
+
+/// App-wide detector pack storage (ADR-016): validated packs live under the
+/// config directory and participate in every project's detection,
+/// attributed as `pack:<name>`.
+fn packs_dir() -> Result<std::path::PathBuf, String> {
+    Ok(settings::config_dir()
+        .ok_or("home directory not found")?
+        .join("packs"))
+}
+
+/// Every parseable pack on disk. Files that fail to parse are skipped (the
+/// import command validates, so this only happens to hand-edited files).
+fn installed_packs() -> Vec<menreiki_lang_ja::pack::DetectorPack> {
+    let Ok(dir) = packs_dir() else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut packs: Vec<menreiki_lang_ja::pack::DetectorPack> = entries
+        .flatten()
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        })
+        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .filter_map(|json| menreiki_lang_ja::pack::parse_pack(&json).ok())
+        .collect();
+    packs.sort_by(|a, b| a.name.cmp(&b.name));
+    packs.dedup_by(|a, b| a.name == b.name);
+    packs
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PackInfo {
+    name: String,
+    display_name: String,
+    version: String,
+    publisher: String,
+    description: String,
+    rule_count: usize,
+    word_count: usize,
+}
+
+impl From<&menreiki_lang_ja::pack::DetectorPack> for PackInfo {
+    fn from(pack: &menreiki_lang_ja::pack::DetectorPack) -> Self {
+        Self {
+            name: pack.name.clone(),
+            display_name: pack.display_name.clone(),
+            version: pack.version.clone(),
+            publisher: pack.publisher.clone(),
+            description: pack.description.clone(),
+            rule_count: pack.rules.len(),
+            word_count: pack.words.len(),
+        }
+    }
+}
+
+#[tauri::command]
+fn list_detector_packs() -> Result<Vec<PackInfo>, String> {
+    Ok(installed_packs().iter().map(PackInfo::from).collect())
+}
+
+/// Validates a pack file and installs it app-wide; the stored copy is the
+/// re-serialized, validated form under a canonical file name.
+#[tauri::command]
+fn import_detector_pack(path: String) -> Result<PackInfo, String> {
+    let json = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let pack = menreiki_lang_ja::pack::parse_pack(&json).map_err(|error| error.to_string())?;
+    let dir = packs_dir()?;
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let stored = serde_json::to_string_pretty(&pack).expect("pack is always serializable");
+    std::fs::write(dir.join(format!("{}.mnrkpack.json", pack.name)), stored)
+        .map_err(|error| error.to_string())?;
+    Ok(PackInfo::from(&pack))
+}
+
+#[tauri::command]
+fn remove_detector_pack(name: String) -> Result<(), String> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err("invalid pack name".to_string());
+    }
+    let path = packs_dir()?.join(format!("{name}.mnrkpack.json"));
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 fn run_detection(project_dir: &Path) -> Result<(), String> {
@@ -1022,6 +1120,9 @@ pub fn run() {
             page_image,
             apply_policy,
             list_applied_edits,
+            list_detector_packs,
+            import_detector_pack,
+            remove_detector_pack,
             export_project,
             export_images,
             export_markdown,
