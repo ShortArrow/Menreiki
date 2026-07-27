@@ -28,19 +28,24 @@ if (-not $SkipBuild) {
 
 # The release exe may live in CARGO_TARGET_DIR (local dev redirects builds
 # off this repo's slow drive), the workspace target/ (CI), or the shared
-# local default. Probe in that order.
+# local default. Take the NEWEST build among them — a first-found order
+# once picked up a week-old leftover from an abandoned target dir.
 $candidates = @()
 if ($env:CARGO_TARGET_DIR) { $candidates += $env:CARGO_TARGET_DIR }
 $candidates += (Join-Path $repoRoot 'target')
 if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'cargo-target-shared') }
-$targetDir = $candidates |
-    Where-Object { Test-Path (Join-Path $_ 'release\menreiki-desktop.exe') } |
+$exeItem = $candidates |
+    ForEach-Object { Join-Path $_ 'release\menreiki-desktop.exe' } |
+    Where-Object { Test-Path $_ } |
+    ForEach-Object { Get-Item $_ } |
+    Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
-if (-not $targetDir) {
+if (-not $exeItem) {
     throw "release exe not found in: $($candidates -join ', ') (run scripts/build.ps1 first)"
 }
-
-$exe = Join-Path $targetDir 'release\menreiki-desktop.exe'
+$exe = $exeItem.FullName
+Write-Host ("using exe: {0} ({1:yyyy-MM-dd HH:mm}, {2} MB)" -f `
+    $exe, $exeItem.LastWriteTime, [math]::Round($exeItem.Length / 1MB, 1))
 $pdfium = Join-Path $repoRoot 'vendor\pdfium\pdfium.dll'
 if (-not (Test-Path $pdfium)) { throw "pdfium.dll not found; run scripts/fetch-pdfium.ps1" }
 
