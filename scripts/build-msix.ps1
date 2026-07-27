@@ -15,6 +15,10 @@ param(
     [string]$IdentityName = $(if ($env:MSSTORE_IDENTITY_NAME) { $env:MSSTORE_IDENTITY_NAME } else { "ShortArrow.Menreiki.Dev" }),
     [string]$Publisher = $(if ($env:MSSTORE_PUBLISHER) { $env:MSSTORE_PUBLISHER } else { "CN=00000000-0000-0000-0000-000000000000" }),
     [string]$PublisherDisplay = $(if ($env:MSSTORE_PUBLISHER_DISPLAY) { $env:MSSTORE_PUBLISHER_DISPLAY } else { "ShortArrow" }),
+    # Fourth MSIX version digit. Bump when re-submitting the same app version
+    # to Partner Center — same-name packages cannot replace each other in one
+    # save, but a higher revision slots in cleanly.
+    [int]$Revision = 0,
     [switch]$SkipBuild
 )
 
@@ -51,7 +55,7 @@ if (-not (Test-Path $pdfium)) { throw "pdfium.dll not found; run scripts/fetch-p
 
 $version = (Get-Content (Join-Path $repoRoot 'apps\desktop\src-tauri\tauri.conf.json') -Raw |
     ConvertFrom-Json).version
-$msixVersion = "$version.0"
+$msixVersion = "$version.$Revision"
 
 $outDir = Join-Path $repoRoot 'out\msix'
 $staging = Join-Path $outDir 'staging'
