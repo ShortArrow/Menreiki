@@ -6,6 +6,10 @@ Menreiki detects identifying information in PDFs and images — names, organizat
 
 > **Status: beta, Windows only.** Detection is not exhaustive and a passing audit means the configured checks passed — it is not a guarantee of absolute safety. A human must always make the final release decision. See [docs/QUALITY.jp.md](docs/QUALITY.jp.md) for the quality model and responsibility boundaries, and [docs/PRIVACY.md](docs/PRIVACY.md) for the privacy policy (nothing is collected).
 
+![Review workflow: detected candidates on a fictional test document](docs/images/review.png)
+
+![After applying: names replaced in place with a consistent alias](docs/images/applied.png)
+
 ## Highlights
 
 - **Local-first** — analysis, OCR, transformation, and auditing all run locally; the app makes no network connections. Optional LLM assistance connects to a localhost-only OpenAI-compatible endpoint.
