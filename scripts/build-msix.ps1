@@ -15,9 +15,9 @@ param(
     [string]$IdentityName = $(if ($env:MSSTORE_IDENTITY_NAME) { $env:MSSTORE_IDENTITY_NAME } else { "ShortArrow.Menreiki.Dev" }),
     [string]$Publisher = $(if ($env:MSSTORE_PUBLISHER) { $env:MSSTORE_PUBLISHER } else { "CN=00000000-0000-0000-0000-000000000000" }),
     [string]$PublisherDisplay = $(if ($env:MSSTORE_PUBLISHER_DISPLAY) { $env:MSSTORE_PUBLISHER_DISPLAY } else { "ShortArrow" }),
-    # Fourth MSIX version digit. Bump when re-submitting the same app version
-    # to Partner Center — same-name packages cannot replace each other in one
-    # save, but a higher revision slots in cleanly.
+    # Fourth MSIX version digit. MUST stay 0 for Store submissions (the
+    # Store reserves it and rejects anything else); useful only for local
+    # side-loading tests.
     [int]$Revision = 0,
     [switch]$SkipBuild
 )
