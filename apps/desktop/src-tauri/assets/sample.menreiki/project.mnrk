@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source": {
+    "file_name": "dummy-spec.pdf",
+    "sha256": "33d5226c5b3f9c987fa9270e5b29f5d94138fc671ce5376a9e459a8c357270e4",
+    "byte_len": 109421
+  },
+  "settings": {}
+}

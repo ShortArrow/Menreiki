@@ -40,7 +40,13 @@ $env:MSSTORE_PUBLISHER_DISPLAY = "..."
    - **プライバシーポリシーURL**（必須）:
      `https://github.com/ShortArrow/Menreiki/blob/main/docs/PRIVACY.md`
    - 説明・スクリーンショット（1366×768 以上を1枚以上）・年齢区分の申告
-3. 審査へ提出（Win32 full-trust アプリ。初回審査は数日かかることがある）。
+3. **審査担当者向けメモ（Notes for certification）**に
+   [certification-notes.md](certification-notes.md) の本文を貼り付ける。
+   Menreiki は文書を取り込まないと何も始まらないため、これが無いと
+   テスターが主要機能に到達できず **10.3.3 App Is Testable** で差し戻される
+   （初回提出はこれで一度落ちた）。ホーム画面の「サンプルを開いて試す」
+   ボタンで外部ファイル無しに機能へ到達できる旨を英文で案内している。
+4. 審査へ提出（Win32 full-trust アプリ。初回審査は数日かかることがある）。
 
 ## ローカルでの動作確認（任意）
 

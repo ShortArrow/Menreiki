@@ -48,6 +48,14 @@ fn project_info(project_dir: &Path) -> Result<ProjectInfo, String> {
 static EMBEDDED_PDFIUM: &[u8] =
     include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../vendor/pdfium/pdfium.dll"));
 
+/// The analyzed sample project baked into the binary by build.rs, as
+/// `(relative_path, bytes)` pairs. Lets the app demonstrate the full review
+/// workflow with no external document and no OCR language pack — see
+/// `open_sample`.
+mod sample {
+    include!(concat!(env!("OUT_DIR"), "/sample_manifest.rs"));
+}
+
 /// The rasterizer matching the project's source document: single images
 /// (PNG, JPEG) pass through as one-page documents, everything else goes
 /// through pdfium.
@@ -186,6 +194,29 @@ fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo
 #[tauri::command]
 fn open_project(project: String) -> Result<ProjectInfo, String> {
     project_info(&menreiki_project::resolve_project_dir(Path::new(&project)))
+}
+
+/// Materializes the embedded sample project into a writable location and
+/// opens it. Written fresh on every call so the sample always starts from a
+/// known, clean state — the app is fully explorable with no file to import
+/// and no OCR language pack installed, which is also what makes it testable
+/// for store certification.
+#[tauri::command]
+fn open_sample() -> Result<ProjectInfo, String> {
+    let dir = settings::config_dir()
+        .ok_or("home directory not found")?
+        .join("sample.menreiki");
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|error| error.to_string())?;
+    }
+    for (rel, bytes) in sample::SAMPLE_FILES {
+        let path = dir.join(rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    }
+    project_info(&dir)
 }
 
 /// Which parts of the analysis pipeline a run executes.
@@ -1104,6 +1135,7 @@ pub fn run() {
             remove_dictionary_entry,
             import_document,
             open_project,
+            open_sample,
             analyze_project,
             cancel_analysis,
             llm_detect_project,

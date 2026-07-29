@@ -1,0 +1,35 @@
+[
+  {
+    "category": "organization",
+    "text": "株式会社アルフ ァ技研ー 2",
+    "rect": {
+      "x": 492.0,
+      "y": 1649.0,
+      "width": 225.0,
+      "height": 18.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "header",
+    "text": "機密 CONFIDENTIAL",
+    "rect": {
+      "x": 530.0,
+      "y": 87.0,
+      "width": 179.0,
+      "height": 17.0
+    },
+    "detector": "layout"
+  },
+  {
+    "category": "footer",
+    "text": "株式会社アルフ ァ技研ー 2 / 3",
+    "rect": {
+      "x": 492.0,
+      "y": 1649.0,
+      "width": 255.0,
+      "height": 18.0
+    },
+    "detector": "layout"
+  }
+]

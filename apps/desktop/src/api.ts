@@ -56,6 +56,10 @@ export function openProject(project: string) {
   return invoke<ProjectInfo>("open_project", { project });
 }
 
+export function openSample() {
+  return invoke<ProjectInfo>("open_sample");
+}
+
 export function analyzeProject(
   project: string,
   scope: AnalysisScope,

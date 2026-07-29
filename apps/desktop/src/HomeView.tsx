@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { importDocument, openProject, registerFileAssociation } from "./api";
+import {
+  importDocument,
+  openProject,
+  openSample,
+  registerFileAssociation,
+} from "./api";
 import type { ProjectInfo } from "./types";
 
 export default function HomeView(props: {
@@ -52,6 +57,10 @@ export default function HomeView(props: {
     });
   }
 
+  function loadSample() {
+    void run("サンプルを準備中…", () => openSample());
+  }
+
   return (
     <div className="home">
       <h1>Menreiki</h1>
@@ -63,6 +72,18 @@ export default function HomeView(props: {
         <button onClick={pickProject} disabled={busy !== null}>
           既存のプロジェクトを開く（project.mnrk）
         </button>
+      </div>
+      <div className="home-sample">
+        <button
+          className="sample-button"
+          onClick={loadSample}
+          disabled={busy !== null}
+        >
+          サンプルを開いて試す（文書の用意は不要）
+        </button>
+        <p className="hint">
+          架空のテスト文書で、検出候補の確認・置換・監査までひと通り試せます。
+        </p>
       </div>
       {busy && <p className="status">{busy}</p>}
       {error && <p className="error">{error}</p>}

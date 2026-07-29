@@ -1,0 +1,112 @@
+[
+  {
+    "category": "phone",
+    "text": "045ー123ー4567",
+    "rect": {
+      "x": 636.0,
+      "y": 443.0,
+      "width": 139.0,
+      "height": 17.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "email",
+    "text": "taro.tanaka@alpha-giken.example.co.jp",
+    "rect": {
+      "x": 216.0,
+      "y": 443.0,
+      "width": 395.0,
+      "height": 21.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "department",
+    "text": "技術開発部",
+    "rect": {
+      "x": 369.0,
+      "y": 412.0,
+      "width": 108.0,
+      "height": 20.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "date",
+    "text": "2026 年 7 月 17 日",
+    "rect": {
+      "x": 260.0,
+      "y": 381.0,
+      "width": 173.0,
+      "height": 20.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "organization",
+    "text": "株式会社アルフ ァ技研 横浜第",
+    "rect": {
+      "x": 817.0,
+      "y": 307.0,
+      "width": 287.0,
+      "height": 21.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "place",
+    "text": "横浜市中区港町",
+    "rect": {
+      "x": 426.0,
+      "y": 473.0,
+      "width": 152.0,
+      "height": 20.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "postal-code",
+    "text": "〒231ー0001",
+    "rect": {
+      "x": 218.0,
+      "y": 474.0,
+      "width": 112.0,
+      "height": 17.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "organization",
+    "text": "株式会社アルフ ァ技研ー 1",
+    "rect": {
+      "x": 492.0,
+      "y": 1649.0,
+      "width": 225.0,
+      "height": 18.0
+    },
+    "detector": "regex"
+  },
+  {
+    "category": "header",
+    "text": "機密 CONFIDENTIAL",
+    "rect": {
+      "x": 530.0,
+      "y": 87.0,
+      "width": 179.0,
+      "height": 17.0
+    },
+    "detector": "layout"
+  },
+  {
+    "category": "footer",
+    "text": "株式会社アルフ ァ技研ー 1 / 3",
+    "rect": {
+      "x": 492.0,
+      "y": 1649.0,
+      "width": 255.0,
+      "height": 18.0
+    },
+    "detector": "layout"
+  }
+]
