@@ -3,32 +3,19 @@
 `AppxManifest.template.xml` declares `runFullTrust`, which the Store treats as
 a restricted capability: the submission cannot proceed until the **Restricted
 capabilities** field on the Submission Options page explains why the app needs
-it. Paste the text below into that field.
+it.
 
-> This is a packaged Win32 desktop application built with Tauri: a native Rust
-> executable that renders its user interface in WebView2. runFullTrust is
-> required to:
->
-> 1. Run that native executable (menreiki-desktop.exe) and load its bundled PDF
->    rendering library (pdfium.dll) from the package directory as an ordinary
->    Win32 DLL.
-> 2. Rasterize document pages into images and read text from them with local OCR
->    through the Windows.Media.Ocr API.
-> 3. Read and write the project folder the user picks in the file dialog: the
->    source document they chose to de-identify, the rendered page images, the
->    analysis results, and the exported PDF, Markdown, and image files.
-> 4. Store the application's settings and the built-in sample project under the
->    user's application data folder, so the app can be tried with no external
->    document.
-> 5. Register the application's own .mnrk project file type under
->    HKEY_CURRENT_USER\Software\Classes. This happens only when the user clicks
->    the button that asks for the association, only for the current user, and
->    only for that one file type.
->
-> The app is a local-first document de-identification tool. It makes no network
-> connections, collects no data, and requires no account: all processing happens
-> on the device, and nothing the user imports ever leaves it.
->
-> The capability is used only for that document processing. The app installs no
-> service and no driver, requires no elevation, registers nothing to run at
-> logon, and launches no other application.
+That field holds **500 characters** and silently drops everything past the
+limit — a longer answer looks saved but reaches the reviewer cut off mid-word.
+The text below is 488 characters as a single paragraph (line breaks count too,
+so a bulleted list does not fit). Measure any edit before pasting.
+
+> Packaged Win32 desktop app built with Tauri (native Rust executable, WebView2 UI). Full trust lets it run that executable, load its bundled pdfium.dll to render PDF pages, run local OCR through Windows.Media.Ocr, read and write the project folders the user picks in the file dialog, and register its own .mnrk file type for the current user on request. Offline de-identification tool: no network calls, no data collection, no account, no service or driver, no elevation, nothing at logon.
+
+The five uses map to the app as built: the packaged executable itself,
+`pdfium.dll` loaded from the package directory for PDF rasterization,
+`Windows.Media.Ocr` for local text recognition, the project folder chosen
+through the file dialog (source document, page images, analysis results,
+exports), and the `.mnrk` association written under
+`HKEY_CURRENT_USER\Software\Classes` only when the user presses the button that
+asks for it.

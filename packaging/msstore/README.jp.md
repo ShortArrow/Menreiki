@@ -50,7 +50,8 @@ $env:MSSTORE_PUBLISHER_DISPLAY = "..."
 4. **Submission Options** ページの「Restricted capabilities」へ
    [restricted-capabilities.md](restricted-capabilities.md) の本文を貼り付ける。
    マニフェストが宣言する `runFullTrust` は承認制で、理由が無いと審査へ進めない。
-   長文が途中で切れて保存されることがあるため、貼り付け後に末尾まで確認する。
+   入力欄は500字までで、超過分は警告なく捨てられる（審査側には途中で
+   切れた文が届く）ため、字数を測ってから貼る。
 5. 審査へ提出（Win32 full-trust アプリ。初回審査は数日かかることがある）。
 
 ## ローカルでの動作確認（任意）
