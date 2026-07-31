@@ -2306,7 +2306,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-adapter-pdfium"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "image",
  "menreiki-render",
@@ -2319,7 +2319,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-adapter-windows-ocr"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "image",
  "menreiki-core",
@@ -2329,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-audit"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-cli"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2358,7 +2358,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "serde",
  "sha2",
@@ -2366,7 +2366,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-desktop"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "image",
  "menreiki-adapter-pdfium",
@@ -2392,7 +2392,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-detect"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "regex",
@@ -2400,7 +2400,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-detect-universal"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
@@ -2408,14 +2408,14 @@ dependencies = [
 
 [[package]]
 name = "menreiki-entity"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "menreiki-inference"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64 0.22.1",
  "serde",
@@ -2426,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-lang-ja"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
@@ -2439,7 +2439,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-ocr"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "thiserror 2.0.18",
@@ -2447,7 +2447,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-policy"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "menreiki-core",
  "menreiki-detect",
@@ -2459,7 +2459,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-project"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "image",
  "menreiki-audit",
@@ -2479,7 +2479,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-render"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "ab_glyph",
  "flate2",
@@ -2491,7 +2491,7 @@ dependencies = [
 
 [[package]]
 name = "menreiki-test-support"
-version = "0.1.2"
+version = "0.1.3"
 
 [[package]]
 name = "mime"
