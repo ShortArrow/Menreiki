@@ -17,7 +17,9 @@ const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repoRoot, "target");
 const appExe = path.join(targetDir, "debug", "menreiki-desktop.exe");
 const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
 
-const JAPANESE = /[ぁ-んァ-ヶ一-龠]/;
+// Full-width punctuation counts too: a hard-coded 「）」 or 「・」 in JSX
+// survives translation and shows up mid-sentence in the English UI.
+const JAPANESE = /[ぁ-んァ-ヶ一-龠（）、。・「」]/;
 
 let workDir: string;
 let vite: ChildProcess;
@@ -138,6 +140,13 @@ test("the review screen and settings dialog render in English", async () => {
   await expect(page.getByText(/Candidates \(\d+ kinds/)).toBeVisible({
     timeout: 120_000,
   });
+
+  // The document data on this screen is Japanese by design, so the blanket
+  // no-Japanese check cannot run here; pin the composed heading instead
+  // (its closing paren was once a hard-coded full-width one).
+  const heading = await page.locator(".findings-section h2").innerText();
+  expect(heading).toMatch(/^Candidates \(\d+ kinds.*\)$/);
+  expect(heading).not.toMatch(JAPANESE);
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText("Detectors used in this project")).toBeVisible();

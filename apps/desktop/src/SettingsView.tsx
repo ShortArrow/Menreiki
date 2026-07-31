@@ -360,12 +360,16 @@ export default function SettingsView(props: {
                 <span className="category-tag">{pack.version}</span>
                 <span className="rule-target" title={pack.description}>
                   <span className="finding-text">
-                    {pack.displayName}（
+                    {pack.displayName}
                     {t("settings.packSummary", {
                       rules: pack.ruleCount,
                       words: pack.wordCount,
+                      publisher: pack.publisher
+                        ? t("settings.packPublisher", {
+                            name: pack.publisher,
+                          })
+                        : "",
                     })}
-                    {pack.publisher ? `・${pack.publisher}` : ""}）
                   </span>
                 </span>
                 <button

@@ -1313,9 +1313,11 @@ export default function ReviewView(props: {
     setExportMenuOpen(false);
     void run(t("review.rebuildingPdf"), async () => {
       setExportPath(await exportProject(project.projectDir, 300, pages));
+      // Any joining whitespace lives in the dictionary strings: English pads
+      // its sentence, Japanese does not.
       const scopeNote =
         pages && pages.length > 0
-          ? t("review.exportedPages", { count: pages.length }) + " "
+          ? t("review.exportedPages", { count: pages.length })
           : "";
       if (undecidedCount > 0) {
         setNotice(
@@ -2475,7 +2477,12 @@ export default function ReviewView(props: {
                         )}
                       </button>
                       <span className="chip-action">{t("action.replace")}</span>
-                      <span className="rule-target" title={entity.variants.join("、")}>
+                      <span
+                        className="rule-target"
+                        title={entity.variants.join(
+                          t("review.variantSeparator"),
+                        )}
+                      >
                         <span className="category-tag">Entity</span>
                         <span className="finding-text">
                           {t("review.variantsToAlias", {
@@ -2922,15 +2929,19 @@ export default function ReviewView(props: {
 
           <section className="findings-section">
             <h2>
-              {t("review.candidates", { count: dedupedFindings.length })}
-              {filteredFindings.length !== flatFindings.length
-                ? t("review.candidatesAll", { count: flatFindings.length })
-                : filteredFindings.length !== dedupedFindings.length
-                  ? t("review.candidatesFiltered", {
-                      count: filteredFindings.length,
-                    })
-                  : ""}
-              ）
+              {t("review.candidates", {
+                count: dedupedFindings.length,
+                suffix:
+                  filteredFindings.length !== flatFindings.length
+                    ? t("review.candidatesAll", {
+                        count: flatFindings.length,
+                      })
+                    : filteredFindings.length !== dedupedFindings.length
+                      ? t("review.candidatesFiltered", {
+                          count: filteredFindings.length,
+                        })
+                      : "",
+              })}
             </h2>
             <div className="finding-filter">
               <input

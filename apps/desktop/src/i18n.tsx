@@ -74,7 +74,8 @@ export const ja = {
   "settings.packsHint":
     "業種別の検出ルール・用語をまとめたデータファイル（*.mnrkpack.json）。取り込むと全プロジェクトの解析に参加し、候補には pack:名前 として出典が付きます。",
   "settings.packsEmpty": "取り込まれたパックはありません。",
-  "settings.packSummary": "ルール{rules}・語{words}",
+  "settings.packSummary": "（ルール{rules}・語{words}{publisher}）",
+  "settings.packPublisher": "・{name}",
   "settings.packRemove": "パックを削除",
   "settings.packImport": "パックを取り込む…",
   "settings.packFilter": "検出パック",
@@ -232,6 +233,7 @@ export const ja = {
   "review.pendingRulesHeading": "適用予定ルール（{count}件）",
   "review.toggleCrops": "出現箇所のビフォー/アフターを開閉",
   "review.variantsToAlias": "{count}表記 → {alias}",
+  "review.variantSeparator": "、",
   "review.aliasUnset": "（仮称未設定）",
   "review.replacementPlaceholder": "置換後",
   "review.release": "解除",
@@ -250,7 +252,7 @@ export const ja = {
   "review.similarVariants": "類似表記の候補:",
   "review.entitiesEmpty":
     "検索結果の「Entityとして登録」や候補行の「E」から、表記揺れを1つの仮称へまとめられます",
-  "review.candidates": "検出候補（{count}種",
+  "review.candidates": "検出候補（{count}種{suffix}）",
   "review.candidatesAll": " / 全{count}件",
   "review.candidatesFiltered": " / {count}件",
   "review.candidateFilter": "絞り込み（語・分類・p.3）",
@@ -342,7 +344,8 @@ export const en: Record<MessageKey, string> = {
   "settings.packsHint":
     "Data files of industry-specific rules and terms (*.mnrkpack.json). An imported pack joins the analysis of every project, and its candidates are attributed as pack:name.",
   "settings.packsEmpty": "No packs imported.",
-  "settings.packSummary": "{rules} rules, {words} words",
+  "settings.packSummary": " ({rules} rules, {words} words{publisher})",
+  "settings.packPublisher": ", {name}",
   "settings.packRemove": "Remove the pack",
   "settings.packImport": "Import a pack…",
   "settings.packFilter": "Detector packs",
@@ -396,7 +399,7 @@ export const en: Record<MessageKey, string> = {
     "Analysis cancelled. \"Resume analysis\" continues from where it stopped.",
   "review.applying": "Applying the transformations…",
   "review.rebuildingPdf": "Rebuilding the PDF…",
-  "review.exportedPages": "Exported {count} pages.",
+  "review.exportedPages": "Exported {count} pages. ",
   "review.undecidedWarning":
     "{scope}{count} candidate kinds are still undecided. Review them before sharing the output.",
   "review.exportingImages": "Exporting images…",
@@ -504,6 +507,7 @@ export const en: Record<MessageKey, string> = {
   "review.pendingRulesHeading": "Pending rules ({count})",
   "review.toggleCrops": "Show or hide the before/after of each occurrence",
   "review.variantsToAlias": "{count} spellings → {alias}",
+  "review.variantSeparator": ", ",
   "review.aliasUnset": "(alias not set)",
   "review.replacementPlaceholder": "Replacement",
   "review.release": "Undo",
@@ -524,7 +528,7 @@ export const en: Record<MessageKey, string> = {
   "review.similarVariants": "Similar spellings:",
   "review.entitiesEmpty":
     "\"Register as an entity\" in the search results, or \"E\" on a candidate row, merges spelling variants into one alias",
-  "review.candidates": "Candidates ({count} kinds",
+  "review.candidates": "Candidates ({count} kinds{suffix})",
   "review.candidatesAll": " / {count} total",
   "review.candidatesFiltered": " / {count} shown",
   "review.candidateFilter": "Filter (word, category, p.3)",
