@@ -89,7 +89,7 @@ export default function SettingsView(props: {
         setBaseUrl(config.inference.base_url);
         setModel(config.inference.model);
         setReady(true);
-        void refreshModels(config.inference.base_url);
+        void refreshModels(config.inference.base_url, { quiet: true });
       })
       .catch((failure) => {
         if (!cancelled) setError(String(failure));
@@ -100,9 +100,11 @@ export default function SettingsView(props: {
   }, [props.projectDir]);
 
   /// Asks the endpoint which models it serves, so the field below can offer
-  /// them. A failure (endpoint down, no server) is shown as a hint, not an
-  /// error — the user can always type the name by hand.
-  async function refreshModels(url: string) {
+  /// them. The LLM is optional, so a failure (endpoint down, no server) is
+  /// only worth mentioning when the user asked for the fetch — the automatic
+  /// fetch on open stays quiet, otherwise the dialog greets everyone without
+  /// a local server with what reads like a broken required dependency.
+  async function refreshModels(url: string, options?: { quiet: boolean }) {
     const target = url.trim();
     if (!target) return;
     setLoadingModels(true);
@@ -111,7 +113,7 @@ export default function SettingsView(props: {
       setModels(await listModels(target));
     } catch (failure) {
       setModels([]);
-      setModelsError(String(failure));
+      if (!options?.quiet) setModelsError(String(failure));
     } finally {
       setLoadingModels(false);
     }
@@ -214,9 +216,10 @@ export default function SettingsView(props: {
           </section>
 
           <section>
-            <h2>ローカルLLM（アプリ全体）</h2>
+            <h2>ローカルLLM（任意・アプリ全体）</h2>
             <p className="hint">
-              接続先はこのマシンに限定されます（config.toml に保存）。
+              設定しなくてもすべての機能を使えます。接続先はこのマシンに
+              限定されます（config.toml に保存）。
             </p>
             <label className="field">
               エンドポイント

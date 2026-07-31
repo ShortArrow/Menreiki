@@ -110,8 +110,13 @@ test.afterAll(async () => {
 
 test("the embedded sample opens into review with detections", async () => {
   // Certification path: no document to import, one click to primary
-  // functionality.
-  await page.getByRole("button", { name: /サンプルを開いて試す/ }).click();
+  // functionality. The button carries an English line so a non-Japanese
+  // certification tester finds it without reading the submission notes.
+  const sampleButton = page.getByRole("button", {
+    name: /サンプルを開いて試す/,
+  });
+  await expect(sampleButton).toContainText("Try the built-in sample");
+  await sampleButton.click();
 
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,

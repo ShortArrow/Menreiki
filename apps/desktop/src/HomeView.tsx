@@ -80,6 +80,9 @@ export default function HomeView(props: {
           disabled={busy !== null}
         >
           サンプルを開いて試す（文書の用意は不要）
+          <span className="sample-button-en">
+            Try the built-in sample (no document needed)
+          </span>
         </button>
         <p className="hint">
           架空のテスト文書で、検出候補の確認・置換・監査までひと通り試せます。

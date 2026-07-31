@@ -25,9 +25,16 @@ functionality, which is what the 10.3.3 "App Is Testable" rejection asked for.
 >    The page updates in place.
 > 5. To produce output: use the export buttons (PDF / Markdown / images).
 >
+> **About the "Local LLM" section in the Settings dialog:** this is an
+> optional integration with an AI server the user may run themselves on
+> their own machine (localhost only). It is NOT required for any
+> functionality: every feature above works without it, and no server,
+> account, or credentials are needed to test the app. The section is
+> labeled 任意 ("optional").
+>
 > The user interface is Japanese only (the app targets Japanese-language
 > documents), so the button labels above are given in Japanese with English
-> translations. The sample button is directly under the two main buttons on
-> the home screen.
+> translations. The sample button on the home screen also carries an
+> English caption: "Try the built-in sample (no document needed)".
 >
 > Product ID: 9NLL16SBKGDW

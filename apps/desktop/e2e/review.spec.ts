@@ -192,6 +192,23 @@ test("the entity popover of the last finding row stays operable", async () => {
   await expect(menu).toHaveCount(0);
 });
 
+test("the LLM settings read as optional and stay quiet with no server", async () => {
+  // A Store certification tester opened this dialog with no local LLM server
+  // running, saw the fetch-failure message against the localhost endpoint, and
+  // rejected the app as depending on an inaccessible service (10.3.3). The
+  // section must present itself as optional, and the automatic model fetch on
+  // open must fail silently — the failure text is for user-initiated fetches.
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeVisible();
+  await expect(page.getByText("設定しなくてもすべての機能を使えます")).toBeVisible();
+  await expect(
+    page.getByText(/候補はありません|個のモデルを検出/),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/モデル一覧を取得できませんでした/)).toHaveCount(0);
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
