@@ -48,6 +48,7 @@ import {
   vlmInRegion,
 } from "./api";
 import HelpView from "./HelpView";
+import { useI18n, type MessageKey, type Language, type Translate } from "./i18n";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
@@ -96,19 +97,21 @@ interface RegionRule {
 const findingKey = (finding: Finding) =>
   `${finding.category}|::|${finding.text}`;
 
-const ACTION_LABELS: Record<Exclude<DecisionAction, "keep">, string> = {
-  erase: "消去",
-  mask: "マスク",
-  replace: "置換",
-};
+const actionLabel = (t: Translate, action: Exclude<DecisionAction, "keep">) =>
+  t(`action.${action}` as MessageKey);
 
-const ALIAS_LABELS: Record<string, string> = {
-  organization: "組織",
-  department: "部署",
-  person: "人物",
-  product: "製品",
-  place: "地名",
-};
+const aliasLabel = (t: Translate, category: string) =>
+  category in ALIAS_CATEGORIES
+    ? t(`alias.${category}` as MessageKey)
+    : t("alias.fallback");
+
+const ALIAS_CATEGORIES = {
+  organization: true,
+  department: true,
+  person: true,
+  product: true,
+  place: true,
+} as const;
 
 interface AnalyzeProgress {
   stage: string;
@@ -116,28 +119,27 @@ interface AnalyzeProgress {
   total: number | null;
 }
 
-function progressLabel(progress: AnalyzeProgress): string {
+function progressLabel(t: Translate, progress: AnalyzeProgress): string {
   const pages =
     progress.page === null
       ? ""
       : progress.total === null
-        ? `（${progress.page}ページ目）`
-        : `（${progress.page} / ${progress.total}ページ）`;
+        ? t("progress.pageOf", { page: progress.page })
+        : t("progress.pageOfTotal", {
+            page: progress.page,
+            total: progress.total,
+          });
   switch (progress.stage) {
     case "render":
-      return `ページを画像化しています…${pages}`;
     case "ocr":
-      return `OCRを実行しています…${pages}`;
-    case "detect":
-      return "機密候補を検出しています…";
     case "markdown":
-      return `Markdownを生成しています…${pages}`;
     case "llm":
-      return `ローカルLLMで候補を探しています…${pages}`;
     case "vlm":
-      return `ローカルVLMがページ画像を確認しています…${pages}`;
+      return t(`progress.${progress.stage}` as MessageKey, { pages });
+    case "detect":
+      return t("progress.detect");
     case "done":
-      return "解析が完了しました";
+      return t("progress.done");
     default:
       return progress.stage;
   }
@@ -218,6 +220,7 @@ function AliasSuggest(props: {
   category: string;
   onPick: (value: string) => void;
 }) {
+  const { t } = useI18n();
   const [items, setItems] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -236,7 +239,7 @@ function AliasSuggest(props: {
     <span className="suggest-wrap">
       <button
         className="mini"
-        title="ローカルLLMに置換候補を提案させる（意味を残した仮称・一般化）"
+        title={t("review.suggestReplacements")}
         disabled={loading}
         onClick={fetchSuggestions}
       >
@@ -298,11 +301,12 @@ function AlignToggle(props: {
   value: TextAlign | undefined;
   onChange: (align: TextAlign) => void;
 }) {
+  const { t } = useI18n();
   const current = props.value ?? "center";
   const options: [TextAlign, React.ReactNode, string][] = [
-    ["left", <AlignLeft key="l" size={12} />, "左揃え"],
-    ["center", <AlignCenter key="c" size={12} />, "中央揃え"],
-    ["right", <AlignRight key="r" size={12} />, "右揃え"],
+    ["left", <AlignLeft key="l" size={12} />, t("review.alignLeft")],
+    ["center", <AlignCenter key="c" size={12} />, t("review.alignCenter")],
+    ["right", <AlignRight key="r" size={12} />, t("review.alignRight")],
   ];
   return (
     <span className="align-toggle">
@@ -321,18 +325,19 @@ function AlignToggle(props: {
   );
 }
 
-/// One-click decision buttons (保持/マスク/消去/置換) with the current state
-/// highlighted; clicking the active one clears back to 未判断. The same
-/// control everywhere a target can be judged, replacing per-place dropdowns.
+/// One-click decision buttons (keep/mask/erase/replace) with the current state
+/// highlighted; clicking the active one clears the decision. The same control
+/// everywhere a target can be judged, replacing per-place dropdowns.
 function DecisionButtons(props: {
   value: DecisionAction | undefined;
   onChange: (action: DecisionAction | "undecided") => void;
 }) {
+  const { t } = useI18n();
   const options: [DecisionAction, string][] = [
-    ["keep", "保持"],
-    ["mask", "マスク"],
-    ["erase", "消去"],
-    ["replace", "置換"],
+    ["keep", t("action.keep")],
+    ["mask", t("action.mask")],
+    ["erase", t("action.erase")],
+    ["replace", t("action.replace")],
   ];
   return (
     <span className="decision-buttons">
@@ -342,7 +347,11 @@ function DecisionButtons(props: {
           className={
             props.value === action ? "decision-btn current" : "decision-btn"
           }
-          title={props.value === action ? `${label}を解除` : label}
+          title={
+            props.value === action
+              ? t("action.release", { action: label })
+              : label
+          }
           onClick={() =>
             props.onChange(props.value === action ? "undecided" : action)
           }
@@ -372,15 +381,16 @@ function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
   };
 }
 
-/// In-place entity assignment: a small popover right on the row offering
-/// 新規Entity or any existing entity, so consolidating a spelling never
-/// requires jumping to a distant bar.
+/// In-place entity assignment: a small popover right on the row offering a
+/// new entity or any existing one, so consolidating a spelling never requires
+/// jumping to a distant bar.
 function EntityMenu(props: {
   entities: Entity[];
   label?: string;
   onNew: () => void;
   onAssign: (entityId: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const anchorRef = useRef<HTMLButtonElement>(null);
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
@@ -389,7 +399,7 @@ function EntityMenu(props: {
       <button
         ref={anchorRef}
         className="mini"
-        title="Entityへ（表記揺れを1つの仮称へ統合）"
+        title={t("review.toEntity")}
         onClick={() => {
           setMenuStyle(popoverPosition(anchorRef.current));
           setOpen((current) => !current);
@@ -407,7 +417,7 @@ function EntityMenu(props: {
                 props.onNew();
               }}
             >
-              ＋ 新規Entity
+              {t("review.newEntity")}
             </button>
             {props.entities.map((entity) => (
               <button
@@ -435,6 +445,7 @@ function FindingGroupMenu(props: {
   seed: string;
   onPick: (group: { category: string; text: string }) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const anchorRef = useRef<HTMLButtonElement>(null);
@@ -458,13 +469,13 @@ function FindingGroupMenu(props: {
       <button
         ref={anchorRef}
         className="mini"
-        title="既存の検出候補グループの検出漏れとして統合する"
+        title={t("review.mergeIntoExisting")}
         onClick={() => {
           setMenuStyle(popoverPosition(anchorRef.current));
           setOpen((current) => !current);
         }}
       >
-        既存候補へ
+        {t("review.toExisting")}
       </button>
       {open && (
         <>
@@ -475,7 +486,7 @@ function FindingGroupMenu(props: {
           >
             <input
               autoFocus
-              placeholder="候補を絞り込み"
+              placeholder={t("review.filterCandidates")}
               value={filter}
               onChange={(event) => setFilter(event.target.value)}
             />
@@ -492,7 +503,7 @@ function FindingGroupMenu(props: {
               </button>
             ))}
             {listed.length === 0 && (
-              <span className="hint">一致する候補がありません</span>
+              <span className="hint">{t("review.noMatchingCandidates")}</span>
             )}
           </div>
         </>
@@ -512,12 +523,13 @@ const stripWs = (value: string) => value.replace(/[\s　]/g, "");
 
 /// An exported path with a copy-to-clipboard button.
 function ExportPathLine(props: { path: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   return (
     <p className="export-path" title={props.path}>
       <button
         className="mini"
-        title="パスをコピー"
+        title={t("review.copyPath")}
         onClick={() => {
           void navigator.clipboard.writeText(props.path).then(() => {
             setCopied(true);
@@ -525,9 +537,9 @@ function ExportPathLine(props: { path: string }) {
           });
         }}
       >
-        {copied ? "✓" : "コピー"}
+        {copied ? "✓" : t("review.copy")}
       </button>{" "}
-      出力: {props.path}
+      {t("review.output", { path: props.path })}
     </p>
   );
 }
@@ -552,6 +564,7 @@ function RuleCropsPanel(props: {
   overrideFor?: (page: number, rect: Rect) => TextAlign | undefined;
   onOverride?: (page: number, rect: Rect, align: TextAlign) => void;
 }) {
+  const { t } = useI18n();
   const [items, setItems] = useState<{ page: number; rect: Rect }[] | null>(
     null,
   );
@@ -593,18 +606,15 @@ function RuleCropsPanel(props: {
     };
   }, [props.projectDir, textsKey]);
 
-  if (!items) return <p className="status">出現箇所を検索中…</p>;
+  if (!items)
+    return <p className="status">{t("review.searchingOccurrences")}</p>;
   if (items.length === 0)
-    return (
-      <p className="status">
-        本文中に出現箇所が見つかりません（位置未特定の可能性）
-      </p>
-    );
+    return <p className="status">{t("review.noOccurrences")}</p>;
   return (
     <div className="rule-crops">
       {props.action === "replace" && props.onBulkAlign && (
         <div className="rule-crops-bulk">
-          <span className="hint">全体の揃え（個別指定はリセット）:</span>
+          <span className="hint">{t("review.alignAll")}</span>
           <AlignToggle value={props.align} onChange={props.onBulkAlign} />
         </div>
       )}
@@ -615,7 +625,7 @@ function RuleCropsPanel(props: {
           <div key={index} className="rule-crop-row">
             <button
               className="rule-crop-jump"
-              title="クリックで該当箇所へジャンプ"
+              title={t("review.jumpToOccurrence")}
               onClick={() => props.onJump(item.page, item.rect)}
             >
               <span className="page-tag">p.{item.page + 1}</span>
@@ -671,8 +681,10 @@ export default function ReviewView(props: {
   onClose: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
+  onLanguageChange: (language: Language) => void;
 }) {
   const { project } = props;
+  const { t } = useI18n();
   const [findings, setFindings] = useState<PageFindings[]>([]);
   const [page, setPage] = useState(0);
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
@@ -897,7 +909,7 @@ export default function ReviewView(props: {
   function createEntity(category: string, text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const label = ALIAS_LABELS[category] ?? "対象";
+    const label = aliasLabel(t, category);
     const sameCategory = entities.filter(
       (entity) => entity.category === category,
     ).length;
@@ -932,7 +944,7 @@ export default function ReviewView(props: {
     const corrected = draft.trim();
     setDictionaryEdit(null);
     if (!corrected || corrected === entry.text) return;
-    void run("辞書を更新中…", async () => {
+    void run(t("review.updatingDictionary"), async () => {
       await removeDictionaryEntry(project.projectDir, entry.text);
       setDictionary(
         await addDictionaryEntry(project.projectDir, entry.category, corrected),
@@ -949,7 +961,7 @@ export default function ReviewView(props: {
   function registerTextToDictionary(category: string, text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    void run("辞書に登録中…", async () => {
+    void run(t("review.registeringDictionary"), async () => {
       setDictionary(
         await addDictionaryEntry(project.projectDir, category, trimmed),
       );
@@ -962,7 +974,7 @@ export default function ReviewView(props: {
 
   useEffect(() => {
     const unlisten = listen<AnalyzeProgress>("analyze-progress", (event) => {
-      setProgress(progressLabel(event.payload));
+      setProgress(progressLabel(t, event.payload));
     });
     return () => {
       void unlisten.then((dispose) => dispose());
@@ -998,7 +1010,7 @@ export default function ReviewView(props: {
   }
 
   function runAnalyze(scope: AnalysisScope, pages?: number[]) {
-    void run("解析中…", async () => {
+    void run(t("review.analyzing"), async () => {
       if ((scope === "all" || scope === "resume") && !pages) {
         setSearchHits(null);
         setAudit(null);
@@ -1023,7 +1035,7 @@ export default function ReviewView(props: {
       setVersion((current) => current + 1);
       if (outcome.cancelled) {
         setNotice(
-          "解析をキャンセルしました。「解析を再開」で続きから実行できます。",
+          t("review.analysisCancelled"),
         );
       }
     });
@@ -1284,7 +1296,7 @@ export default function ReviewView(props: {
   }
 
   function runApply() {
-    void run("変換を適用中…", async () => {
+    void run(t("review.applying"), async () => {
       const summary = await applyPolicy(project.projectDir, policy);
       setApplySummary(summary);
       setAppliedEdits(
@@ -1299,15 +1311,18 @@ export default function ReviewView(props: {
 
   function runExport(pages?: number[]) {
     setExportMenuOpen(false);
-    void run("PDFを再構築中…", async () => {
+    void run(t("review.rebuildingPdf"), async () => {
       setExportPath(await exportProject(project.projectDir, 300, pages));
       const scopeNote =
         pages && pages.length > 0
-          ? `${pages.length} ページを出力しました。`
+          ? t("review.exportedPages", { count: pages.length }) + " "
           : "";
       if (undecidedCount > 0) {
         setNotice(
-          `${scopeNote}未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+          t("review.undecidedWarning", {
+            scope: scopeNote,
+            count: undecidedCount,
+          }),
         );
       } else if (scopeNote) {
         setNotice(scopeNote);
@@ -1316,35 +1331,35 @@ export default function ReviewView(props: {
   }
 
   function runExportImages() {
-    void run("画像を出力中…", async () => {
+    void run(t("review.exportingImages"), async () => {
       setImagesPath(await exportImages(project.projectDir));
       if (undecidedCount > 0) {
         setNotice(
-          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
         );
       }
     });
   }
 
   function runExportMarkdown() {
-    void run("Markdownを生成中…", async () => {
+    void run(t("review.generatingMarkdown"), async () => {
       setMarkdownPath(await exportMarkdown(project.projectDir));
       if (undecidedCount > 0) {
         setNotice(
-          `未判断の候補が ${undecidedCount} 種類残っています。出力を共有する前に確認してください。`,
+          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
         );
       }
     });
   }
 
   function runAudit() {
-    void run("再検査中…", async () => {
+    void run(t("review.auditing"), async () => {
       setAudit(await auditProject(project.projectDir, policy));
     });
   }
 
   function runLlmDetect(useImage: boolean) {
-    void run("LLM検出中…", async () => {
+    void run(t("review.llmDetecting"), async () => {
       await llmDetect(project.projectDir, useImage);
       setFindings(await listFindings(project.projectDir));
     });
@@ -1353,7 +1368,7 @@ export default function ReviewView(props: {
   function runSearch() {
     const text = searchInput.trim();
     if (!text) return;
-    void run("検索中…", async () => {
+    void run(t("review.searching"), async () => {
       setSearchHits(await searchProject(project.projectDir, text));
     });
   }
@@ -1389,7 +1404,7 @@ export default function ReviewView(props: {
   function assignDetectedToGroup(group: { category: string; text: string }) {
     const target = detectedTarget;
     if (!target) return;
-    void run("既存候補へ統合中…", async () => {
+    void run(t("review.mergingIntoExisting"), async () => {
       await removeManualFinding(
         project.projectDir,
         target.page,
@@ -1415,11 +1430,11 @@ export default function ReviewView(props: {
   function jumpToText(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return;
-    void run("本文を検索中…", async () => {
+    void run(t("review.searchingBody"), async () => {
       const hits = await searchProject(project.projectDir, trimmed);
       const first = hits.find((entry) => entry.findings.length > 0);
       if (!first) {
-        setNotice(`「${trimmed}」は本文中に見つかりませんでした`);
+        setNotice(t("review.notFoundInBody", { text: trimmed }));
         return;
       }
       jumpTo(first.page_index, first.findings[0]);
@@ -1518,7 +1533,7 @@ export default function ReviewView(props: {
   // The mode stays active afterwards (like erase/mask), so several spots can
   // be boxed in a row without re-selecting it.
   function detectRegion(rect: Rect) {
-    void run("領域を読み取り中…", async () => {
+    void run(t("review.readingRegion"), async () => {
       // The box is ground truth for both position and extent. Read its text
       // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
       // to the whole-page words in the box, then to the vision model.
@@ -1531,15 +1546,15 @@ export default function ReviewView(props: {
         ).trim();
       }
       if (!text) {
-        setProgress("OCRで読めない領域をVLMで読み取り中…");
+        setProgress(t("review.vlmReadingRegion"));
         const read = await vlmInRegion(project.projectDir, page, rect).catch(
           () => [] as string[],
         );
         text = (read[0] ?? "").trim();
-        if (read.length > 1) setNotice(`VLM読取: ${read.join(" / ")}`);
+        if (read.length > 1) setNotice(t("review.vlmRead", { texts: read.join(" / ") }));
       }
       if (!text) {
-        setNotice("この領域からは文字を取得できませんでした。");
+        setNotice(t("review.regionNoText"));
         return;
       }
       // Pin the candidate at the exact box, so it appears in 検出候補 with
@@ -1572,7 +1587,7 @@ export default function ReviewView(props: {
   }
 
   function ignoreFinding(finding: Finding) {
-    void run("無視リストに追加中…", async () => {
+    void run(t("review.addingToIgnore"), async () => {
       const settings = await getProjectSettings(project.projectDir);
       const ignored = settings.ignored ?? [];
       // Scope the ignore to this finding's category, so the same text found
@@ -1611,16 +1626,16 @@ export default function ReviewView(props: {
   function registerToDictionary() {
     const text = searchInput.trim();
     if (!text) return;
-    void run("辞書に登録中…", async () => {
+    void run(t("review.registeringDictionary"), async () => {
       setDictionary(
         await addDictionaryEntry(project.projectDir, dictionaryCategory, text),
       );
       if (project.analyzed) {
         await analyzeProject(project.projectDir, "detect-only");
         setFindings(await listFindings(project.projectDir));
-        setDictionaryNote("登録し、検出候補へ反映しました。");
+        setDictionaryNote(t("review.dictionaryRegisteredApplied"));
       } else {
-        setDictionaryNote("登録しました。解析すると検出候補に反映されます。");
+        setDictionaryNote(t("review.dictionaryRegistered"));
       }
     });
   }
@@ -1701,7 +1716,7 @@ export default function ReviewView(props: {
   return (
     <div className="review">
       <header className="toolbar">
-        <button onClick={props.onClose}>← ホーム</button>
+        <button onClick={props.onClose}>{t("review.home")}</button>
         <span className="file-name" title={project.projectDir}>
           {project.fileName}
         </span>
@@ -1711,7 +1726,7 @@ export default function ReviewView(props: {
               disabled={busy !== null}
               onClick={() => setReanalyzeOpen((open) => !open)}
             >
-              再解析… <ChevronDown size={13} />
+              {t("review.reanalyze")} <ChevronDown size={13} />
             </button>
             {reanalyzeOpen && (
               <>
@@ -1722,18 +1737,46 @@ export default function ReviewView(props: {
                 <div className="menu">
                   {(
                     [
-                      ["all", "すべて（最初から）", () => runAnalyze("all")],
-                      ["resume", "続きから再開", () => runAnalyze("resume")],
+                      [
+                        "all",
+                        t("review.reanalyzeAll"),
+                        () => runAnalyze("all"),
+                      ],
+                      [
+                        "resume",
+                        t("review.reanalyzeResume"),
+                        () => runAnalyze("resume"),
+                      ],
                       [
                         "page",
-                        `このページ（p.${page + 1}）のみ再解析`,
+                        t("review.reanalyzePage", { page: page + 1 }),
                         () => runAnalyze("resume", [page]),
                       ],
-                      ["render", "画像化のみ", () => runAnalyze("render-only")],
-                      ["ocr", "OCRのみ＋検出", () => runAnalyze("ocr-only")],
-                      ["detect", "検出のみ", () => runAnalyze("detect-only")],
-                      ["llm", "LLM検出（テキスト・実験的）", () => runLlmDetect(false)],
-                      ["vlm", "VLM検出（ページ画像・実験的）", () => runLlmDetect(true)],
+                      [
+                        "render",
+                        t("review.reanalyzeRender"),
+                        () => runAnalyze("render-only"),
+                      ],
+                      [
+                        "ocr",
+                        t("review.reanalyzeOcr"),
+                        () => runAnalyze("ocr-only"),
+                      ],
+                      [
+                        "detect",
+                        t("review.reanalyzeDetect"),
+                        () => runAnalyze("detect-only"),
+                      ],
+                      [
+                        "llm",
+                        t("review.reanalyzeLlm"),
+                        () => runLlmDetect(false),
+                      ],
+                      [
+                        "vlm",
+                        t("review.reanalyzeVlm"),
+                        () => runLlmDetect(true),
+                      ],
                     ] as [string, string, () => void][]
                   ).map(([key, label, action]) => (
                     <button
@@ -1756,15 +1799,15 @@ export default function ReviewView(props: {
               className="primary"
               onClick={() => runAnalyze("resume")}
               disabled={busy !== null}
-              title="完了済みのページをスキップして続きから解析します"
+              title={t("review.resumeHint")}
             >
-              解析を再開
+              {t("review.resume")}
             </button>
             <button
               onClick={() => runAnalyze("all")}
               disabled={busy !== null}
             >
-              最初から
+              {t("review.fromScratch")}
             </button>
           </>
         ) : (
@@ -1773,16 +1816,16 @@ export default function ReviewView(props: {
             onClick={() => runAnalyze("all")}
             disabled={busy !== null}
           >
-            解析を実行
+            {t("review.runAnalysis")}
           </button>
         )}
         <span className="spacer" />
         <button
           onClick={() => setSettingsOpen(true)}
           disabled={busy !== null}
-          title="設定（検出器・ローカルLLM）"
+          title={t("review.settingsTitle")}
         >
-          <Settings2 size={14} /> 設定
+          <Settings2 size={14} /> {t("review.settings")}
         </button>
         <label className="toggle">
           <input
@@ -1791,21 +1834,21 @@ export default function ReviewView(props: {
             disabled={!hasRenders}
             onChange={(event) => setShowRendered(event.target.checked)}
           />
-          変換後を表示
+          {t("review.showTransformed")}
         </label>
         <button
           className="primary"
           onClick={runApply}
           disabled={busy !== null || policy.rules.length === 0}
         >
-          適用（{policy.rules.length}ルール）
+          {t("review.apply", { count: policy.rules.length })}
         </button>
         <div className="reanalyze-menu">
           <button
             onClick={() => setExportMenuOpen((open) => !open)}
             disabled={busy !== null || !hasRenders}
           >
-            PDF出力 <ChevronDown size={13} />
+            {t("review.exportPdf")} <ChevronDown size={13} />
           </button>
           {exportMenuOpen && (
             <>
@@ -1814,10 +1857,12 @@ export default function ReviewView(props: {
                 onClick={() => setExportMenuOpen(false)}
               />
               <div className="menu export-menu">
-                <button onClick={() => runExport()}>すべてのページを出力</button>
+                <button onClick={() => runExport()}>
+                  {t("review.exportAllPages")}
+                </button>
                 <div className="export-range">
                   <label className="hint">
-                    ページ指定（例: 1-3, 5, 8）
+                    {t("review.pageRangePlaceholder")}
                   </label>
                   <input
                     value={exportPagesInput}
@@ -1842,7 +1887,7 @@ export default function ReviewView(props: {
                       if (pages.length > 0) runExport(pages);
                     }}
                   >
-                    選択ページを出力
+                    {t("review.exportSelectedPages")}
                   </button>
                 </div>
               </div>
@@ -1853,29 +1898,29 @@ export default function ReviewView(props: {
           onClick={runExportMarkdown}
           disabled={busy !== null || !hasRenders}
         >
-          Markdown出力
+          {t("review.exportMarkdown")}
         </button>
         <button
           onClick={runExportImages}
           disabled={busy !== null || !hasRenders}
-          title="変換後ページをPNG画像として output/images/ に出力"
+          title={t("review.exportImagesTitle")}
         >
-          画像出力
+          {t("review.exportImages")}
         </button>
         <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
-          監査
+          {t("review.audit")}
         </button>
         <button
           className="theme-button"
           onClick={() => setHelpOpen(true)}
-          title="ヘルプ（各要素の対応関係とデータの流れ）"
+          title={t("review.helpTitle")}
         >
           <CircleHelp size={16} />
         </button>
         <button
           className="theme-button"
           onClick={props.onToggleTheme}
-          title="テーマを切り替える"
+          title={t("app.toggleTheme")}
         >
           {props.theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
@@ -1884,8 +1929,11 @@ export default function ReviewView(props: {
       {(busy || progress || error || notice) && (
         <div className="statusbar">
           {busy && <span className="status">{progress ?? busy}</span>}
-          {(busy === "解析中…" || busy === "LLM検出中…") && (
-            <button onClick={() => void cancelAnalysis()}>キャンセル</button>
+          {(busy === t("review.analyzing") ||
+            busy === t("review.llmDetecting")) && (
+            <button onClick={() => void cancelAnalysis()}>
+              {t("review.cancel")}
+            </button>
           )}
           {notice && <span className="status">{notice}</span>}
           {error && <span className="error">{error}</span>}
@@ -1902,7 +1950,7 @@ export default function ReviewView(props: {
         <nav className="page-list">
           <label
             className="thumb-toggle"
-            title="検出候補と領域ルールのおおよその位置をサムネイルに重ねる"
+            title={t("review.thumbOverlayTitle")}
           >
             <input
               type="checkbox"
@@ -1915,7 +1963,7 @@ export default function ReviewView(props: {
                 );
               }}
             />
-            位置
+            {t("review.position")}
           </label>
           {Array.from({ length: project.pageCount }, (_, index) => (
             <button
@@ -1964,12 +2012,12 @@ export default function ReviewView(props: {
         <div
           className="pane-gutter"
           onPointerDown={(event) => startResize("left", event)}
-          title="ドラッグで左ペインの幅を変更"
+          title={t("review.resizeLeftPane")}
         />
 
         <main className="viewer-pane">
           <div className="viewer-toolbar">
-            <span>矩形選択:</span>
+            <span>{t("review.rectSelect")}</span>
             {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
               <button
                 key={mode}
@@ -1977,38 +2025,36 @@ export default function ReviewView(props: {
                 onClick={() => setDrawMode(mode)}
               >
                 {mode === "none"
-                  ? "なし"
-                  : mode === "erase"
-                    ? "消去"
-                    : mode === "mask"
-                      ? "マスク"
-                      : "ここを検出"}
+                  ? t("review.drawNone")
+                  : mode === "detect"
+                    ? t("review.drawDetect")
+                    : actionLabel(t, mode)}
               </button>
             ))}
             {(drawMode === "erase" || drawMode === "mask") && (
               <>
-                <span>適用範囲:</span>
+                <span>{t("review.scope")}</span>
                 {(["all", "page"] as const).map((scope) => (
                   <button
                     key={scope}
                     className={drawScope === scope ? "mode current" : "mode"}
                     onClick={() => setDrawScope(scope)}
                   >
-                    {scope === "all" ? "全ページ" : "このページ"}
+                    {scope === "all"
+                      ? t("review.scopeAll")
+                      : t("review.scopeThisPage")}
                   </button>
                 ))}
-                <span className="hint">ドラッグで領域ルールを追加</span>
+                <span className="hint">{t("review.dragToAddRegion")}</span>
               </>
             )}
             {drawMode === "detect" && (
-              <span className="hint">
-                検出したい箇所をドラッグで囲むと、その文字を検出対象にします
-              </span>
+              <span className="hint">{t("review.dragToDetect")}</span>
             )}
             <span className="spacer" />
             <label
               className="toggle"
-              title="ページ下端/上端でさらにスクロールすると次/前のページへ"
+              title={t("review.scrollPagingTitle")}
             >
               <input
                 type="checkbox"
@@ -2021,7 +2067,7 @@ export default function ReviewView(props: {
                   );
                 }}
               />
-              スクロールでページ送り
+              {t("review.scrollPaging")}
             </label>
             <label className="toggle">
               <input
@@ -2029,7 +2075,7 @@ export default function ReviewView(props: {
                 checked={showRulePreview}
                 onChange={(event) => setShowRulePreview(event.target.checked)}
               />
-              適用予定を重ねる
+              {t("review.overlayPending")}
             </label>
           </div>
           <PageViewer
@@ -2075,16 +2121,20 @@ export default function ReviewView(props: {
         <div
           className="pane-gutter"
           onPointerDown={(event) => startResize("right", event)}
-          title="ドラッグで右ペインの幅を変更"
+          title={t("review.resizeRightPane")}
         />
 
         <aside className="side-pane">
           <section className="section-precheck">
-            <h2>出力前確認</h2>
+            <h2>{t("review.preflight")}</h2>
             <div className={undecidedCount > 0 ? "precheck warn" : "precheck ok"}>
-              <span>未判断の候補: {undecidedCount} 種類</span>
-              <span>判断済み: {decidedCount} 種類</span>
-              <span>適用予定ルール: {policy.rules.length} 件</span>
+              <span>
+                {t("review.undecidedCount", { count: undecidedCount })}
+              </span>
+              <span>{t("review.decidedCount", { count: decidedCount })}</span>
+              <span>
+                {t("review.pendingRules", { count: policy.rules.length })}
+              </span>
             </div>
           </section>
 
@@ -2097,10 +2147,10 @@ export default function ReviewView(props: {
             {detectedTarget && (
               <div className="detected-target">
                 <div className="detected-head">
-                  <span className="chip-action">検出</span>
+                  <span className="chip-action">{t("review.detected")}</span>
                   <button
                     className="finding-text detected-jump"
-                    title={`${detectedTarget.text}（クリックで該当箇所へ）`}
+                    title={t("review.jumpTo", { text: detectedTarget.text })}
                     onClick={() => {
                       setPage(detectedTarget.page);
                       setFocus((current) => ({
@@ -2113,8 +2163,8 @@ export default function ReviewView(props: {
                   </button>
                   <button
                     className="mini"
-                    title="閉じる"
-                    aria-label="閉じる"
+                    title={t("review.close")}
+                    aria-label={t("review.close")}
                     onClick={() => setDetectedTarget(null)}
                   >
                     <X size={12} />
@@ -2127,7 +2177,7 @@ export default function ReviewView(props: {
                       setDetectedTarget(null);
                     }}
                   >
-                    マスク
+                    {t("action.mask")}
                   </button>
                   <button
                     onClick={() => {
@@ -2135,7 +2185,7 @@ export default function ReviewView(props: {
                       setDetectedTarget(null);
                     }}
                   >
-                    消去
+                    {t("action.erase")}
                   </button>
                   <button
                     onClick={() => {
@@ -2143,11 +2193,11 @@ export default function ReviewView(props: {
                       setDetectedTarget(null);
                     }}
                   >
-                    置換
+                    {t("action.replace")}
                   </button>
                   <EntityMenu
                     entities={entities}
-                    label="Entityへ"
+                    label={t("review.toEntityShort")}
                     onNew={() => {
                       createEntity(dictionaryCategory, detectedTarget.text);
                       setDetectedTarget(null);
@@ -2176,42 +2226,42 @@ export default function ReviewView(props: {
                       setDetectedTarget(null);
                     }}
                   >
-                    辞書へ
+                    {t("review.toDictionary")}
                   </button>
                 </div>
               </div>
             )}
-            <h2>文字列で検索</h2>
+            <h2>{t("review.searchByText")}</h2>
             <div className="search-row">
               <input
                 value={searchInput}
-                placeholder="例: 株式会社アルファ技研"
+                placeholder={t("review.searchPlaceholder")}
                 onChange={(event) => setSearchInput(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") runSearch();
                 }}
               />
               <button onClick={runSearch} disabled={busy !== null}>
-                検索
+                {t("review.search")}
               </button>
             </div>
             <div className="suggest-targets">
               <button
                 className="mini"
-                title="ローカルLLMに、この文書で検出すべき機密語の候補を提案させる"
+                title={t("review.suggestTargetsTitle")}
                 onClick={runSuggestTargets}
                 disabled={suggestingTargets || busy !== null}
               >
                 {suggestingTargets ? (
-                  "提案中…"
+                  t("review.suggesting")
                 ) : (
                   <>
-                    <Sparkles size={13} /> AIに検出対象を提案させる
+                    <Sparkles size={13} /> {t("review.suggestTargets")}
                   </>
                 )}
               </button>
               {targetSuggestions?.length === 0 && (
-                <span className="hint">提案はありませんでした</span>
+                <span className="hint">{t("review.noSuggestions")}</span>
               )}
               {targetSuggestions && targetSuggestions.length > 0 && (
                 <div className="target-chips">
@@ -2219,10 +2269,10 @@ export default function ReviewView(props: {
                     <button
                       key={term}
                       className="variant-chip suggest"
-                      title="クリックでこの語を検索"
+                      title={t("review.searchThisWord")}
                       onClick={() => {
                         setSearchInput(term);
-                        void run("検索中…", async () => {
+                        void run(t("review.searching"), async () => {
                           setSearchHits(
                             await searchProject(project.projectDir, term),
                           );
@@ -2237,7 +2287,7 @@ export default function ReviewView(props: {
             </div>
             {searchHitCount !== null && (
               <div className="search-result">
-                <p>{searchHitCount} 件見つかりました</p>
+                <p>{t("review.searchHits", { count: searchHitCount })}</p>
                 {searchHitCount > 0 && (
                   <div className="search-actions">
                     <button
@@ -2245,16 +2295,16 @@ export default function ReviewView(props: {
                         createEntity(dictionaryCategory, searchInput)
                       }
                     >
-                      Entityとして登録
+                      {t("review.registerEntity")}
                     </button>
                     <button onClick={() => addSearchRule("replace")}>
-                      置換ルールに追加
+                      {t("review.addReplaceRule")}
                     </button>
                     <button onClick={() => addSearchRule("mask")}>
-                      マスクルールに追加
+                      {t("review.addMaskRule")}
                     </button>
                     <button onClick={() => addSearchRule("erase")}>
-                      消去ルールに追加
+                      {t("review.addEraseRule")}
                     </button>
                   </div>
                 )}
@@ -2278,15 +2328,23 @@ export default function ReviewView(props: {
                       setDictionaryCategory(event.target.value)
                     }
                   >
-                    <option value="organization">組織名</option>
-                    <option value="department">部署名</option>
-                    <option value="person">人物名</option>
-                    <option value="product">製品名</option>
-                    <option value="place">地名</option>
-                    <option value="custom">その他</option>
+                    <option value="organization">
+                      {t("review.categoryOrganization")}
+                    </option>
+                    <option value="department">
+                      {t("review.categoryDepartment")}
+                    </option>
+                    <option value="person">
+                      {t("review.categoryPerson")}
+                    </option>
+                    <option value="product">
+                      {t("review.categoryProduct")}
+                    </option>
+                    <option value="place">{t("review.categoryPlace")}</option>
+                    <option value="custom">{t("review.categoryOther")}</option>
                   </select>
                   <button onClick={registerToDictionary} disabled={busy !== null}>
-                    辞書に登録（以後の解析で自動検出）
+                    {t("review.registerDictionary")}
                   </button>
                 </div>
                 {dictionaryNote && <p className="status">{dictionaryNote}</p>}
@@ -2296,7 +2354,7 @@ export default function ReviewView(props: {
 
           {dictionary.length > 0 && (
             <section className="section-dictionary">
-              <h2>辞書（{dictionary.length}件）</h2>
+              <h2>{t("review.dictionary", { count: dictionary.length })}</h2>
               <div className="rule-list">
                 {dictionary.map((entry) => (
                   <div key={entry.text} className="rule-entry">
@@ -2321,8 +2379,8 @@ export default function ReviewView(props: {
                         />
                         <button
                           className="mini"
-                          title="保存"
-                          aria-label="保存"
+                          title={t("review.save")}
+                          aria-label={t("review.save")}
                           disabled={busy !== null}
                           onClick={() =>
                             saveDictionaryEdit(entry, dictionaryEdit.draft)
@@ -2332,8 +2390,8 @@ export default function ReviewView(props: {
                         </button>
                         <button
                           className="mini"
-                          title="取消"
-                          aria-label="取消"
+                          title={t("review.undo")}
+                          aria-label={t("review.undo")}
                           onClick={() => setDictionaryEdit(null)}
                         >
                           <X size={12} />
@@ -2343,15 +2401,15 @@ export default function ReviewView(props: {
                       <>
                         <button
                           className="rule-target"
-                          title={`${entry.text}（クリックで該当箇所へ）`}
+                          title={t("review.jumpTo", { text: entry.text })}
                           onClick={() => jumpToText(entry.text)}
                         >
                           <span className="finding-text">{entry.text}</span>
                         </button>
                         <button
                           className="mini"
-                          title="文字列を修正"
-                          aria-label="文字列を修正"
+                          title={t("review.editText")}
+                          aria-label={t("review.editText")}
                           onClick={() =>
                             setDictionaryEdit({
                               original: entry.text,
@@ -2370,7 +2428,7 @@ export default function ReviewView(props: {
                     />
                     <button
                       onClick={() => {
-                        void run("辞書から削除中…", async () => {
+                        void run(t("review.removingFromDictionary"), async () => {
                           setDictionary(
                             await removeDictionaryEntry(
                               project.projectDir,
@@ -2387,7 +2445,7 @@ export default function ReviewView(props: {
                         });
                       }}
                     >
-                      削除
+                      {t("review.delete")}
                     </button>
                   </div>
                 ))}
@@ -2396,7 +2454,9 @@ export default function ReviewView(props: {
           )}
 
           <section className="section-rules">
-            <h2>適用予定ルール（{policy.rules.length}件）</h2>
+            <h2>
+              {t("review.pendingRulesHeading", { count: policy.rules.length })}
+            </h2>
             <div className="rule-list">
               {entities
                 .filter((entity) => entity.variants.length > 0)
@@ -2405,7 +2465,7 @@ export default function ReviewView(props: {
                     <div className="rule-entry">
                       <button
                         className="mini"
-                        title="出現箇所のビフォー/アフターを開閉"
+                        title={t("review.toggleCrops")}
                         onClick={() => toggleRuleExpansion(`ent-${entity.id}`)}
                       >
                         {expandedRules.has(`ent-${entity.id}`) ? (
@@ -2414,11 +2474,14 @@ export default function ReviewView(props: {
                           <ChevronRight size={13} />
                         )}
                       </button>
-                      <span className="chip-action">置換</span>
+                      <span className="chip-action">{t("action.replace")}</span>
                       <span className="rule-target" title={entity.variants.join("、")}>
                         <span className="category-tag">Entity</span>
                         <span className="finding-text">
-                          {entity.variants.length}表記 → {entity.alias || "（仮称未設定）"}
+                          {t("review.variantsToAlias", {
+                            count: entity.variants.length,
+                            alias: entity.alias || t("review.aliasUnset"),
+                          })}
                         </span>
                       </span>
                     </div>
@@ -2461,7 +2524,7 @@ export default function ReviewView(props: {
                 <div className="rule-entry">
                   <button
                     className="mini"
-                    title="出現箇所のビフォー/アフターを開閉"
+                    title={t("review.toggleCrops")}
                     onClick={() => toggleRuleExpansion(`dec-${entry.key}`)}
                   >
                     {expandedRules.has(`dec-${entry.key}`) ? (
@@ -2471,11 +2534,10 @@ export default function ReviewView(props: {
                     )}
                   </button>
                   <span className="chip-action">
-                    {
-                      ACTION_LABELS[
-                        entry.decision.action as Exclude<DecisionAction, "keep">
-                      ]
-                    }
+                    {actionLabel(
+                      t,
+                      entry.decision.action as Exclude<DecisionAction, "keep">,
+                    )}
                   </span>
                   <button
                     className="rule-target"
@@ -2496,7 +2558,7 @@ export default function ReviewView(props: {
                     <>
                       <input
                         className="replace-input"
-                        placeholder="置換後"
+                        placeholder={t("review.replacementPlaceholder")}
                         value={entry.decision.value}
                         onChange={(event) =>
                           setDecisionValue(entry.key, event.target.value)
@@ -2525,7 +2587,7 @@ export default function ReviewView(props: {
                     }}
                   />
                   <button onClick={() => setDecision(entry.key, "undecided")}>
-                    解除
+                    {t("review.release")}
                   </button>
                 </div>
                 {expandedRules.has(`dec-${entry.key}`) && (
@@ -2559,7 +2621,7 @@ export default function ReviewView(props: {
                 <div className="rule-entry">
                   <button
                     className="mini"
-                    title="出現箇所のビフォー/アフターを開閉"
+                    title={t("review.toggleCrops")}
                     onClick={() => toggleRuleExpansion(`txt-${rule.text}`)}
                   >
                     {expandedRules.has(`txt-${rule.text}`) ? (
@@ -2569,21 +2631,21 @@ export default function ReviewView(props: {
                     )}
                   </button>
                   <span className="chip-action">
-                    {ACTION_LABELS[rule.action]}
+                    {actionLabel(t, rule.action)}
                   </span>
                   <button
                     className="rule-target"
-                    title={`${rule.text}（クリックで該当箇所へ）`}
+                    title={t("review.jumpTo", { text: rule.text })}
                     onClick={() => jumpToText(rule.text)}
                   >
-                    <span className="category-tag">検索</span>
+                    <span className="category-tag">{t("review.searchTag")}</span>
                     <span className="finding-text">{rule.text}</span>
                   </button>
                   {rule.action === "replace" && (
                     <>
                       <input
                         className="replace-input"
-                        placeholder="置換後"
+                        placeholder={t("review.replacementPlaceholder")}
                         value={rule.value}
                         onChange={(event) =>
                           setTextRules((current) =>
@@ -2634,7 +2696,7 @@ export default function ReviewView(props: {
                       )
                     }
                   >
-                    削除
+                    {t("review.delete")}
                   </button>
                 </div>
                 {expandedRules.has(`txt-${rule.text}`) && (
@@ -2665,11 +2727,11 @@ export default function ReviewView(props: {
                 <div key={`region-${index}`} className="rule-entry region">
                   <div className="rule-entry-main">
                     <span className="chip-action">
-                      {ACTION_LABELS[rule.action]}
+                      {actionLabel(t, rule.action)}
                     </span>
                     <button
                       className="rule-target"
-                      title="クリックで該当領域へジャンプ"
+                      title={t("review.jumpToRegion")}
                       onClick={() =>
                         jumpToRect(
                           rule.scope === "all" ? rule.drawnOn : rule.scope,
@@ -2677,16 +2739,18 @@ export default function ReviewView(props: {
                         )
                       }
                     >
-                      <span className="category-tag">領域</span>
+                      <span className="category-tag">{t("review.regionTag")}</span>
                       <span className="finding-text">
                         {rule.scope === "all"
-                          ? "全ページ"
-                          : `p.${rule.scope + 1} のみ`}
+                          ? t("review.scopeAll")
+                          : t("review.regionPageOnly", {
+                              page: rule.scope + 1,
+                            })}
                       </span>
                     </button>
                     {rule.scope === "all" && (
                       <button onClick={() => setPreviewRegion(index)}>
-                        プレビュー
+                        {t("review.preview")}
                       </button>
                     )}
                     <button
@@ -2696,7 +2760,7 @@ export default function ReviewView(props: {
                         )
                       }
                     >
-                      削除
+                      {t("review.delete")}
                     </button>
                   </div>
                   <RegionThumb
@@ -2711,17 +2775,19 @@ export default function ReviewView(props: {
 
               {policy.rules.length === 0 && (
                 <p className="status">
-                  候補の判断・検索・矩形選択でルールを作成します
+                  {t("review.rulesEmpty")}
                 </p>
               )}
               {policy.rules.length > 0 && (
-                <button onClick={clearAllRules}>すべて解除</button>
+                <button onClick={clearAllRules}>
+                  {t("review.clearAllRules")}
+                </button>
               )}
             </div>
           </section>
 
           <section className="section-entity">
-            <h2>Entity（{entities.length}件）</h2>
+            <h2>{t("review.entities", { count: entities.length })}</h2>
             <div className="entity-list">
               {entities.map((entity) => (
                 <div key={entity.id} className="entity-card">
@@ -2730,7 +2796,7 @@ export default function ReviewView(props: {
                     <input
                       className="alias-input"
                       value={entity.alias}
-                      placeholder="仮称"
+                      placeholder={t("review.aliasPlaceholder")}
                       onChange={(event) =>
                         setEntities((current) =>
                           current.map((candidate) =>
@@ -2768,7 +2834,7 @@ export default function ReviewView(props: {
                     />
                     <button
                       className="mini"
-                      title="代表表記を辞書に登録（以後の解析で自動検出）"
+                      title={t("review.registerRepresentative")}
                       disabled={busy !== null || entity.variants.length === 0}
                       onClick={() =>
                         registerTextToDictionary(
@@ -2777,7 +2843,7 @@ export default function ReviewView(props: {
                         )
                       }
                     >
-                      →辞書
+                      {t("review.toDictionaryArrow")}
                     </button>
                     <button
                       onClick={() =>
@@ -2788,7 +2854,7 @@ export default function ReviewView(props: {
                         )
                       }
                     >
-                      削除
+                      {t("review.delete")}
                     </button>
                   </div>
                   <div className="entity-variants">
@@ -2796,7 +2862,7 @@ export default function ReviewView(props: {
                       <span key={variant} className="variant-chip">
                         <button
                           className="chip-text"
-                          title={`${variant}（クリックで該当箇所へ）`}
+                          title={t("review.jumpTo", { text: variant })}
                           onClick={() => jumpToText(variant)}
                         >
                           {variant}
@@ -2823,7 +2889,7 @@ export default function ReviewView(props: {
                             );
                             void refreshEntityMeta(updated);
                           }}
-                          aria-label="表記を外す"
+                          aria-label={t("review.removeVariant")}
                         >
                           <X size={11} />
                         </button>
@@ -2832,7 +2898,7 @@ export default function ReviewView(props: {
                   </div>
                   {(entitySuggestions[entity.id]?.length ?? 0) > 0 && (
                     <div className="entity-suggestions">
-                      <span className="hint">類似表記の候補:</span>
+                      <span className="hint">{t("review.similarVariants")}</span>
                       {entitySuggestions[entity.id].map((suggestion) => (
                         <button
                           key={suggestion}
@@ -2848,7 +2914,7 @@ export default function ReviewView(props: {
               ))}
               {entities.length === 0 && (
                 <p className="status">
-                  検索結果の「Entityとして登録」や候補行の「E」から、表記揺れを1つの仮称へまとめられます
+                  {t("review.entitiesEmpty")}
                 </p>
               )}
             </div>
@@ -2856,18 +2922,20 @@ export default function ReviewView(props: {
 
           <section className="findings-section">
             <h2>
-              検出候補（{dedupedFindings.length}種
+              {t("review.candidates", { count: dedupedFindings.length })}
               {filteredFindings.length !== flatFindings.length
-                ? ` / 全${flatFindings.length}件`
+                ? t("review.candidatesAll", { count: flatFindings.length })
                 : filteredFindings.length !== dedupedFindings.length
-                  ? ` / ${filteredFindings.length}件`
+                  ? t("review.candidatesFiltered", {
+                      count: filteredFindings.length,
+                    })
                   : ""}
               ）
             </h2>
             <div className="finding-filter">
               <input
                 value={findingFilter}
-                placeholder="絞り込み（語・分類・p.3）"
+                placeholder={t("review.candidateFilter")}
                 onChange={(event) => setFindingFilter(event.target.value)}
               />
               <select
@@ -2876,7 +2944,7 @@ export default function ReviewView(props: {
                   setFindingCategoryFilter(event.target.value)
                 }
               >
-                <option value="all">すべての分類</option>
+                <option value="all">{t("review.allCategories")}</option>
                 {findingCategories.map((category) => (
                   <option key={category} value={category}>
                     {category}
@@ -2891,7 +2959,7 @@ export default function ReviewView(props: {
                     setFindingUndecidedOnly(event.target.checked)
                   }
                 />
-                未判断のみ
+                {t("review.undecidedOnly")}
               </label>
             </div>
             <div className="findings-list">
@@ -2943,10 +3011,13 @@ export default function ReviewView(props: {
                     />
                     <button
                       className="mini"
-                      title={`「${finding.text}」を ${finding.category} の検出から除外`}
+                      title={t("review.excludeFromDetection", {
+                        text: finding.text,
+                        category: finding.category,
+                      })}
                       onClick={() => ignoreFinding(finding)}
                     >
-                      無視
+                      {t("review.ignore")}
                     </button>
                   </div>
                 );
@@ -2954,22 +3025,24 @@ export default function ReviewView(props: {
               {flatFindings.length === 0 && (
                 <p className="status">
                   {project.analyzed
-                    ? "検出候補はありません"
-                    : "解析を実行すると候補が表示されます"}
+                    ? t("review.noCandidates")
+                    : t("review.runAnalysisForCandidates")}
                 </p>
               )}
               {flatFindings.length > 0 && filteredFindings.length === 0 && (
-                <p className="status">絞り込み条件に一致する候補はありません</p>
+                <p className="status">{t("review.noMatchingFilter")}</p>
               )}
             </div>
           </section>
 
           <section className="results-section">
-            <h2>結果</h2>
+            <h2>{t("review.results")}</h2>
             {applySummary && (
               <p>
-                適用済み: {applySummary.edit_count} 箇所 /{" "}
-                {applySummary.page_count} ページ
+                {t("review.applied", {
+                  edits: applySummary.edit_count,
+                  pages: applySummary.page_count,
+                })}
               </p>
             )}
             {applySummary && appliedEdits.length > 0 && (
@@ -2978,7 +3051,7 @@ export default function ReviewView(props: {
                   <div key={index} className="applied-row">
                     <button
                       className="page-tag"
-                      title="該当箇所へジャンプ"
+                      title={t("review.jumpToSpot")}
                       onClick={() => {
                         setPage(edit.page);
                         setFocus((current) => ({
@@ -2990,15 +3063,11 @@ export default function ReviewView(props: {
                       p.{edit.page + 1}
                     </button>
                     <span className="chip-action">
-                      {edit.action === "replace"
-                        ? "置換"
-                        : edit.action === "mask"
-                          ? "マスク"
-                          : "消去"}
+                      {actionLabel(t, edit.action)}
                     </span>
                     <button
                       className="applied-pair"
-                      title="クリックで該当箇所へジャンプ"
+                      title={t("review.jumpToOccurrence")}
                       onClick={() => jumpToRect(edit.page, edit.rect)}
                     >
                       <RegionThumb
@@ -3033,8 +3102,11 @@ export default function ReviewView(props: {
                 }
               >
                 <p className="verdict">
-                  監査: {audit.verdict === "pass" ? "Pass" : "Fail"}（
-                  {audit.checked_terms}語 / {audit.page_count}ページ）
+                  {t("review.auditResult", {
+                    verdict: audit.verdict === "pass" ? "Pass" : "Fail",
+                    terms: audit.checked_terms,
+                    pages: audit.page_count,
+                  })}
                 </p>
                 {audit.residuals.map((residual, index) => (
                   <button
@@ -3049,7 +3121,11 @@ export default function ReviewView(props: {
                       }));
                     }}
                   >
-                    p.{residual.page} 残存 [{residual.term}] {residual.text}
+                    {t("review.residual", {
+                      page: residual.page,
+                      term: residual.term,
+                      text: residual.text,
+                    })}
                   </button>
                 ))}
               </div>
@@ -3064,9 +3140,10 @@ export default function ReviewView(props: {
         <SettingsView
           projectDir={project.projectDir}
           onClose={() => setSettingsOpen(false)}
+          onLanguageChange={props.onLanguageChange}
           onDetectorsChanged={() => {
             if (project.analyzed) {
-              void run("再検出中…", async () => {
+              void run(t("review.redetecting"), async () => {
                 await analyzeProject(project.projectDir, "detect-only");
                 setFindings(await listFindings(project.projectDir));
               });
@@ -3083,13 +3160,20 @@ export default function ReviewView(props: {
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <h2>
-                領域プレビュー（全{project.pageCount}ページ・
-                {ACTION_LABELS[regionRules[previewRegion].action]}）
+                {t("review.regionPreview", {
+                  pages: project.pageCount,
+                  action: actionLabel(
+                    t,
+                    regionRules[previewRegion].action,
+                  ),
+                })}
               </h2>
-              <button onClick={() => setPreviewRegion(null)}>閉じる</button>
+              <button onClick={() => setPreviewRegion(null)}>
+                {t("review.close")}
+              </button>
             </div>
             <p className="status">
-              この領域が各ページで何を含むか確認してから適用してください。
+              {t("review.regionPreviewHint")}
             </p>
             <div className="modal-body">
               {Array.from({ length: project.pageCount }, (_, index) => (

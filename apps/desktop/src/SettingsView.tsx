@@ -12,15 +12,25 @@ import {
   setConfig,
   setProjectSettings,
 } from "./api";
+import {
+  resolveLanguage,
+  useI18n,
+  type Language,
+  type LanguagePreference,
+} from "./i18n";
 import type { IgnoreEntry, PackInfo } from "./types";
 
 /// Settings dialog: project-scoped detector selection (persisted in the
-/// project.mnrk) and app-level local-LLM configuration (config.toml).
+/// project.mnrk) and app-level configuration — UI language and the optional
+/// local LLM (config.toml).
 export default function SettingsView(props: {
   projectDir: string;
   onClose: () => void;
   onDetectorsChanged: () => void;
+  onLanguageChange: (language: Language) => void;
 }) {
+  const { t } = useI18n();
+  const [uiLanguage, setUiLanguage] = useState<LanguagePreference>("auto");
   const [allDetectors, setAllDetectors] = useState<string[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
   const [ignored, setIgnored] = useState<IgnoreEntry[]>([]);
@@ -50,7 +60,7 @@ export default function SettingsView(props: {
     const file = await open({
       multiple: false,
       filters: [
-        { name: "検出パック", extensions: ["json", "mnrkpack"] },
+        { name: t("settings.packFilter"), extensions: ["json", "mnrkpack"] },
       ],
     });
     if (typeof file !== "string") return;
@@ -86,6 +96,7 @@ export default function SettingsView(props: {
         // null / absent means "all detectors".
         setEnabled(new Set(settings.detectors ?? ids));
         setIgnored(settings.ignored ?? []);
+        setUiLanguage(config.ui_language);
         setBaseUrl(config.inference.base_url);
         setModel(config.inference.model);
         setReady(true);
@@ -140,8 +151,10 @@ export default function SettingsView(props: {
       const config = await getConfig();
       await setConfig({
         ...config,
+        ui_language: uiLanguage,
         inference: { base_url: baseUrl.trim(), model: model.trim() },
       });
+      props.onLanguageChange(resolveLanguage(uiLanguage));
       props.onDetectorsChanged();
       props.onClose();
     } catch (failure) {
@@ -154,15 +167,29 @@ export default function SettingsView(props: {
     <div className="modal-backdrop" onClick={props.onClose}>
       <div className="modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <h2>設定</h2>
-          <button onClick={props.onClose}>閉じる</button>
+          <h2>{t("settings.title")}</h2>
+          <button onClick={props.onClose}>{t("settings.close")}</button>
         </div>
         <div className="modal-body">
           <section>
-            <h2>このプロジェクトで使う検出器</h2>
-            <p className="hint">
-              チェックを外した検出器は、この文書では動作しません（project.mnrk に保存）。
-            </p>
+            <h2>{t("settings.language")}</h2>
+            <p className="hint">{t("settings.languageHint")}</p>
+            <select
+              value={uiLanguage}
+              aria-label={t("settings.language")}
+              onChange={(event) =>
+                setUiLanguage(event.target.value as LanguagePreference)
+              }
+            >
+              <option value="auto">{t("settings.languageAuto")}</option>
+              <option value="ja">日本語</option>
+              <option value="en">English</option>
+            </select>
+          </section>
+
+          <section>
+            <h2>{t("settings.detectors")}</h2>
+            <p className="hint">{t("settings.detectorsHint")}</p>
             <div className="detector-grid">
               {allDetectors.map((id) => (
                 <label key={id} className="detector-item">
@@ -178,20 +205,19 @@ export default function SettingsView(props: {
           </section>
 
           <section>
-            <h2>無視する語（このプロジェクト）</h2>
-            <p className="hint">
-              誤検出をここに入れると、この文書では検出候補になりません。候補行の
-              「無視」ボタンからも追加できます。
-            </p>
+            <h2>{t("settings.ignored")}</h2>
+            <p className="hint">{t("settings.ignoredHint")}</p>
             {ignored.length === 0 ? (
-              <p className="status">なし</p>
+              <p className="status">{t("settings.ignoredEmpty")}</p>
             ) : (
               <div className="text-rules">
                 {ignored.map((entry, index) => {
                   const text =
                     typeof entry === "string" ? entry : entry.text;
                   const scope =
-                    typeof entry === "string" ? "すべて" : entry.category;
+                    typeof entry === "string"
+                      ? t("settings.ignoredAllCategories")
+                      : entry.category;
                   return (
                     <div key={`${text}-${scope}-${index}`} className="text-rule">
                       <span className="chip-action">{scope}</span>
@@ -199,7 +225,7 @@ export default function SettingsView(props: {
                         {text}
                       </span>
                       <button
-                        aria-label="無視リストから削除"
+                        aria-label={t("settings.ignoredRemove")}
                         onClick={() =>
                           setIgnored((current) =>
                             current.filter((_, i) => i !== index),
@@ -216,13 +242,10 @@ export default function SettingsView(props: {
           </section>
 
           <section>
-            <h2>ローカルLLM（任意・アプリ全体）</h2>
-            <p className="hint">
-              設定しなくてもすべての機能を使えます。接続先はこのマシンに
-              限定されます（config.toml に保存）。
-            </p>
+            <h2>{t("settings.llm")}</h2>
+            <p className="hint">{t("settings.llmHint")}</p>
             <label className="field">
-              エンドポイント
+              {t("settings.endpoint")}
               <input
                 value={baseUrl}
                 placeholder="http://localhost:11434/v1"
@@ -231,20 +254,20 @@ export default function SettingsView(props: {
               />
             </label>
             <label className="field">
-              モデル
+              {t("settings.model")}
               <div className="field-row combo">
                 <span className="combo-input-wrap">
                   <input
                     value={model}
-                    placeholder="qwen3（VLM検出は vision モデル）"
+                    placeholder={t("settings.modelPlaceholder")}
                     onChange={(event) => setModel(event.target.value)}
                   />
                   {model && (
                     <button
                       type="button"
                       className="combo-clear"
-                      title="クリア"
-                      aria-label="クリア"
+                      title={t("settings.clear")}
+                      aria-label={t("settings.clear")}
                       onClick={() => setModel("")}
                     >
                       <X size={13} />
@@ -253,8 +276,8 @@ export default function SettingsView(props: {
                 </span>
                 <button
                   type="button"
-                  title="検出済みモデルの一覧から選ぶ"
-                  aria-label="モデル一覧を開く"
+                  title={t("settings.modelListTitle")}
+                  aria-label={t("settings.openModelList")}
                   onClick={() => {
                     setModelFilter("");
                     setModelMenuOpen((open) => !open);
@@ -267,7 +290,9 @@ export default function SettingsView(props: {
                   onClick={() => void refreshModels(baseUrl)}
                   disabled={loadingModels}
                 >
-                  {loadingModels ? "取得中…" : "再取得"}
+                  {loadingModels
+                    ? t("settings.refreshing")
+                    : t("settings.refresh")}
                 </button>
                 {modelMenuOpen && (
                   <>
@@ -278,7 +303,7 @@ export default function SettingsView(props: {
                     <div className="menu combo-popover">
                       <input
                         autoFocus
-                        placeholder="絞り込み（選択値には影響しません）"
+                        placeholder={t("settings.modelFilter")}
                         value={modelFilter}
                         onChange={(event) =>
                           setModelFilter(event.target.value)
@@ -305,7 +330,7 @@ export default function SettingsView(props: {
                         ))}
                       {models.length === 0 && (
                         <span className="hint">
-                          候補がありません（「再取得」をお試しください）
+                          {t("settings.noModelCandidates")}
                         </span>
                       )}
                     </div>
@@ -315,37 +340,36 @@ export default function SettingsView(props: {
             </label>
             <p className="hint">
               {loadingModels
-                ? "モデルを取得しています…"
+                ? t("settings.loadingModels")
                 : modelsError
-                  ? `モデル一覧を取得できませんでした（エンドポイントが起動しているか確認してください）。名前は手入力もできます。`
+                  ? t("settings.modelsFailed")
                   : models.length > 0
-                    ? `${models.length} 個のモデルを検出。一覧ボタンから選択、手入力も可能です。`
-                    : "候補はありません。名前を手入力してください。"}
+                    ? t("settings.modelsFound", { count: models.length })
+                    : t("settings.modelsNone")}
             </p>
           </section>
 
           <section>
-            <h2>検出パック（アプリ全体）</h2>
-            <p className="hint">
-              業種別の検出ルール・用語をまとめたデータファイル
-              （*.mnrkpack.json）。取り込むと全プロジェクトの解析に
-              参加し、候補には pack:名前 として出典が付きます。
-            </p>
+            <h2>{t("settings.packs")}</h2>
+            <p className="hint">{t("settings.packsHint")}</p>
             {packs.length === 0 && (
-              <p className="hint">取り込まれたパックはありません。</p>
+              <p className="hint">{t("settings.packsEmpty")}</p>
             )}
             {packs.map((pack) => (
               <div key={pack.name} className="rule-entry">
                 <span className="category-tag">{pack.version}</span>
                 <span className="rule-target" title={pack.description}>
                   <span className="finding-text">
-                    {pack.displayName}（ルール{pack.ruleCount}・語
-                    {pack.wordCount}
+                    {pack.displayName}（
+                    {t("settings.packSummary", {
+                      rules: pack.ruleCount,
+                      words: pack.wordCount,
+                    })}
                     {pack.publisher ? `・${pack.publisher}` : ""}）
                   </span>
                 </span>
                 <button
-                  aria-label="パックを削除"
+                  aria-label={t("settings.packRemove")}
                   onClick={() => void removePack(pack.name)}
                 >
                   <X size={12} />
@@ -354,7 +378,7 @@ export default function SettingsView(props: {
             ))}
             <div className="field-row">
               <button type="button" onClick={() => void importPack()}>
-                パックを取り込む…
+                {t("settings.packImport")}
               </button>
             </div>
             {packError && <p className="error">{packError}</p>}
@@ -364,7 +388,7 @@ export default function SettingsView(props: {
         </div>
         <div className="modal-footer">
           <button className="primary" onClick={save} disabled={!ready || saving}>
-            保存
+            {t("settings.save")}
           </button>
         </div>
       </div>

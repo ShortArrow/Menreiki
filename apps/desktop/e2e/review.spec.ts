@@ -1,5 +1,5 @@
 import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -60,6 +60,11 @@ test.beforeAll(async () => {
   });
   execFileSync(cliExe, ["analyze", projectDir], { env: cliEnv, timeout: 180_000 });
 
+  // Pin the UI language: the app follows the OS otherwise, and every
+  // assertion below reads Japanese labels.
+  const configDir = path.join(workDir, "config");
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(path.join(configDir, "config.toml"), 'ui_language = "ja"\n');
   vite = spawn("npm", ["run", "dev"], {
     cwd: path.join(repoRoot, "apps", "desktop"),
     shell: true,

@@ -24,10 +24,23 @@ pub enum Theme {
     Dark,
 }
 
+/// Which language the UI renders in. `Auto` follows the OS language
+/// (Japanese stays Japanese, everything else falls back to English).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UiLanguage {
+    #[default]
+    Auto,
+    Ja,
+    En,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub theme: Theme,
+    #[serde(default)]
+    pub ui_language: UiLanguage,
     #[serde(default)]
     pub inference: InferenceConfig,
 }
@@ -141,6 +154,22 @@ mod tests {
         assert_eq!(config.inference.model, "qwen");
         let text = toml::to_string_pretty(&config).unwrap();
         assert_eq!(parse_config(&text), config);
+    }
+
+    #[test]
+    fn ui_language_defaults_to_auto_and_round_trips() {
+        assert_eq!(parse_config("").ui_language, UiLanguage::Auto);
+
+        let config = parse_config("ui_language = \"en\"\n");
+        assert_eq!(config.ui_language, UiLanguage::En);
+        let text = toml::to_string_pretty(&config).unwrap();
+        assert_eq!(parse_config(&text), config);
+
+        assert_eq!(parse_config("ui_language = \"ja\"\n").ui_language, UiLanguage::Ja);
+        assert_eq!(
+            parse_config("ui_language = \"klingon\"").ui_language,
+            UiLanguage::Auto
+        );
     }
 
     #[test]

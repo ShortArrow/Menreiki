@@ -5,17 +5,19 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect, chromium, Browser, Page } from "@playwright/test";
 
-// The embedded sample is what makes the app testable with no external file
-// (store certification 10.3.3). Unlike review.spec.ts this launches the app
-// with NO project argument, so it lands on the home screen, and needs no CLI
-// import/analyze — the sample project is baked into the binary.
+// A Store certification tester runs an English Windows install, so the UI they
+// see must be English end to end. This launches with ui_language = "en" and
+// asserts the home screen, the first-run notice, and the settings dialog all
+// render in English with no Japanese left in them.
 
-const CDP_PORT = 9333;
+const CDP_PORT = 9335;
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repoRoot, "target");
 const appExe = path.join(targetDir, "debug", "menreiki-desktop.exe");
 const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
+
+const JAPANESE = /[ぁ-んァ-ヶ一-龠]/;
 
 let workDir: string;
 let vite: ChildProcess;
@@ -51,13 +53,11 @@ test.beforeAll(async () => {
   } catch {
     // none running
   }
-  workDir = mkdtempSync(path.join(tmpdir(), "menreiki-sample-"));
-
-  // Pin the UI language: the app follows the OS otherwise, and every
-  // assertion below reads Japanese labels.
+  workDir = mkdtempSync(path.join(tmpdir(), "menreiki-lang-"));
   const configDir = path.join(workDir, "config");
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(path.join(configDir, "config.toml"), 'ui_language = "ja"\n');
+  writeFileSync(path.join(configDir, "config.toml"), 'ui_language = "en"\n');
+
   vite = spawn("npm", ["run", "dev"], {
     cwd: path.join(repoRoot, "apps", "desktop"),
     shell: true,
@@ -69,12 +69,11 @@ test.beforeAll(async () => {
     180_000,
   );
 
-  // No project argument: the app opens on the home screen.
   app = spawn(appExe, [], {
     env: {
       ...process.env,
       MENREIKI_PDFIUM_PATH: pdfiumDir,
-      MENREIKI_CONFIG_DIR: path.join(workDir, "config"),
+      MENREIKI_CONFIG_DIR: configDir,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
     },
     stdio: "ignore",
@@ -95,15 +94,9 @@ test.beforeAll(async () => {
     return true;
   }, "app page over CDP");
 
-  // The home screen and the first-run notice mount together; dismiss the
-  // notice if this profile has not acknowledged it.
-  await page.getByRole("button", { name: /サンプルを開いて試す/ }).waitFor({
-    timeout: 60_000,
-  });
-  const ack = page.getByRole("button", { name: "理解しました" });
-  if (await ack.isVisible().catch(() => false)) {
-    await ack.click();
-  }
+  await page
+    .getByRole("button", { name: /Try the built-in sample/ })
+    .waitFor({ timeout: 60_000 });
 });
 
 test.afterAll(async () => {
@@ -113,18 +106,51 @@ test.afterAll(async () => {
   if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
-test("the embedded sample opens into review with detections", async () => {
-  // Certification path: no document to import, one click to primary
-  // functionality. An English tester reaches the same button in English —
-  // language.spec.ts covers that side.
-  await page.getByRole("button", { name: /サンプルを開いて試す/ }).click();
+test("the first-run notice and home screen render in English", async () => {
+  // The notice is a one-time localStorage flag, and the WebView2 profile is
+  // shared with the other specs, so clear it to see what a first launch shows.
+  await page.evaluate(() =>
+    localStorage.removeItem("menreiki.acknowledged.v1"),
+  );
+  await page.reload();
+  await page
+    .getByRole("button", { name: /Try the built-in sample/ })
+    .waitFor({ timeout: 60_000 });
 
-  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+  const ack = page.getByRole("button", { name: "I understand" });
+  await expect(ack).toBeVisible();
+  await expect(page.getByText("Before you start")).toBeVisible();
+  await ack.click();
+
+  await expect(
+    page.getByRole("button", { name: /Import a document/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Everything runs on this device.", { exact: false }),
+  ).toBeVisible();
+
+  const homeText = (await page.locator(".home").innerText()) ?? "";
+  expect(homeText).not.toMatch(JAPANESE);
+});
+
+test("the review screen and settings dialog render in English", async () => {
+  await page.getByRole("button", { name: /Try the built-in sample/ }).click();
+  await expect(page.getByText(/Candidates \(\d+ kinds/)).toBeVisible({
     timeout: 120_000,
   });
-  // The sample was analyzed at build time, so candidates are present without
-  // running OCR here.
-  await expect(page.locator(".finding-label").first()).toBeVisible();
-  // It is a 3-page document, so page navigation is exercisable.
-  expect(await page.locator(".page-button").count()).toBeGreaterThanOrEqual(3);
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByText("Detectors used in this project")).toBeVisible();
+  await expect(page.getByText("Local LLM (optional, app-wide)")).toBeVisible();
+
+  // The language picker keeps its own labels bilingual on purpose; the rest
+  // of the dialog must not fall back to Japanese.
+  const dialogText = await page.locator(".modal-body").innerText();
+  const withoutPicker = dialogText
+    .replace("Language / 言語", "")
+    .replace("Auto / 自動", "")
+    .replace("日本語", "");
+  expect(withoutPicker).not.toMatch(JAPANESE);
+
+  await page.getByRole("button", { name: "Close" }).click();
 });

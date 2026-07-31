@@ -1,5 +1,6 @@
 export interface AppConfig {
   theme: "light" | "dark";
+  ui_language: "auto" | "ja" | "en";
   inference: { base_url: string; model: string };
 }
 

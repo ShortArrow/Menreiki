@@ -192,13 +192,6 @@ svg.lucide {
   width: 100%;
 }
 
-.sample-button-en {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
 .home-sample .hint {
   margin-top: 8px;
   color: var(--muted);

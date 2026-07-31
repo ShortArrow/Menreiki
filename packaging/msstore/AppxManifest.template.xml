@@ -19,9 +19,10 @@
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Resources>
-    <!-- The UI is Japanese-only (ADR-011); declaring more would be untrue
-         and would force store listings for languages the app doesn't have. -->
+    <!-- The UI ships in both languages and follows the OS language by
+         default, so both are declared; a Store listing is expected for each. -->
     <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
   </Resources>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop"

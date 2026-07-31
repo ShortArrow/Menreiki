@@ -1,6 +1,7 @@
 import { Minus, Plus } from "./icons";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageImageUrl } from "./api";
+import { useI18n } from "./i18n";
 import type { Finding, Rect } from "./types";
 
 export type DrawMode = "none" | "erase" | "mask" | "detect";
@@ -55,6 +56,7 @@ export default function PageViewer(props: {
   scrollPageFlip?: boolean;
   onPageChange?: (page: number) => void;
 }) {
+  const { t } = useI18n();
   const [url, setUrl] = useState<string | null>(null);
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -248,26 +250,26 @@ export default function PageViewer(props: {
       <div className="zoom-bar">
         <button
           onClick={() => setZoom((current) => clampZoom(current / 1.15))}
-          title="縮小"
-          aria-label="縮小"
+          title={t("viewer.zoomOut")}
+          aria-label={t("viewer.zoomOut")}
         >
           <Minus size={13} />
         </button>
-        <button onClick={() => setZoom(1)} title="幅に合わせる">
+        <button onClick={() => setZoom(1)} title={t("viewer.fitWidth")}>
           {Math.round(zoom * 100)}%
         </button>
         <button
           onClick={() => setZoom((current) => clampZoom(current * 1.15))}
-          title="拡大"
-          aria-label="拡大"
+          title={t("viewer.zoomIn")}
+          aria-label={t("viewer.zoomIn")}
         >
           <Plus size={13} />
         </button>
-        <span className="hint">Ctrl+ホイールで拡大縮小 / Shift+ホイールで左右</span>
+        <span className="hint">{t("viewer.wheelHint")}</span>
       </div>
       <div className="page-stage-wrap" ref={wrapRef}>
       {url === null ? (
-        <p className="status">ページ画像を読み込み中…</p>
+        <p className="status">{t("viewer.loading")}</p>
       ) : (
         <div className="page-stage" style={{ width: `${zoom * 100}%` }}>
           <img
@@ -318,7 +320,7 @@ export default function PageViewer(props: {
                         props.onFindingClick?.(finding);
                     }}
                   >
-                    <title>クリックで右ペインの該当候補を表示</title>
+                    <title>{t("viewer.revealFinding")}</title>
                   </rect>
                 );
               })}
@@ -335,7 +337,7 @@ export default function PageViewer(props: {
                       props.onRegionRemove(region.index);
                   }}
                 >
-                  <title>クリックでこの領域ルールを削除</title>
+                  <title>{t("viewer.deleteRegionRule")}</title>
                 </rect>
               ))}
               {props.rulePreview &&
@@ -350,7 +352,7 @@ export default function PageViewer(props: {
                   // visible before applying.
                   const text =
                     rule.action === "replace"
-                      ? rule.value || "（仮称）"
+                      ? rule.value || t("viewer.aliasPlaceholder")
                       : rule.action === "mask"
                         ? "■".repeat(Math.max(1, [...finding.text].length))
                         : null;

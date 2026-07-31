@@ -19,3 +19,7 @@ Menreikiのアーキテクチャ決定の記録。運用ルールは [ADR-000](0
 | [012](012-detection-layering.jp.md) | 検出をエンジン／言語非依存パック／言語パックの三層に分ける | 2026-07-20 |
 | [013](013-detector-groups-and-composition.jp.md) | 検出器を名前付きグループにし、合成・選択可能にする | 2026-07-20 |
 | [014](014-settings-tiers.jp.md) | 設定を「アプリ／プロジェクト／一時状態」の三層に分ける | 2026-07-20 |
+| [015](015-quality-assurance-and-responsibility.jp.md) | 品質保証の枠組みと責任範囲を定義する | 2026-07-24 |
+| [016](016-detector-packs.jp.md) | 検出パックはデータのみの配布形式とする | 2026-07-27 |
+| [017](017-default-vs-paid-content-boundary.jp.md) | デフォルト検出と有償コンテンツの境界を定める | 2026-07-27 |
+| [018](018-bilingual-ui.jp.md) | UIを日英二言語にし、既定はOS言語に従う | 2026-07-31 |

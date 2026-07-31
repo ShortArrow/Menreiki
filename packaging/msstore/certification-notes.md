@@ -13,9 +13,9 @@ functionality, which is what the 10.3.3 "App Is Testable" rejection asked for.
 > To reach the primary functionality with no setup:
 >
 > 1. Launch the app.
-> 2. On the home screen, click **"サンプルを開いて試す（文書の用意は不要）"**
->    — this is the button labeled "Open the sample to try it (no document
->    needed)". It opens a built-in, fully analyzed fictional sample document.
+> 2. On the home screen, click **"Try the built-in sample (no document
+>    needed)"**. It opens a built-in, fully analyzed fictional sample
+>    document.
 > 3. The review screen appears: detected candidates (names, organizations,
 >    phone numbers, email addresses, etc.) are listed in the right pane and
 >    outlined on the page image in the center. Use the left pane to switch
@@ -30,11 +30,11 @@ functionality, which is what the 10.3.3 "App Is Testable" rejection asked for.
 > their own machine (localhost only). It is NOT required for any
 > functionality: every feature above works without it, and no server,
 > account, or credentials are needed to test the app. The section is
-> labeled 任意 ("optional").
+> labeled "optional".
 >
-> The user interface is Japanese only (the app targets Japanese-language
-> documents), so the button labels above are given in Japanese with English
-> translations. The sample button on the home screen also carries an
-> English caption: "Try the built-in sample (no document needed)".
+> The user interface follows the language of the OS: it renders in English on
+> an English Windows install, so the labels above appear in English for the
+> tester. Settings also offers an explicit language picker (Auto / 日本語 /
+> English).
 >
 > Product ID: 9NLL16SBKGDW

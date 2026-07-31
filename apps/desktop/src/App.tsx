@@ -4,11 +4,31 @@ import { getConfig, initialProject, setConfig } from "./api";
 import FirstRunNotice, { needsAcknowledgement } from "./FirstRunNotice";
 import HomeView from "./HomeView";
 import ReviewView from "./ReviewView";
+import { I18nProvider, resolveLanguage, useI18n, type Language } from "./i18n";
 import type { ProjectInfo } from "./types";
 
 type ThemeName = "light" | "dark";
 
 export default function App() {
+  const [language, setLanguage] = useState<Language>(() =>
+    resolveLanguage("auto"),
+  );
+
+  useEffect(() => {
+    getConfig()
+      .then((config) => setLanguage(resolveLanguage(config.ui_language)))
+      .catch(() => {});
+  }, []);
+
+  return (
+    <I18nProvider language={language}>
+      <AppShell onLanguageChange={setLanguage} />
+    </I18nProvider>
+  );
+}
+
+function AppShell(props: { onLanguageChange: (language: Language) => void }) {
+  const { t } = useI18n();
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [theme, setTheme] = useState<ThemeName>("light");
   const [showNotice, setShowNotice] = useState(needsAcknowledgement);
@@ -50,6 +70,7 @@ export default function App() {
           onClose={() => setProject(null)}
           theme={theme}
           onToggleTheme={toggleTheme}
+          onLanguageChange={props.onLanguageChange}
         />
       ) : (
         <>
@@ -59,8 +80,8 @@ export default function App() {
           <button
             className="theme-toggle"
             onClick={toggleTheme}
-            title="テーマを切り替える"
-            aria-label="テーマを切り替える"
+            title={t("app.toggleTheme")}
+            aria-label={t("app.toggleTheme")}
           >
             {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
           </button>
