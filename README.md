@@ -1,5 +1,11 @@
 # Menreiki
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ShortArrow/Menreiki)
+
+<a href="https://get.microsoft.com/installer/download/9nll16sbkgdw?referrer=appbadge" target="_self" >
+	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
+</a>
+
 **Preserve meaning. Replace identity.** — Local-first document de-identification, pseudonymization and generalization workbench.
 
 Menreiki detects identifying information in PDFs and images — names, organizations, product and model numbers, locations, reference numbers — entirely on your machine, and lets a human reviewer remove, mask, pseudonymize, or generalize it. Spelling variants of the same subject are unified under one consistent alias, so the derived document keeps its meaning and relationships while the original subjects become unidentifiable.
