@@ -12,6 +12,11 @@ use crate::layout::{audit_report_path, page_render_path, AUDIT_DIR};
 pub enum AuditOutputError {
     #[error("no deny terms; provide a policy or a word list")]
     NoTerms,
+    #[error(
+        "no text deny terms; the policy's {0} region rule(s) are not checked by the re-OCR audit, \
+         so inspect their position on the transformed pages visually"
+    )]
+    NoTextTerms(usize),
     #[error("no transformed pages found; run apply first")]
     NoRenders,
     #[error("transformed page could not be read: {0}")]
@@ -29,6 +34,10 @@ pub enum AuditOutputError {
 /// given, every text the policy transforms (its `text` rules verbatim, and
 /// the recorded finding texts of its category rules). Writes
 /// `audit/report.json` and returns the report.
+///
+/// Region rules (`match.region`, i.e. erase/mask rectangles) are not checked:
+/// the audit only looks for deny terms. When a policy has region rules but
+/// yields no text term, `NoTextTerms` reports how many went unchecked.
 pub fn audit_output(
     project_dir: &Path,
     policy: Option<&Policy>,
@@ -46,7 +55,12 @@ pub fn audit_output(
     terms.sort();
     terms.dedup();
     if terms.is_empty() {
-        return Err(AuditOutputError::NoTerms);
+        let regions = policy.map_or(0, Policy::unaudited_region_rule_count);
+        return Err(if regions > 0 {
+            AuditOutputError::NoTextTerms(regions)
+        } else {
+            AuditOutputError::NoTerms
+        });
     }
 
     let mut pages = Vec::new();

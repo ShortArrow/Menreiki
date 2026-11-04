@@ -18,6 +18,21 @@ pub struct Policy {
     pub rules: Vec<Rule>,
 }
 
+impl Policy {
+    /// Number of rules that transform a fixed page region (`match.region`
+    /// with any action but `keep`). The re-OCR audit only checks deny terms
+    /// built from text and category rules, so these regions are never
+    /// audited and must be inspected visually. Rules that also carry a
+    /// `text` or `category` are counted too, because their region part is
+    /// still unchecked.
+    pub fn unaudited_region_rule_count(&self) -> usize {
+        self.rules
+            .iter()
+            .filter(|rule| rule.r#match.region.is_some() && !matches!(rule.action, Action::Keep))
+            .count()
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Rule {
     #[serde(default)]
@@ -296,6 +311,41 @@ rules:
         .unwrap();
 
         assert_eq!(policy.rules.len(), 3);
+    }
+
+    #[test]
+    fn counts_region_rules_the_audit_does_not_check() {
+        let region_only = parse_policy(
+            r#"
+rules:
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: remove }
+  - match: { region: { x: 0, y: 0, width: 100, height: 100 }, pages: [1] }
+    action: { type: mask }
+  - match: { region: { x: 0, y: 0, width: 100, height: 100 } }
+    action: { type: replace, value: X }
+"#,
+        )
+        .unwrap();
+        assert_eq!(region_only.unaudited_region_rule_count(), 3);
+
+        let region_keep = parse_policy(
+            "rules:\n  - match: { region: { x: 0, y: 0, width: 10, height: 10 } }\n    action: { type: keep }\n",
+        )
+        .unwrap();
+        assert_eq!(region_keep.unaudited_region_rule_count(), 0);
+
+        let text_only = parse_policy(
+            "rules:\n  - match: { text: 株式会社アルファ }\n    action: { type: remove }\n",
+        )
+        .unwrap();
+        assert_eq!(text_only.unaudited_region_rule_count(), 0);
+
+        let text_and_region = parse_policy(
+            "rules:\n  - match: { text: 株式会社アルファ, region: { x: 0, y: 0, width: 10, height: 10 } }\n    action: { type: remove }\n",
+        )
+        .unwrap();
+        assert_eq!(text_and_region.unaudited_region_rule_count(), 1);
     }
 
     #[test]

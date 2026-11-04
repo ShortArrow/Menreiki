@@ -8,7 +8,8 @@ use menreiki_core::{OcrLine, PageOcr, Rect, Span};
 use menreiki_ocr::{OcrEngine, OcrError};
 use menreiki_policy::parse_policy;
 use menreiki_project::{
-    audit_output, audit_report_path, export_pdf, import, page_render_path, RENDERS_DIR,
+    audit_output, audit_report_path, export_pdf, import, page_render_path, AuditOutputError,
+    RENDERS_DIR,
 };
 
 fn red_png(width: u32, height: u32) -> Vec<u8> {
@@ -148,4 +149,93 @@ fn audit_passes_when_terms_are_gone_and_uses_policy_terms() {
 
     assert_eq!(report.verdict, Verdict::Pass);
     assert_eq!(report.checked_terms, 1);
+}
+
+fn blank_engine() -> FixedTextOcr {
+    FixedTextOcr {
+        per_page: vec!["clean page".to_string()],
+        calls: std::cell::Cell::new(0),
+    }
+}
+
+#[test]
+fn audit_with_only_region_rules_reports_they_are_not_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        r#"
+rules:
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: remove }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: mask }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: replace, value: X }
+"#,
+    )
+    .unwrap();
+    let engine = blank_engine();
+
+    let result = audit_output(&project_dir, Some(&policy), &[], &engine);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTextTerms(3))));
+    assert!(!audit_report_path(&project_dir).exists());
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_with_only_a_kept_region_has_no_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        "rules:\n  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }\n    action: { type: keep }\n",
+    )
+    .unwrap();
+    let engine = blank_engine();
+
+    let result = audit_output(&project_dir, Some(&policy), &[], &engine);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTerms)));
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_without_policy_or_words_has_no_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let engine = blank_engine();
+
+    let result = audit_output(&project_dir, None, &[], &engine);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTerms)));
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_with_mixed_rules_checks_only_the_text_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        r#"
+rules:
+  - match: { text: 株式会社アルファ }
+    action: { type: replace, value: 開発会社A }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: mask }
+"#,
+    )
+    .unwrap();
+    let engine = blank_engine();
+
+    let report = audit_output(&project_dir, Some(&policy), &[], &engine).unwrap();
+
+    assert_eq!(report.verdict, Verdict::Pass);
+    assert_eq!(report.checked_terms, 1);
+}
+
+#[test]
+fn no_text_terms_message_names_the_count_and_visual_check() {
+    let message = AuditOutputError::NoTextTerms(2).to_string();
+    assert!(message.contains('2'));
+    assert!(message.contains("visual"));
 }
