@@ -4570,6 +4570,7 @@ export default function ReviewView(props: {
           undecidedCount={undecidedCount}
           busy={busy !== null}
           onCancel={() => setPendingExport(null)}
+          fallbackFocus={() => homeButton.current}
           onProceed={() => {
             const action = pendingExport;
             setPendingExport(null);

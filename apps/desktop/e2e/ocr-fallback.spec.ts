@@ -157,6 +157,11 @@ test("a fallback OCR run is flagged in the review pane and the audit", async () 
 
   await page.getByRole("button", { name: "PDF出力" }).click();
   await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  // Other candidates stay undecided, so the export asks first.
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "このまま出力" })
+    .click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });
