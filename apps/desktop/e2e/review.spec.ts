@@ -1240,3 +1240,83 @@ test("bulk apply decides only the shown undecided candidates", async () => {
     );
   }, "bulk decisions saved to decisions.json");
 });
+
+test("deleting a merged entity asks first and can be undone", async () => {
+  // Regression guard for one-click loss of hand-made merges: an entity with
+  // two or more spellings asks before it goes, and the deletion can be undone
+  // back to the same id, alias and spelling order. Counts are relative
+  // because the previous test leaves an entity behind.
+  const cards = page.locator(".section-entity .entity-card");
+  const before = await cards.count();
+
+  await page
+    .getByPlaceholder("例: 株式会社アルファ技研")
+    .fill("株式会社アルファ技研");
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await expect(page.getByText(/\d+ 件見つかりました/)).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: "Entityとして登録" }).click();
+  await expect(cards).toHaveCount(before + 1);
+  const card = cards.nth(before);
+  const alias = await card.getByPlaceholder("仮称").inputValue();
+  expect(alias).not.toBe("");
+
+  // Merge a second spelling through a candidate row's entity menu.
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ hasNotText: /株式会社(アルファ技研|ベータ電機)/ })
+    .first();
+  await row.scrollIntoViewIfNeeded();
+  const second = (await row.locator(".finding-text").innerText()).trim();
+  await row.locator(".entity-menu > button").click();
+  await page
+    .locator(".entity-popover")
+    .getByRole("button", { name: `→ ${alias}`, exact: true })
+    .click();
+  const chips = card.locator(".variant-chip .chip-text");
+  await expect(chips).toHaveText(["株式会社アルファ技研", second]);
+
+  // First attempt: the in-app confirmation appears; cancelling keeps it all.
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  const confirm = card.locator(".entity-delete-confirm");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText(alias);
+  await expect(confirm).toContainText("2件");
+  await card.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(cards).toHaveCount(before + 1);
+  await expect(page.locator(".undo-bar")).toHaveCount(0);
+
+  // Second attempt: confirm, and the card is gone.
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await card.getByRole("button", { name: "削除を確定", exact: true }).click();
+  await expect(cards).toHaveCount(before);
+  await expect(page.locator(".undo-bar")).toBeVisible();
+
+  // Undo restores the same entity, in place, with the same spelling order.
+  await page.getByRole("button", { name: "元に戻す", exact: true }).click();
+  await expect(cards).toHaveCount(before + 1);
+  await expect(page.locator(".undo-bar")).toHaveCount(0);
+  const restored = cards.nth(before);
+  await expect(restored.getByPlaceholder("仮称")).toHaveValue(alias);
+  await expect(restored.locator(".variant-chip .chip-text")).toHaveText([
+    "株式会社アルファ技研",
+    second,
+  ]);
+
+  // The autosave writes the restored entity back to entities.json.
+  const entitiesFile = path.join(projectDir, "entities", "entities.json");
+  await expect
+    .poll(
+      () => {
+        const saved: { alias: string; variants: string[] }[] = JSON.parse(
+          readFileSync(entitiesFile, "utf8"),
+        );
+        const match = saved.find((entity) => entity.alias === alias);
+        return match?.variants ?? null;
+      },
+      { timeout: 10_000 },
+    )
+    .toEqual(["株式会社アルファ技研", second]);
+});
