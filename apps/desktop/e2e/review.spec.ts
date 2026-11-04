@@ -348,14 +348,21 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });
+  // Exporting before auditing nudges toward the audit and highlights it.
+  const auditButton = page.getByRole("button", { name: "監査", exact: true });
+  await expect(page.locator(".statusbar .status")).toContainText(
+    "共有する前に「監査」を実行してください。",
+  );
+  await expect(auditButton).toHaveClass(/\bprimary\b/);
 
   await page.getByRole("button", { name: "Markdown出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
     timeout: 120_000,
   });
 
-  await page.getByRole("button", { name: "監査", exact: true }).click();
+  await auditButton.click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+  await expect(auditButton).not.toHaveClass(/\bprimary\b/);
 
   // Changing a decision after Apply must mark the renders as stale: the old
   // Pass, summary and output paths are hidden and every output/audit button
@@ -365,7 +372,6 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   const exportPdf = page.getByRole("button", { name: "PDF出力" });
   const exportMarkdown = page.getByRole("button", { name: "Markdown出力" });
   const exportImages = page.getByRole("button", { name: "画像出力" });
-  const auditButton = page.getByRole("button", { name: "監査", exact: true });
   const replacement = page.getByPlaceholder("置換後").last();
   await expect(replacement).toHaveValue("開発会社A");
   await expect(unapplied).toHaveCount(0);
@@ -400,8 +406,11 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });
+  // Re-exporting after Apply cleared the audit result highlights it again.
+  await expect(auditButton).toHaveClass(/\bprimary\b/);
   await auditButton.click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+  await expect(auditButton).not.toHaveClass(/\bprimary\b/);
 });
 
 test("clearing decisions and rules asks first and keeps entities", async () => {
