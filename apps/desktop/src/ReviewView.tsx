@@ -1944,35 +1944,69 @@ export default function ReviewView(props: {
       // The box is ground truth for both position and extent. Read its text
       // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
       // to the whole-page words in the box, then to the vision model.
+      // Each stage that fails is recorded with its name instead of being
+      // collapsed into "no text", so the reviewer can tell an engine or
+      // connection failure apart from a genuinely empty region.
+      const failures: string[] = [];
+      const note = (stage: MessageKey) => (failure: unknown) => {
+        failures.push(`${t(stage)}: ${describeError(failure, t)}`);
+        return "";
+      };
+      const readFailed = () =>
+        t("review.regionReadFailed", { errors: failures.join(" / ") });
       let text = (
-        await readRegion(project.projectDir, page, rect).catch(() => "")
+        await readRegion(project.projectDir, page, rect).catch(
+          note("review.stageRegionOcr"),
+        )
       ).trim();
       if (!text) {
         text = (
-          await textInRegion(project.projectDir, page, rect).catch(() => "")
+          await textInRegion(project.projectDir, page, rect).catch(
+            note("review.stagePageOcr"),
+          )
         ).trim();
       }
       if (!text) {
+        // The VLM is optional and off by default (an empty model): skip it
+        // and point at the setting instead of surfacing its "not configured"
+        // error. Decide from the config, never from error text; if the config
+        // cannot be read, try the VLM as before.
+        const vlmOn = await getConfig().then(
+          (config) => config.inference.model.trim() !== "",
+          () => true,
+        );
+        if (!vlmOn) {
+          const lead = failures.length ? readFailed() : t("review.regionNoText");
+          setNotice(`${lead} ${t("review.regionVlmOffHint")}`);
+          return;
+        }
         setProgress(t("review.vlmReadingRegion"));
         const read = await vlmInRegion(project.projectDir, page, rect).catch(
-          () => [] as string[],
+          (failure: unknown) => {
+            note("review.stageVlm")(failure);
+            return [] as string[];
+          },
         );
         text = (read[0] ?? "").trim();
         if (read.length > 1) setNotice(t("review.vlmRead", { texts: read.join(" / ") }));
       }
       if (!text) {
-        setNotice(t("review.regionNoText"));
+        // A failure of the optional fallbacks goes to the status line, not
+        // the error banner.
+        setNotice(failures.length ? readFailed() : t("review.regionNoText"));
         return;
       }
       // Pin the candidate at the exact box, so it appears in 検出候補 with
       // the reviewer's own coordinates even if page OCR misread the text.
+      // A failed save propagates to run() and shows as an error, so the
+      // reviewer is not offered a target that was never pinned.
       await addManualFinding(
         project.projectDir,
         page,
         rect,
         dictionaryCategory,
         text,
-      ).catch(() => {});
+      );
       setFindings(await listFindings(project.projectDir).catch(() => findings));
       setSearchHits(
         await searchProject(project.projectDir, text).catch(() => null),
