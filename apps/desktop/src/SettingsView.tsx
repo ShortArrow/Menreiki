@@ -461,8 +461,11 @@ export default function SettingsView(props: {
                 <span className="category-tag">{pack.version}</span>
                 {pendingRemove === pack.name ? (
                   <>
+                    {/* Plain span, not .finding-text: that class clips to
+                        one line, which would hide the "cannot be undone"
+                        warning at the end of the sentence. */}
                     <span className="rule-target">
-                      <span className="finding-text">
+                      <span>
                         {t("settings.packRemoveConfirm", {
                           name: pack.displayName,
                           rules: pack.ruleCount,
