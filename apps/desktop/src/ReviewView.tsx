@@ -67,7 +67,7 @@ import type {
   AnalysisScope,
   AppliedEdit,
   ApplySummary,
-  AuditOutcome,
+  AuditResult,
   DictionaryEntry,
   Entity,
   Finding,
@@ -189,6 +189,7 @@ function progressLabel(t: Translate, progress: AnalyzeProgress): string {
     case "markdown":
     case "llm":
     case "vlm":
+    case "audit":
       return t(`progress.${progress.stage}` as MessageKey, { pages });
     case "detect":
       return t("progress.detect");
@@ -1161,7 +1162,7 @@ export default function ReviewView(props: {
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const [imagesPath, setImagesPath] = useState<string | null>(null);
-  const [audit, setAudit] = useState<AuditOutcome | null>(null);
+  const [audit, setAudit] = useState<AuditResult | null>(null);
   // Set when an OCR-bearing analysis fell back from the requested language;
   // kept apart from `notice` so other operations and detect-only reruns do
   // not clear it. Only the next OCR-bearing run without fallback does.
@@ -1907,9 +1908,16 @@ export default function ReviewView(props: {
     }
     const regionCount = regionRules.length;
     void run(t("review.auditing"), async () => {
-      const report = await auditProject(project.projectDir, policy);
-      setAudit(report);
-      setAuditRegionCount(regionCount);
+      // Never show the previous verdict next to a running, failed or
+      // cancelled audit.
+      setAudit(null);
+      const outcome = await auditProject(project.projectDir, policy);
+      if (outcome.cancelled || outcome.report === null) {
+        setNotice(t("review.auditCancelled"));
+      } else {
+        setAudit({ report: outcome.report, ocr: outcome.ocr });
+        setAuditRegionCount(regionCount);
+      }
     });
   }
 
@@ -2655,7 +2663,8 @@ export default function ReviewView(props: {
         <div className="statusbar">
           {busy && <span className="status">{progress ?? busy}</span>}
           {(busy === t("review.analyzing") ||
-            busy === t("review.llmDetecting")) && (
+            busy === t("review.llmDetecting") ||
+            busy === t("review.auditing")) && (
             <button onClick={() => void cancelAnalysis()}>
               {t("review.cancel")}
             </button>

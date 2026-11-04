@@ -148,6 +148,7 @@ export const ja = {
   "progress.markdown": "Markdownを生成しています…{pages}",
   "progress.llm": "ローカルLLMで候補を探しています…{pages}",
   "progress.vlm": "ローカルVLMがページ画像を確認しています…{pages}",
+  "progress.audit": "再検査しています…{pages}",
   "progress.done": "解析が完了しました",
 
   "review.suggestReplacements":
@@ -188,6 +189,8 @@ export const ja = {
   "review.analyzing": "解析中…",
   "review.analysisCancelled":
     "解析をキャンセルしました。「解析を再開」で続きから実行できます。",
+  "review.auditCancelled":
+    "監査を中断しました。合否は記録されていません。共有前に監査をやり直してください。",
   "review.applying": "変換を適用中…",
   "review.rebuildingPdf": "PDFを再構築中…",
   "review.exportedPages": "{count} ページを出力しました。",
@@ -553,6 +556,7 @@ export const en: Record<MessageKey, string> = {
   "progress.markdown": "Generating Markdown…{pages}",
   "progress.llm": "Asking the local LLM for candidates…{pages}",
   "progress.vlm": "The local VLM is reading the page images…{pages}",
+  "progress.audit": "Re-checking output…{pages}",
   "progress.done": "Analysis complete",
 
   "review.suggestReplacements":
@@ -594,6 +598,8 @@ export const en: Record<MessageKey, string> = {
   "review.analyzing": "Analyzing…",
   "review.analysisCancelled":
     "Analysis cancelled. \"Resume analysis\" continues from where it stopped.",
+  "review.auditCancelled":
+    "Audit cancelled. No verdict was recorded; run the audit again before sharing.",
   "review.applying": "Applying the transformations…",
   "review.rebuildingPdf": "Rebuilding the PDF…",
   "review.exportedPages": "Exported {count} pages. ",

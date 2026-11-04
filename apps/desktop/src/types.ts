@@ -174,8 +174,17 @@ export interface AuditReport {
   residuals: Residual[];
 }
 
-export interface AuditOutcome {
+/** A finished audit: the core report plus the OCR status it was read with. */
+export interface AuditResult {
   report: AuditReport;
+  ocr: OcrLanguageStatus;
+}
+
+/** What `audit_project` returns. A cancelled audit has no report and
+ * therefore no verdict. */
+export interface AuditOutcome {
+  cancelled: boolean;
+  report: AuditReport | null;
   ocr: OcrLanguageStatus;
 }
 
