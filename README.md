@@ -22,7 +22,7 @@ Menreiki detects identifying information in PDFs and images — names, organizat
 
 - **Local-first** — analysis, OCR, transformation, and auditing all run locally; the app makes no network connections. Optional LLM assistance connects to a localhost-only OpenAI-compatible endpoint.
 - **Safe output** — the sanitized PDF and Markdown are rebuilt from transformed page pixels alone, so text layers, metadata, annotations, and attachments of the source can never leak into them.
-- **Review workbench** — a three-pane GUI with detected candidates overlaid on page images, entity management for spelling variants, region selection across pages, and a re-OCR audit that reports any residual identifying text.
+- **Review workbench** — a three-pane GUI with detected candidates overlaid on page images, entity management for spelling variants, region selection across pages, and a re-OCR audit that reports any residual identifying text (it checks text terms only; erase/mask regions are not checked and need a visual inspection).
 - **Bilingual interface** — the UI is available in Japanese and English and follows the language of the OS by default, with an explicit picker in Settings. Detection itself is tuned for Japanese documents.
 
 ## Documentation
