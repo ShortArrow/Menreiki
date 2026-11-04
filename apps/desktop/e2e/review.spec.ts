@@ -1,5 +1,11 @@
 import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -265,4 +271,118 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
 
   await page.getByRole("button", { name: "監査", exact: true }).click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+});
+
+test("clearing decisions and rules asks first and keeps entities", async () => {
+  // Regression: the bulk clear button wiped every decision (hidden "keep"
+  // ones too), text rule and region rule on a single click, and autosave
+  // made it permanent 0.4s later. It must confirm in an in-app dialog first.
+  // Runs last: the main flow leaves one text rule and one entity behind.
+  const decisionsPath = path.join(projectDir, "decisions", "decisions.json");
+  const readDecisions = () =>
+    JSON.parse(readFileSync(decisionsPath, "utf8")) as {
+      findings: { action: string }[];
+      texts: unknown[];
+      regions: unknown[];
+      align_overrides: unknown[];
+    };
+  const rulesList = page.locator(".section-rules .rule-list");
+  const clearButton = page.getByRole("button", {
+    name: "判断・文字列・矩形ルールを一括解除…",
+  });
+  const dialog = page.getByRole("dialog");
+
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // One "keep" (which the rule list never shows) and one other decision.
+  const undecided = page.locator(".findings-list .finding-row:not(.decided)");
+  await undecided
+    .first()
+    .locator(".decision-btn", { hasText: "保持" })
+    .click();
+  await undecided
+    .first()
+    .locator(".decision-btn", { hasText: "マスク" })
+    .click();
+
+  // One region rule drawn in erase mode.
+  const toolbar = page.locator(".viewer-toolbar");
+  await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+  const overlay = page.locator(".page-stage svg.overlay");
+  const box = await overlay.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width * 0.1, box!.y + box!.height * 0.9);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.97, {
+    steps: 5,
+  });
+  await page.mouse.up();
+  await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+
+  await waitFor(async () => {
+    const saved = readDecisions();
+    return (
+      saved.regions.length >= 1 &&
+      saved.texts.length >= 1 &&
+      saved.findings.some((finding) => finding.action === "keep") &&
+      saved.findings.some((finding) => finding.action !== "keep")
+    );
+  }, "decisions.json with a keep, a decision, a text and a region rule");
+  const before = readDecisions();
+  const keepCount = before.findings.filter((f) => f.action === "keep").length;
+  const rulesBefore = await rulesList.innerText();
+
+  // AC1/AC2: a modal dialog with the real counts and the caveats.
+  await clearButton.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toContainText(
+    `判断 ${before.findings.length} 種類（うち保持 ${keepCount} 種類）`,
+  );
+  await expect(dialog).toContainText(`文字列ルール ${before.texts.length} 件`);
+  await expect(dialog).toContainText(`矩形ルール ${before.regions.length} 件`);
+  await expect(dialog).toContainText("Entity と配置の例外は残ります");
+  await expect(dialog).toContainText("元に戻せません");
+  expect(await rulesList.innerText()).toBe(rulesBefore);
+
+  // AC3/AC6: cancel, backdrop, Escape and an immediate Enter change nothing.
+  const dismissals: [string, () => Promise<void>][] = [
+    ["cancel", () => dialog.getByRole("button", { name: "キャンセル" }).click()],
+    ["backdrop", () => page.mouse.click(5, 5)],
+    ["escape", () => page.keyboard.press("Escape")],
+    ["enter", () => page.keyboard.press("Enter")],
+  ];
+  for (const [label, dismiss] of dismissals) {
+    if (label !== "cancel") {
+      await clearButton.click();
+      await expect(dialog).toBeVisible();
+    }
+    await dismiss();
+    await expect(dialog, label).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    expect(await rulesList.innerText(), label).toBe(rulesBefore);
+    expect(readDecisions(), label).toEqual(before);
+  }
+
+  // AC4/AC5: confirming clears decisions and rules but keeps the entity.
+  await clearButton.click();
+  await dialog.getByRole("button", { name: "一括解除する" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.waitForTimeout(1000);
+  await waitFor(async () => {
+    const saved = readDecisions();
+    return (
+      saved.findings.length === 0 &&
+      saved.texts.length === 0 &&
+      saved.regions.length === 0
+    );
+  }, "decisions.json cleared");
+  expect(readDecisions().align_overrides).toEqual(before.align_overrides);
+  await expect(page.getByText("Entity（1件）")).toBeVisible();
+  await expect(rulesList.locator(".rule-block")).toHaveCount(1);
+
+  // AC7: with only entity rules left, the bulk clear button is gone.
+  await expect(clearButton).toHaveCount(0);
 });
