@@ -39,7 +39,7 @@ pub use dictionary::{
 };
 pub use entities::{load_entities, save_entities, EntitiesError};
 pub use export::{export_images, export_pdf, ExportError};
-pub use import::{import, ImportError};
+pub use import::{import, inspect_existing_project, ExistingProject, ImportError};
 pub use layout::{
     audit_report_path, decisions_path, dictionary_path, entities_path, page_findings_path,
     page_image_path, resolve_project_dir,
