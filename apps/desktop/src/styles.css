@@ -223,6 +223,20 @@ svg.lucide {
   max-width: 320px;
 }
 
+.toolbar .save-state {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 420px;
+}
+
+.toolbar .save-state.failed {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .toolbar .spacer {
   flex: 1;
 }

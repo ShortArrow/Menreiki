@@ -153,6 +153,10 @@ export const ja = {
     "判断（decisions.json）を読み込めませんでした: {error}\nこの状態での変更は保存されません。ファイルを確認してから、プロジェクトを開き直してください。",
   "review.entitiesLoadFailed":
     "Entity（entities.json）を読み込めませんでした: {error}\nこの状態での変更は保存されません。ファイルを確認してから、プロジェクトを開き直してください。",
+  "review.saveSaving": "保存中…",
+  "review.saveSaved": "保存済み",
+  "review.saveFailed": "保存に失敗しました",
+  "review.discardAndHome": "保存せずにホームへ戻る",
   "review.reanalyze": "再解析…",
   "review.reanalyzeAll": "すべて（最初から）",
   "review.reanalyzeResume": "続きから再開",
@@ -430,6 +434,10 @@ export const en: Record<MessageKey, string> = {
     "Could not load the decisions (decisions.json): {error}\nChanges made now will not be saved. Check the file, then reopen the project.",
   "review.entitiesLoadFailed":
     "Could not load the entities (entities.json): {error}\nChanges made now will not be saved. Check the file, then reopen the project.",
+  "review.saveSaving": "Saving…",
+  "review.saveSaved": "Saved",
+  "review.saveFailed": "Save failed",
+  "review.discardAndHome": "Return home without saving",
   "review.reanalyze": "Re-analyze…",
   "review.reanalyzeAll": "Everything (from scratch)",
   "review.reanalyzeResume": "Resume where it stopped",

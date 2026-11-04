@@ -675,6 +675,147 @@ function RuleCropsPanel(props: {
   );
 }
 
+type SaveState = "idle" | "saving" | "saved" | "failed";
+
+interface SaveStatus {
+  state: SaveState;
+  /// The string the Tauri command rejected with; never the payload.
+  error: string | null;
+}
+
+const AUTOSAVE_DELAY_MS = 400;
+
+/// Debounced autosave whose pending write can also be flushed on demand
+/// (leaving the review screen) and whose failures surface as state instead
+/// of being swallowed. Writes are serialized: a flush waits for the write in
+/// flight, then writes the latest payload. A failed write keeps the payload
+/// pending, so a later flush retries it and leaving still refuses to drop it.
+function useAutosave<T>(write: (job: T) => Promise<void>, hydrated: boolean) {
+  const [status, setStatus] = useState<SaveStatus>({
+    state: "idle",
+    error: null,
+  });
+  const hydratedRef = useRef(hydrated);
+  hydratedRef.current = hydrated;
+  const [controller] = useState(() => {
+    let latest: T | null = null;
+    let dirty = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inflight: Promise<boolean> | null = null;
+    // Each request gets a number; only the newest one may set the status, so
+    // a late answer to an older request can never overwrite a newer result.
+    let seq = 0;
+
+    function cancelTimer() {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    }
+
+    async function flush(): Promise<boolean> {
+      // Never write before the saved state was loaded: the in-memory state
+      // is still the empty initial one and would clobber the file.
+      if (!hydratedRef.current) return true;
+      while (inflight) await inflight;
+      if (!dirty || latest === null) return true;
+      const job = latest;
+      dirty = false;
+      const id = ++seq;
+      setStatus((current) => ({ state: "saving", error: current.error }));
+      const request: Promise<boolean> = write(job)
+        .then(
+          () => {
+            if (id === seq) setStatus({ state: "saved", error: null });
+            return true;
+          },
+          (failure: unknown) => {
+            dirty = true;
+            if (id === seq) {
+              setStatus({ state: "failed", error: String(failure) });
+            }
+            return false;
+          },
+        )
+        .finally(() => {
+          if (inflight === request) inflight = null;
+        });
+      inflight = request;
+      return request;
+    }
+
+    return {
+      schedule(job: T) {
+        latest = job;
+        dirty = true;
+        cancelTimer();
+        timer = setTimeout(() => {
+          timer = undefined;
+          void flush();
+        }, AUTOSAVE_DELAY_MS);
+      },
+      cancelTimer,
+      flush,
+      hasPending: () => dirty,
+      /// Drops the pending payload; only for an explicit user choice.
+      discard() {
+        cancelTimer();
+        dirty = false;
+      },
+    };
+  });
+  return { status, ...controller };
+}
+
+function buildDecisionsPayload(
+  decisions: Record<string, Decision>,
+  textRules: TextRule[],
+  regionRules: RegionRule[],
+  alignOverrides: AlignOverride[],
+): ReviewDecisions {
+  return {
+    findings: Object.entries(decisions).map(([key, decision]) => {
+      const [category, ...rest] = key.split("|::|");
+      return {
+        category,
+        text: rest.join("|::|"),
+        action: decision.action,
+        value: decision.value,
+        align: decision.align,
+      };
+    }),
+    texts: textRules.map((rule) => ({
+      text: rule.text,
+      action: rule.action,
+      value: rule.value,
+      align: rule.align,
+    })),
+    regions: regionRules.map((rule) => ({
+      rect: rule.rect,
+      action: rule.action,
+      page: rule.scope === "all" ? null : rule.scope,
+      drawn_on: rule.drawnOn,
+    })),
+    align_overrides: alignOverrides,
+  };
+}
+
+function writeDecisions(job: { dir: string; payload: ReviewDecisions }) {
+  return saveReviewDecisions(job.dir, job.payload);
+}
+
+function writeEntities(job: { dir: string; entities: Entity[] }) {
+  return saveEntities(job.dir, job.entities);
+}
+
+function combineSaveStatus(a: SaveStatus, b: SaveStatus): SaveStatus {
+  for (const state of ["failed", "saving", "saved"] as const) {
+    const match = [a, b].find((status) => status.state === state);
+    if (match) {
+      return { state, error: a.error ?? b.error };
+    }
+  }
+  return { state: "idle", error: null };
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
@@ -810,37 +951,39 @@ export default function ReviewView(props: {
     };
   }, [project.projectDir]);
 
+  const decisionsAutosave = useAutosave(writeDecisions, hydrated);
+  const entitiesAutosave = useAutosave(writeEntities, entitiesHydrated);
+  const saveStatus = combineSaveStatus(
+    decisionsAutosave.status,
+    entitiesAutosave.status,
+  );
+  const [closing, setClosing] = useState(false);
+  const [closeFailed, setCloseFailed] = useState(false);
+
+  // Safety net for unmounts that bypass goHome(): write what is pending,
+  // fire-and-forget. Kept out of the debounce effects so their per-change
+  // cleanup never triggers a write.
+  useEffect(() => {
+    return () => {
+      for (const autosave of [decisionsAutosave, entitiesAutosave]) {
+        autosave.cancelTimer();
+        if (autosave.hasPending()) void autosave.flush();
+      }
+    };
+    // The controllers are stable for the component's lifetime.
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
-    const timer = setTimeout(() => {
-      const payload: ReviewDecisions = {
-        findings: Object.entries(decisions).map(([key, decision]) => {
-          const [category, ...rest] = key.split("|::|");
-          return {
-            category,
-            text: rest.join("|::|"),
-            action: decision.action,
-            value: decision.value,
-            align: decision.align,
-          };
-        }),
-        texts: textRules.map((rule) => ({
-          text: rule.text,
-          action: rule.action,
-          value: rule.value,
-          align: rule.align,
-        })),
-        regions: regionRules.map((rule) => ({
-          rect: rule.rect,
-          action: rule.action,
-          page: rule.scope === "all" ? null : rule.scope,
-          drawn_on: rule.drawnOn,
-        })),
-        align_overrides: alignOverrides,
-      };
-      void saveReviewDecisions(project.projectDir, payload).catch(() => {});
-    }, 400);
-    return () => clearTimeout(timer);
+    decisionsAutosave.schedule({
+      dir: project.projectDir,
+      payload: buildDecisionsPayload(
+        decisions,
+        textRules,
+        regionRules,
+        alignOverrides,
+      ),
+    });
   }, [
     decisions,
     textRules,
@@ -890,10 +1033,7 @@ export default function ReviewView(props: {
 
   useEffect(() => {
     if (!entitiesHydrated) return;
-    const timer = setTimeout(() => {
-      void saveEntities(project.projectDir, entities).catch(() => {});
-    }, 400);
-    return () => clearTimeout(timer);
+    entitiesAutosave.schedule({ dir: project.projectDir, entities });
   }, [entities, entitiesHydrated, project.projectDir]);
 
   async function refreshEntityMeta(entity: Entity) {
@@ -1721,6 +1861,29 @@ export default function ReviewView(props: {
     );
   }
 
+  async function goHome() {
+    setClosing(true);
+    decisionsAutosave.cancelTimer();
+    entitiesAutosave.cancelTimer();
+    const [decisionsSaved, entitiesSaved] = await Promise.all([
+      decisionsAutosave.flush(),
+      entitiesAutosave.flush(),
+    ]);
+    if (decisionsSaved && entitiesSaved) {
+      props.onClose();
+      return;
+    }
+    // Stay: the reviewer's decisions are only dropped by an explicit choice.
+    setClosing(false);
+    setCloseFailed(true);
+  }
+
+  function discardAndGoHome() {
+    decisionsAutosave.discard();
+    entitiesAutosave.discard();
+    props.onClose();
+  }
+
   function clearAllRules() {
     setDecisions({});
     setTextRules([]);
@@ -1730,10 +1893,27 @@ export default function ReviewView(props: {
   return (
     <div className="review">
       <header className="toolbar">
-        <button onClick={props.onClose}>{t("review.home")}</button>
+        <button disabled={closing} onClick={() => void goHome()}>
+          {t("review.home")}
+        </button>
         <span className="file-name" title={project.projectDir}>
           {project.fileName}
         </span>
+        <span
+          className={`save-state ${saveStatus.state}`}
+          data-save-state={saveStatus.state}
+          role="status"
+        >
+          {saveStatus.state === "saving" && t("review.saveSaving")}
+          {saveStatus.state === "saved" && t("review.saveSaved")}
+          {saveStatus.error !== null &&
+            `${t("review.saveFailed")}: ${saveStatus.error}`}
+        </span>
+        {closeFailed && saveStatus.state === "failed" && (
+          <button onClick={discardAndGoHome}>
+            {t("review.discardAndHome")}
+          </button>
+        )}
         {project.analyzed ? (
           <div className="reanalyze-menu">
             <button
