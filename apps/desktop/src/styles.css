@@ -1275,6 +1275,7 @@ button.rule-target:hover {
 .modal-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
   margin-top: 4px;
 }
 
@@ -1291,10 +1292,6 @@ button.rule-target:hover {
 
 .confirm-modal h2 {
   margin: 0;
-}
-
-.confirm-modal .modal-actions {
-  gap: 8px;
 }
 
 .modal-header {
