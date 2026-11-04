@@ -346,12 +346,17 @@ export const ja = {
   "review.excludeFromDetection": "「{text}」を{category}の検出から除外",
   "review.ignore": "無視",
   "review.noCandidates": "検出候補はありません",
+  "review.ocrFallbackWarning":
+    "日本語のOCR言語パックが見つからないため、{lang} のOCRエンジンで読み取りました。日本語の人名・組織名・地名などはほとんど読み取れず、検出候補にも監査にも出てきません。設定 → 時刻と言語 → 言語と地域 → 日本語 → 言語のオプション → 光学式文字認識 から言語パックを導入し、解析をやり直してください。",
   "review.runAnalysisForCandidates": "解析を実行すると候補が表示されます",
   "review.noMatchingFilter": "絞り込み条件に一致する候補はありません",
   "review.results": "結果",
   "review.applied": "適用済み: {edits} 箇所 / {pages} ページ",
   "review.jumpToSpot": "該当箇所へジャンプ",
   "review.auditResult": "監査: {verdict}（{terms}語 / {pages}ページ）",
+  "review.auditVerdictPassWithWarnings": "Pass with warnings",
+  "review.auditOcrFallbackWarning":
+    "日本語のOCR言語パックが見つからないため、{lang} のOCRエンジンで照合しました。日本語の識別情報が残っていても検出できない可能性があります。言語パックを導入してから解析と監査をやり直してください。",
   "review.residual": "p.{page} 残存 [{term}] {text}",
   "review.regionPreview": "領域プレビュー（全{pages}ページ・{action}）",
   "review.regionPreviewHint":
@@ -709,12 +714,17 @@ export const en: Record<MessageKey, string> = {
   "review.excludeFromDetection": "Exclude \"{text}\" from {category} detection",
   "review.ignore": "Ignore",
   "review.noCandidates": "No candidates",
+  "review.ocrFallbackWarning":
+    "The Japanese OCR language pack was not found, so the pages were read with the {lang} OCR engine. Japanese names, organizations, and places are mostly not recognized, so they appear neither as candidates nor in the audit. Install the pack from Settings → Time & language → Language & region → Japanese → Language options → Optical character recognition, then run the analysis again.",
   "review.runAnalysisForCandidates": "Run the analysis to see candidates",
   "review.noMatchingFilter": "No candidate matches the filter",
   "review.results": "Result",
   "review.applied": "Applied: {edits} spots across {pages} pages",
   "review.jumpToSpot": "Jump to this spot",
   "review.auditResult": "Audit: {verdict} ({terms} terms / {pages} pages)",
+  "review.auditVerdictPassWithWarnings": "Pass with warnings",
+  "review.auditOcrFallbackWarning":
+    "The Japanese OCR language pack was not found, so the output was checked with the {lang} OCR engine. Japanese identifying text may remain undetected. Install the language pack, then run the analysis and the audit again.",
   "review.residual": "p.{page} residual [{term}] {text}",
   "review.regionPreview": "Region preview (all {pages} pages, {action})",
   "review.regionPreviewHint":

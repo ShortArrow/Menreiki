@@ -289,6 +289,17 @@ export default function HelpEn() {
           screen.
         </li>
         <li>
+          <b>The Japanese OCR language pack is required.</b> Without it the app
+          reads pages with the OCR of your Windows display language (English,
+          for example) and shows a warning above the candidate list and in the
+          audit result. Japanese names and organizations are then mostly not
+          recognized, so neither the detection nor the audit can be trusted.
+          Install it from Settings → Time &amp; language → Language &amp;
+          region → Japanese → Language options → Optical character
+          recognition (add Japanese with "Add a language" first if it is not
+          listed), then run the analysis again.
+        </li>
+        <li>
           Whether the output is safe to publish is always a human decision. A
           passing audit confirms that the checks you configured found nothing —
           it is not proof of safety.

@@ -37,9 +37,20 @@ export type AnalysisScope =
   | "ocr-only"
   | "detect-only";
 
+/// Which OCR language a run asked for and which one the engine used.
+/// `fellBack` is true when the requested language pack was unavailable and
+/// the profile languages were used instead.
+export interface OcrLanguageStatus {
+  requested: string;
+  used: string;
+  fellBack: boolean;
+}
+
 export interface AnalyzeOutcome {
   cancelled: boolean;
   project: ProjectInfo;
+  /// Present only when the run reached the OCR stage.
+  ocr: OcrLanguageStatus | null;
 }
 
 export interface Rect {
@@ -157,4 +168,9 @@ export interface AuditReport {
   checked_terms: number;
   page_count: number;
   residuals: Residual[];
+}
+
+export interface AuditOutcome {
+  report: AuditReport;
+  ocr: OcrLanguageStatus;
 }

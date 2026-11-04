@@ -65,10 +65,11 @@ import type {
   AnalysisScope,
   AppliedEdit,
   ApplySummary,
-  AuditReport,
+  AuditOutcome,
   DictionaryEntry,
   Entity,
   Finding,
+  OcrLanguageStatus,
   PageFindings,
   Policy,
   PolicyRule,
@@ -1051,7 +1052,13 @@ export default function ReviewView(props: {
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const [imagesPath, setImagesPath] = useState<string | null>(null);
-  const [audit, setAudit] = useState<AuditReport | null>(null);
+  const [audit, setAudit] = useState<AuditOutcome | null>(null);
+  // Set when an OCR-bearing analysis fell back from the requested language;
+  // kept apart from `notice` so other operations and detect-only reruns do
+  // not clear it. Only the next OCR-bearing run without fallback does.
+  const [ocrFallback, setOcrFallback] = useState<OcrLanguageStatus | null>(
+    null,
+  );
   const [hydrated, setHydrated] = useState(false);
   // Kept apart from `error` so other operations never clear it: while a
   // state file failed to load, its autosave stays off until the project is
@@ -1341,6 +1348,9 @@ export default function ReviewView(props: {
         "ja",
         pages,
       );
+      if (outcome.ocr) {
+        setOcrFallback(outcome.ocr.fellBack ? outcome.ocr : null);
+      }
       props.onProjectChange(outcome.project);
       setFindings(await listFindings(project.projectDir).catch(() => []));
       setVersion((current) => current + 1);
@@ -3416,6 +3426,14 @@ export default function ReviewView(props: {
                       : "",
               })}
             </h2>
+            {ocrFallback && (
+              <p
+                className="ocr-fallback-warning"
+                data-testid="ocr-fallback-warning"
+              >
+                {t("review.ocrFallbackWarning", { lang: ocrFallback.used })}
+              </p>
+            )}
             <div className="finding-filter">
               <input
                 value={findingFilter}
@@ -3610,17 +3628,36 @@ export default function ReviewView(props: {
             {!stale && audit && (
               <div
                 className={
-                  audit.verdict === "pass" ? "audit pass" : "audit fail"
+                  audit.report.verdict === "fail"
+                    ? "audit fail"
+                    : audit.ocr.fellBack
+                      ? "audit warn"
+                      : "audit pass"
                 }
               >
                 <p className="verdict">
                   {t("review.auditResult", {
-                    verdict: audit.verdict === "pass" ? "Pass" : "Fail",
-                    terms: audit.checked_terms,
-                    pages: audit.page_count,
+                    verdict:
+                      audit.report.verdict === "fail"
+                        ? "Fail"
+                        : audit.ocr.fellBack
+                          ? t("review.auditVerdictPassWithWarnings")
+                          : "Pass",
+                    terms: audit.report.checked_terms,
+                    pages: audit.report.page_count,
                   })}
                 </p>
-                {audit.residuals.map((residual, index) => (
+                {audit.ocr.fellBack && (
+                  <p
+                    className="audit-warning"
+                    data-testid="audit-ocr-fallback-warning"
+                  >
+                    {t("review.auditOcrFallbackWarning", {
+                      lang: audit.ocr.used,
+                    })}
+                  </p>
+                )}
+                {audit.report.residuals.map((residual, index) => (
                   <button
                     key={index}
                     className="residual"

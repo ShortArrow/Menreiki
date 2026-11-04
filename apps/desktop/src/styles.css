@@ -2000,6 +2000,25 @@ button.mini {
   border: 1px solid var(--fail-border);
 }
 
+.audit.warn {
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+}
+
+.audit .audit-warning {
+  margin: 0 0 4px;
+  font-size: 12px;
+}
+
+.ocr-fallback-warning {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  font-size: 12px;
+}
+
 .audit .verdict {
   font-weight: 600;
   margin: 0 0 4px;

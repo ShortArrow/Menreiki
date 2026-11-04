@@ -5,7 +5,7 @@ import type {
   AppConfig,
   AppliedEdit,
   ApplySummary,
-  AuditReport,
+  AuditOutcome,
   DictionaryEntry,
   Entity,
   PackInfo,
@@ -268,7 +268,7 @@ export function auditProject(
   extraTerms: string[] = [],
   ocrLanguage = "ja",
 ) {
-  return invoke<AuditReport>("audit_project", {
+  return invoke<AuditOutcome>("audit_project", {
     project,
     policy,
     extraTerms,
