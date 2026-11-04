@@ -1701,6 +1701,38 @@ export default function ReviewView(props: {
     [flatFindings],
   );
 
+  // An entity covers a candidate when one of its variants equals the
+  // candidate text exactly: the policy then drops the candidate's own text
+  // rule in favor of the entity's (same `seenTexts` comparison, no trim), so
+  // the candidate counts as decided. Earlier entities win, as in the policy.
+  // Membership derives from the current ledger, whichever path filled it.
+  const variantToEntity = useMemo(() => {
+    const map = new Map<string, Entity>();
+    for (const entity of entities) {
+      for (const variant of entity.variants) {
+        if (variant && !map.has(variant)) map.set(variant, entity);
+      }
+    }
+    return map;
+  }, [entities]);
+
+  const isDecided = (key: string, text: string) =>
+    !!decisions[key] || variantToEntity.has(text);
+
+  // A covered candidate conflicts when its own decision differs from what the
+  // entity actually outputs (keep, mask, erase, or a different replacement).
+  const conflictOf = (key: string, text: string): Entity | undefined => {
+    const entity = variantToEntity.get(text);
+    const decision = decisions[key];
+    if (!entity || !decision) return undefined;
+    if (
+      decision.action === "replace" &&
+      (decision.value || "■■■") === (entity.alias || "■■■")
+    )
+      return undefined;
+    return entity;
+  };
+
   const filteredFindings = useMemo(() => {
     const needle = findingFilter.trim().toLowerCase();
     return flatFindings.filter(({ pageIndex, finding }) => {
@@ -1710,7 +1742,11 @@ export default function ReviewView(props: {
       )
         return false;
       const key = findingKey(finding);
-      if (findingUndecidedOnly && decisions[key] && key !== editingFindingKey)
+      if (
+        findingUndecidedOnly &&
+        (decisions[key] || variantToEntity.has(finding.text)) &&
+        key !== editingFindingKey
+      )
         return false;
       if (!needle) return true;
       return (
@@ -1728,6 +1764,7 @@ export default function ReviewView(props: {
     decisions,
     t,
     editingFindingKey,
+    variantToEntity,
   ]);
 
   // Collapse identical candidates (same category + text) into one row with an
@@ -2519,14 +2556,24 @@ export default function ReviewView(props: {
     .map((rule, index) => ({ ...rule, index }))
     .filter((rule) => rule.scope === "all" || rule.scope === page);
 
-  const uniqueFindingKeys = useMemo(
-    () => new Set(flatFindings.map(({ finding }) => findingKey(finding))),
-    [flatFindings],
-  );
-  const decidedCount = [...uniqueFindingKeys].filter(
-    (key) => decisions[key],
+  const uniqueFindings = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      if (!unique.has(key)) unique.set(key, finding.text);
+    }
+    return [...unique.entries()];
+  }, [flatFindings]);
+  const decidedCount = uniqueFindings.filter(([key, text]) =>
+    isDecided(key, text),
   ).length;
-  const undecidedCount = uniqueFindingKeys.size - decidedCount;
+  const undecidedCount = uniqueFindings.length - decidedCount;
+  const entityCoveredCount = uniqueFindings.filter(([, text]) =>
+    variantToEntity.has(text),
+  ).length;
+  const conflictCount = uniqueFindings.filter(([key, text]) =>
+    conflictOf(key, text),
+  ).length;
   // Highlight Audit while an export exists but the transformed pages have not
   // been audited yet. Stale renders disable Audit, so they are not highlighted.
   const needsAudit =
@@ -3174,7 +3221,7 @@ export default function ReviewView(props: {
             <h2>{t("review.preflight")}</h2>
             <div
               className={
-                undecidedCount > 0 || emptyReplaceCount > 0
+                undecidedCount > 0 || emptyReplaceCount > 0 || conflictCount > 0
                   ? "precheck warn"
                   : "precheck ok"
               }
@@ -3188,6 +3235,10 @@ export default function ReviewView(props: {
                 </span>
               )}
               <span>{t("review.decidedCount", { count: decidedCount })}</span>
+              <span className="precheck-sub">
+                {t("review.entityCoveredCount", { count: entityCoveredCount })}
+              </span>
+              <span>{t("review.conflictCount", { count: conflictCount })}</span>
               <span>
                 {t("review.pendingRules", { count: policy.rules.length })}
               </span>
@@ -4035,6 +4086,9 @@ export default function ReviewView(props: {
                 const key = findingKey(finding);
                 const decision = decisions[key];
                 const sources = findingSources.get(key);
+                const entity = variantToEntity.get(finding.text);
+                const entityAlias = entity ? entity.alias || "■■■" : undefined;
+                const conflict = conflictOf(key, finding.text);
                 return (
                   <div
                     key={key}
@@ -4064,7 +4118,8 @@ export default function ReviewView(props: {
                     className={[
                       "finding-row",
                       highlightKey === key ? "highlight" : "",
-                      decision ? "decided" : "",
+                      decision || entity ? "decided" : "",
+                      conflict ? "conflict" : "",
                       flashKey === key ? "reveal-flash" : "",
                     ]
                       .filter(Boolean)
@@ -4115,6 +4170,21 @@ export default function ReviewView(props: {
                         )}
                       </span>
                     </button>
+                    {entityAlias !== undefined && (
+                      <span className="entity-alias-chip" title={entityAlias}>
+                        → {entityAlias}
+                      </span>
+                    )}
+                    {conflict && (
+                      <span
+                        className="conflict-badge"
+                        title={t("review.conflictTooltip", {
+                          alias: entityAlias ?? "",
+                        })}
+                      >
+                        {t("review.conflictBadge")}
+                      </span>
+                    )}
                     <DecisionButtons
                       label={t("review.decisionGroup", {
                         category: categoryLabel(t, finding.category),
@@ -4132,6 +4202,7 @@ export default function ReviewView(props: {
                     />
                     <EntityMenu
                       entities={entities}
+                      label={entityAlias}
                       onNew={() => createEntity(finding.category, finding.text)}
                       onAssign={(id) => addVariant(id, finding.text)}
                     />

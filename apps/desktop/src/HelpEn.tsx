@@ -422,6 +422,11 @@ export default function HelpEn() {
         <p>
           When several instructions cover the same text they collapse into one
           (priority: <b>entity &gt; candidate decision &gt; search rule</b>).
+          A candidate whose text exactly matches an entity variant shows the
+          alias as a chip and counts as decided (the export check lists these
+          separately as replaced by an entity). If that candidate also has a
+          decision that differs from the entity, its row is marked
+          "Conflict" and counted under conflicting replacements.
         </p>
       </details>
 
