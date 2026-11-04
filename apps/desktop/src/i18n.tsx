@@ -45,7 +45,7 @@ export const ja = {
   "viewer.emptyImagesMissing":
     "ページ画像が見つかりません。最初から解析し直してください（候補は作り直されます。判断・辞書・Entity は残ります）。",
   "viewer.revealFinding": "クリックで右ペインの該当候補を表示",
-  "viewer.deleteRegionRule": "クリックでこの領域ルールを削除",
+  "viewer.revealRegionRule": "クリックで右ペインの該当ルールを表示",
 
   "settings.title": "設定",
   "settings.close": "閉じる",
@@ -334,6 +334,7 @@ export const ja = {
   "review.undo": "取消",
   "review.editText": "文字列を修正",
   "review.delete": "削除",
+  "review.regionRemoved": "領域ルールを1件削除しました",
   "review.pendingRulesHeading": "適用予定ルール（{count}件）",
   "review.toggleCrops": "出現箇所のビフォー/アフターを開閉",
   "review.variantsToAlias": "{count}表記 → {alias}",
@@ -467,7 +468,7 @@ export const en: Record<MessageKey, string> = {
   "viewer.emptyImagesMissing":
     "The page images are missing. Run the analysis again from the start (candidates are rebuilt; your decisions, dictionaries and entities are kept).",
   "viewer.revealFinding": "Click to show this candidate in the right pane",
-  "viewer.deleteRegionRule": "Click to delete this region rule",
+  "viewer.revealRegionRule": "Click to show this rule in the right pane",
 
   "settings.title": "Settings",
   "settings.close": "Close",
@@ -762,6 +763,7 @@ export const en: Record<MessageKey, string> = {
   "review.undo": "Cancel",
   "review.editText": "Edit the text",
   "review.delete": "Delete",
+  "review.regionRemoved": "Deleted one region rule",
   "review.pendingRulesHeading": "Pending rules ({count})",
   "review.toggleCrops": "Show or hide the before/after of each occurrence",
   "review.variantsToAlias": "{count} spellings → {alias}",

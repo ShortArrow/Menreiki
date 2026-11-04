@@ -499,6 +499,7 @@ type LastDeletion =
   | { kind: "entity"; entity: Entity; index: number }
   | { kind: "variant"; entityId: string; variant: string; index: number }
   | { kind: "dictionary"; entry: DictionaryEntry }
+  | { kind: "region"; rule: RegionRule; index: number }
   | null;
 
 /// In-place entity assignment: a small popover right on the row offering a
@@ -1172,6 +1173,10 @@ export default function ReviewView(props: {
   );
   const findingRowRefs = useRef(new Map<string, HTMLDivElement>());
   const [flashKey, setFlashKey] = useState<string | null>(null);
+  const regionRowRefs = useRef(new Map<number, HTMLDivElement>());
+  const [regionFlashIndex, setRegionFlashIndex] = useState<number | null>(
+    null,
+  );
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
@@ -1247,6 +1252,7 @@ export default function ReviewView(props: {
             drawnOn: region.drawn_on,
           })),
         );
+        dropRegionUndo();
         setAlignOverrides(saved.align_overrides ?? []);
         setHydrated(true);
       })
@@ -1503,6 +1509,13 @@ export default function ReviewView(props: {
           candidate.id === entityId ? { ...parent, variants } : candidate,
         );
       });
+    } else if (deletion.kind === "region") {
+      const { rule, index } = deletion;
+      setRegionRules((current) => {
+        const next = [...current];
+        next.splice(Math.min(index, next.length), 0, rule);
+        return next;
+      });
     } else {
       const { entry } = deletion;
       void run(t("review.registeringDictionary"), async () => {
@@ -1531,6 +1544,8 @@ export default function ReviewView(props: {
         return t("review.removedVariant", { text: deletion.variant });
       case "dictionary":
         return t("review.removedDictionaryEntry", { text: deletion.entry.text });
+      case "region":
+        return t("review.regionRemoved");
     }
   }
 
@@ -2273,6 +2288,31 @@ export default function ReviewView(props: {
     window.setTimeout(() => setFlashKey(null), 1300);
   }
 
+  /// Scrolls the rules list to the region rule at `index` and flashes it —
+  /// what a click on a region rect in the main view does (never a deletion).
+  function revealRegionRow(index: number) {
+    regionRowRefs.current
+      .get(index)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setRegionFlashIndex(index);
+    window.setTimeout(() => setRegionFlashIndex(null), 1300);
+  }
+
+  /// Deletes a region rule from the pane and offers it in the pane's one-step
+  /// undo bar, so a deletion never silently loses an approved rule.
+  function removeRegionRule(index: number) {
+    const rule = regionRules[index];
+    if (!rule) return;
+    setLastDeletion({ kind: "region", rule, index });
+    setRegionRules((current) => current.filter((_, i) => i !== index));
+  }
+
+  /// Forgets a pending region-rule undo (the rule list was replaced), while
+  /// leaving an entity or dictionary undo offer in place.
+  function dropRegionUndo() {
+    setLastDeletion((current) => (current?.kind === "region" ? null : current));
+  }
+
   // The mode stays active afterwards (like erase/mask), so several spots can
   // be boxed in a row without re-selecting it.
   function detectRegion(rect: Rect) {
@@ -2587,6 +2627,7 @@ export default function ReviewView(props: {
     setDecisions({});
     setTextRules([]);
     setRegionRules([]);
+    dropRegionUndo();
   }
 
   // What the bulk clear removes. Counted from state, not from the current
@@ -3091,11 +3132,7 @@ export default function ReviewView(props: {
                     },
                   ]);
                 }}
-                onRegionRemove={(index) =>
-                  setRegionRules((current) =>
-                    current.filter((_, i) => i !== index),
-                  )
-                }
+                onRegionReveal={revealRegionRow}
                 onFindingClick={revealFindingRow}
                 pageCount={project.pageCount}
                 scrollPageFlip={scrollPageFlip}
@@ -3712,7 +3749,19 @@ export default function ReviewView(props: {
               ))}
 
               {regionRules.map((rule, index) => (
-                <div key={`region-${index}`} className="rule-entry region">
+                <div
+                  key={`region-${index}`}
+                  ref={(element) => {
+                    if (element) regionRowRefs.current.set(index, element);
+                    else regionRowRefs.current.delete(index);
+                  }}
+                  className={[
+                    "rule-entry region",
+                    regionFlashIndex === index ? "reveal-flash" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
                   <div className="rule-entry-main">
                     <span className="chip-action">
                       {actionLabel(t, rule.action)}
@@ -3741,13 +3790,7 @@ export default function ReviewView(props: {
                         {t("review.preview")}
                       </button>
                     )}
-                    <button
-                      onClick={() =>
-                        setRegionRules((current) =>
-                          current.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
+                    <button onClick={() => removeRegionRule(index)}>
                       {t("review.delete")}
                     </button>
                   </div>

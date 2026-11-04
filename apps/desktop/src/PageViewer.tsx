@@ -46,7 +46,10 @@ export default function PageViewer(props: {
   focusRect: Rect | null;
   focusNonce: number;
   onRegion: (rect: Rect) => void;
-  onRegionRemove: (index: number) => void;
+  /// Clicking a region rule's rect (outside drawing modes) — non-destructive:
+  /// reveals the matching rule entry in the side pane. Deletion happens only
+  /// from the side pane, where it can be undone.
+  onRegionReveal: (index: number) => void;
   /// Clicking a finding's overlay rect (outside drawing modes) — used to
   /// reveal the matching row in the side pane.
   onFindingClick?: (finding: Finding) => void;
@@ -295,6 +298,24 @@ export default function PageViewer(props: {
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
             >
+              {/* Region rects first, findings after: a finding inside a region
+                  (e.g. an all-pages footer rule) stays on top and clickable. */}
+              {props.regions.map((region) => (
+                <rect
+                  key={`region-${region.index}`}
+                  className={`region-rect ${region.action}`}
+                  x={region.rect.x}
+                  y={region.rect.y}
+                  width={region.rect.width}
+                  height={region.rect.height}
+                  onClick={() => {
+                    if (props.drawMode === "none")
+                      props.onRegionReveal(region.index);
+                  }}
+                >
+                  <title>{t("viewer.revealRegionRule")}</title>
+                </rect>
+              ))}
               {props.findings.map((finding, index) => {
                 // A finding covering the whole page has no real location (a
                 // VLM candidate is page-level); don't tint the page for it.
@@ -324,22 +345,6 @@ export default function PageViewer(props: {
                   </rect>
                 );
               })}
-              {props.regions.map((region) => (
-                <rect
-                  key={`region-${region.index}`}
-                  className={`region-rect ${region.action}`}
-                  x={region.rect.x}
-                  y={region.rect.y}
-                  width={region.rect.width}
-                  height={region.rect.height}
-                  onClick={() => {
-                    if (props.drawMode === "none")
-                      props.onRegionRemove(region.index);
-                  }}
-                >
-                  <title>{t("viewer.deleteRegionRule")}</title>
-                </rect>
-              ))}
               {props.rulePreview &&
                 props.findings.map((finding, index) => {
                   const rule = props.rulePreview?.get(finding.text);

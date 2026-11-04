@@ -626,6 +626,10 @@ export default function HelpEn() {
               <th>None</th>
               <td>
                 Drawing off. Clicking a candidate rectangle navigates instead.
+                Clicking a region rectangle shows its rule in the right pane (it
+                does not delete it). Delete region rules with the right pane's
+                Delete button; right after a deletion, Undo at the top of the
+                right pane restores it.
               </td>
             </tr>
             <tr>

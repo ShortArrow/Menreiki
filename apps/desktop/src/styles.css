@@ -716,8 +716,12 @@ svg.lucide {
 }
 
 .overlay:not(.drawing) .region-rect:hover {
-  fill: rgba(180, 35, 24, 0.25);
-  stroke: #b42318;
+  fill: rgba(28, 39, 51, 0.32);
+  stroke-dasharray: none;
+}
+
+:root[data-theme="dark"] .overlay:not(.drawing) .region-rect:hover {
+  fill: rgba(226, 232, 238, 0.32);
 }
 
 .overlay.drawing .region-rect {
