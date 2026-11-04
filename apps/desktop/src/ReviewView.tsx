@@ -1684,6 +1684,22 @@ export default function ReviewView(props: {
     });
   }
 
+  // Builds the status notice shown after a successful export: the page-scope
+  // note, then the undecided-candidates warning, then the audit nudge while
+  // no audit result exists. The scope note is embedded through `{scope}` so it
+  // is not repeated; joining whitespace lives in the dictionary strings.
+  function composeExportNotice(scopeNote: string): string | null {
+    const base =
+      undecidedCount > 0
+        ? t("review.undecidedWarning", {
+            scope: scopeNote,
+            count: undecidedCount,
+          })
+        : scopeNote;
+    const text = base + (audit === null ? t("review.auditNudge") : "");
+    return text === "" ? null : text;
+  }
+
   function runExport(pages?: number[]) {
     setExportMenuOpen(false);
     // The page menu can stay open while inputs change underneath it (e.g. by
@@ -1697,38 +1713,21 @@ export default function ReviewView(props: {
         pages && pages.length > 0
           ? t("review.exportedPages", { count: pages.length })
           : "";
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", {
-            scope: scopeNote,
-            count: undecidedCount,
-          }),
-        );
-      } else if (scopeNote) {
-        setNotice(scopeNote);
-      }
+      setNotice(composeExportNotice(scopeNote));
     });
   }
 
   function runExportImages() {
     void run(t("review.exportingImages"), async () => {
       setImagesPath(await exportImages(project.projectDir));
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
-        );
-      }
+      setNotice(composeExportNotice(""));
     });
   }
 
   function runExportMarkdown() {
     void run(t("review.generatingMarkdown"), async () => {
       setMarkdownPath(await exportMarkdown(project.projectDir));
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
-        );
-      }
+      setNotice(composeExportNotice(""));
     });
   }
 
@@ -2069,6 +2068,13 @@ export default function ReviewView(props: {
     (key) => decisions[key],
   ).length;
   const undecidedCount = uniqueFindingKeys.size - decidedCount;
+  // Highlight Audit while an export exists but the transformed pages have not
+  // been audited yet. Stale renders disable Audit, so they are not highlighted.
+  const needsAudit =
+    hasRenders &&
+    !stale &&
+    audit === null &&
+    Boolean(exportPath || markdownPath || imagesPath);
 
   const currentPageSearchHits =
     searchHits?.find((entry) => entry.page_index === page)?.findings ?? [];
@@ -2398,6 +2404,7 @@ export default function ReviewView(props: {
           {t("review.exportImages")}
         </button>
         <button
+          className={needsAudit ? "primary" : undefined}
           onClick={runAudit}
           disabled={busy !== null || !hasRenders || stale}
         >

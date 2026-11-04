@@ -194,6 +194,8 @@ export const ja = {
   "review.exportedPages": "{count} ページを出力しました。",
   "review.undecidedWarning":
     "{scope}未判断の候補が {count} 種類残っています。出力を共有する前に確認してください。",
+  "review.auditNudge":
+    "共有する前に「監査」を実行してください。変換後のページを再OCRし、ポリシーの対象語が残っていないかを照合します。",
   "review.exportingImages": "画像を出力中…",
   "review.generatingMarkdown": "Markdownを生成中…",
   "review.auditing": "再検査中…",
@@ -575,7 +577,9 @@ export const en: Record<MessageKey, string> = {
   "review.rebuildingPdf": "Rebuilding the PDF…",
   "review.exportedPages": "Exported {count} pages. ",
   "review.undecidedWarning":
-    "{scope}{count} candidate kinds are still undecided. Review them before sharing the output.",
+    "{scope}{count} candidate kinds are still undecided. Review them before sharing the output. ",
+  "review.auditNudge":
+    "Run Audit before sharing: it re-OCRs the transformed pages and checks that the policy's terms no longer appear.",
   "review.exportingImages": "Exporting images…",
   "review.generatingMarkdown": "Generating Markdown…",
   "review.auditing": "Re-checking…",
