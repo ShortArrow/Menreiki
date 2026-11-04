@@ -181,14 +181,59 @@ fn initial_project() -> Option<ProjectInfo> {
     project_info(&menreiki_project::resolve_project_dir(Path::new(&arg))).ok()
 }
 
+/// Why an import failed, typed so the UI can explain the common
+/// "project folder already exists" case in its own language and offer to
+/// open that project when it was made from the same bytes.
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum ImportFailure {
+    ProjectExists {
+        path: String,
+        same_source: Option<bool>,
+        existing_file_name: Option<String>,
+    },
+    Other {
+        message: String,
+    },
+}
+
+/// Maps an import error to what the UI receives; `inspect` is only called
+/// for an existing project folder, with that folder.
+fn import_failure(
+    error: menreiki_project::ImportError,
+    inspect: impl FnOnce(&Path) -> menreiki_project::ExistingProject,
+) -> ImportFailure {
+    match error {
+        menreiki_project::ImportError::ProjectDirExists(dir) => {
+            let existing = inspect(&dir);
+            ImportFailure::ProjectExists {
+                path: dir.display().to_string(),
+                same_source: existing.same_source,
+                existing_file_name: existing.existing_file_name,
+            }
+        }
+        other => ImportFailure::Other {
+            message: other.to_string(),
+        },
+    }
+}
+
 #[tauri::command]
-fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo, String> {
+fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo, ImportFailure> {
     let input = PathBuf::from(input);
     let project_dir = project
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("menreiki"));
-    menreiki_project::import(&input, &project_dir).map_err(|error| error.to_string())?;
-    project_info(&project_dir)
+    menreiki_project::import(&input, &project_dir).map_err(|error| {
+        import_failure(error, |dir| {
+            menreiki_project::inspect_existing_project(&input, dir)
+        })
+    })?;
+    project_info(&project_dir).map_err(|message| ImportFailure::Other { message })
 }
 
 #[tauri::command]
@@ -1208,4 +1253,66 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use menreiki_project::{ExistingProject, ImportError};
+    use serde_json::json;
+
+    #[test]
+    fn existing_project_folder_serializes_with_its_comparison() {
+        let dir = PathBuf::from("docs").join("spec.menreiki");
+        let failure = import_failure(ImportError::ProjectDirExists(dir.clone()), |seen| {
+            assert_eq!(seen, dir.as_path());
+            ExistingProject {
+                same_source: Some(true),
+                existing_file_name: Some("spec.pdf".to_string()),
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({
+                "kind": "projectExists",
+                "path": dir.display().to_string(),
+                "sameSource": true,
+                "existingFileName": "spec.pdf",
+            })
+        );
+    }
+
+    #[test]
+    fn unreadable_existing_project_serializes_as_nulls() {
+        let dir = PathBuf::from("spec.menreiki");
+        let failure = import_failure(ImportError::ProjectDirExists(dir.clone()), |_| {
+            ExistingProject {
+                same_source: None,
+                existing_file_name: None,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({
+                "kind": "projectExists",
+                "path": dir.display().to_string(),
+                "sameSource": null,
+                "existingFileName": null,
+            })
+        );
+    }
+
+    #[test]
+    fn other_errors_keep_their_message_and_skip_inspection() {
+        let error = ImportError::MissingFileName;
+        let message = error.to_string();
+        let failure = import_failure(error, |_| panic!("only existing folders are inspected"));
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({ "kind": "other", "message": message })
+        );
+    }
 }
