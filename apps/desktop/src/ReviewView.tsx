@@ -13,7 +13,7 @@ import {
   Sun,
   X,
 } from "./icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   addDictionaryEntry,
@@ -23,6 +23,7 @@ import {
   cancelAnalysis,
   countMatches,
   exportMarkdown,
+  getConfig,
   getProjectSettings,
   setProjectSettings,
   exportImages,
@@ -35,6 +36,8 @@ import {
   loadReviewDecisions,
   pageImageUrl,
   removeDictionaryEntry,
+  revealProject,
+  REVEAL_UNSUPPORTED,
   saveEntities,
   saveReviewDecisions,
   addManualFinding,
@@ -47,8 +50,17 @@ import {
   textInRegion,
   vlmInRegion,
 } from "./api";
+import ExportConfirmDialog from "./ExportConfirmDialog";
 import HelpView from "./HelpView";
-import { useI18n, type MessageKey, type Language, type Translate } from "./i18n";
+import { describeError } from "./errors";
+import {
+  categoryLabel,
+  useI18n,
+  type MessageKey,
+  type Language,
+  type Translate,
+} from "./i18n";
+import Modal from "./Modal";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
@@ -57,10 +69,11 @@ import type {
   AnalysisScope,
   AppliedEdit,
   ApplySummary,
-  AuditReport,
+  AuditResult,
   DictionaryEntry,
   Entity,
   Finding,
+  OcrLanguageStatus,
   PageFindings,
   Policy,
   PolicyRule,
@@ -69,13 +82,23 @@ import type {
   ReviewDecisions,
   TextAlign,
 } from "./types";
+import { EMPTY_REPLACEMENT } from "./types";
 
 type DecisionAction = "keep" | "erase" | "mask" | "replace";
+/// Which long-running analysis job owns the status bar, if any.
+type AnalysisKind = "analyze" | "llm";
 
 interface Decision {
   action: DecisionAction;
   value: string;
   align?: TextAlign;
+}
+
+type BulkAction = "keep" | "mask" | "erase";
+
+interface BulkTarget {
+  key: string;
+  finding: Finding;
 }
 
 interface TextRule {
@@ -97,6 +120,30 @@ interface RegionRule {
 const findingKey = (finding: Finding) =>
   `${finding.category}|::|${finding.text}`;
 
+// Detectors whose output is a local-AI guess, shown as advisory only
+// (PRD 11.5: LLM judgments are reference information, never a verdict).
+const ADVISORY_DETECTORS = new Set(["llm", "vlm"]);
+const KNOWN_DETECTORS = new Set([
+  "regex",
+  "dictionary",
+  "layout",
+  "llm",
+  "vlm",
+  "manual",
+]);
+
+/** Chip label for a `Finding.detector`; unknown values (e.g. `pack:foo`)
+ * are shown raw so their provenance stays traceable (ADR-016). */
+const sourceLabel = (
+  detector: string,
+  t: Translate,
+): { label: string; advisory: boolean } => ({
+  label: KNOWN_DETECTORS.has(detector)
+    ? t(`review.source.${detector}` as MessageKey)
+    : detector,
+  advisory: ADVISORY_DETECTORS.has(detector),
+});
+
 const actionLabel = (t: Translate, action: Exclude<DecisionAction, "keep">) =>
   t(`action.${action}` as MessageKey);
 
@@ -104,6 +151,17 @@ const aliasLabel = (t: Translate, category: string) =>
   category in ALIAS_CATEGORIES
     ? t(`alias.${category}` as MessageKey)
     : t("alias.fallback");
+
+/// Categories offered when registering a word to the dictionary. "custom" is
+/// the catch-all shown as "Other".
+const DICTIONARY_CATEGORIES = [
+  "organization",
+  "department",
+  "person",
+  "product",
+  "place",
+  "custom",
+];
 
 const ALIAS_CATEGORIES = {
   organization: true,
@@ -135,6 +193,7 @@ function progressLabel(t: Translate, progress: AnalyzeProgress): string {
     case "markdown":
     case "llm":
     case "vlm":
+    case "audit":
       return t(`progress.${progress.stage}` as MessageKey, { pages });
     case "detect":
       return t("progress.detect");
@@ -231,7 +290,7 @@ function AliasSuggest(props: {
     setItems(null);
     suggestReplacements(props.text, props.category)
       .then((loaded) => setItems(loaded))
-      .catch((failure) => setError(String(failure)))
+      .catch((failure) => setError(describeError(failure, t)))
       .finally(() => setLoading(false));
   }
 
@@ -314,6 +373,7 @@ function AlignToggle(props: {
         <button
           key={align}
           className={current === align ? "align-btn current" : "align-btn"}
+          aria-pressed={current === align}
           title={title}
           aria-label={title}
           onClick={() => props.onChange(align)}
@@ -325,10 +385,65 @@ function AlignToggle(props: {
   );
 }
 
+/// The value field, alias suggestions and alignment of one replace decision.
+/// Shared by the pending-rules row and the candidate row, which both edit the
+/// same decision. Without `className` it renders its controls inline in the
+/// parent row; with one it wraps them (the candidate row's second line).
+function ReplaceValueEditor(props: {
+  text: string;
+  category: string;
+  value: string;
+  align: TextAlign | undefined;
+  onValue: (value: string) => void;
+  onAlign: (align: TextAlign) => void;
+  className?: string;
+  inputClassName?: string;
+  inputLabel?: string;
+  /// Focus the field once when it mounts, then report it.
+  autoFocus?: boolean;
+  onAutoFocused?: () => void;
+}) {
+  const { t } = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Captured at mount: later renders must not steal focus back.
+  const mountProps = useRef(props);
+  useEffect(() => {
+    if (!mountProps.current.autoFocus) return;
+    inputRef.current?.focus();
+    mountProps.current.onAutoFocused?.();
+  }, []);
+  const controls = (
+    <>
+      <input
+        ref={inputRef}
+        className={props.inputClassName ?? "replace-input"}
+        placeholder={t("review.replacementPlaceholder")}
+        aria-label={props.inputLabel}
+        value={props.value}
+        onChange={(event) => props.onValue(event.target.value)}
+      />
+      <AliasSuggest
+        text={props.text}
+        category={props.category}
+        onPick={props.onValue}
+      />
+      <AlignToggle value={props.align} onChange={props.onAlign} />
+    </>
+  );
+  return props.className ? (
+    <div className={props.className}>{controls}</div>
+  ) : (
+    controls
+  );
+}
+
 /// One-click decision buttons (keep/mask/erase/replace) with the current state
 /// highlighted; clicking the active one clears the decision. The same control
 /// everywhere a target can be judged, replacing per-place dropdowns.
 function DecisionButtons(props: {
+  /// Accessible name of the group, naming the finding the buttons judge so a
+  /// screen reader can tell one row's buttons from the next.
+  label: string;
   value: DecisionAction | undefined;
   onChange: (action: DecisionAction | "undecided") => void;
 }) {
@@ -340,13 +455,14 @@ function DecisionButtons(props: {
     ["replace", t("action.replace")],
   ];
   return (
-    <span className="decision-buttons">
+    <span className="decision-buttons" role="group" aria-label={props.label}>
       {options.map(([action, label]) => (
         <button
           key={action}
           className={
             props.value === action ? "decision-btn current" : "decision-btn"
           }
+          aria-pressed={props.value === action}
           title={
             props.value === action
               ? t("action.release", { action: label })
@@ -380,6 +496,16 @@ function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
     right: Math.max(8, window.innerWidth - rect.right),
   };
 }
+
+/// The one deletion the review pane can still take back (transient UI state).
+/// "ignore" is the entry the last "Ignore" click added to the ignore list.
+type LastDeletion =
+  | { kind: "entity"; entity: Entity; index: number }
+  | { kind: "variant"; entityId: string; variant: string; index: number }
+  | { kind: "dictionary"; entry: DictionaryEntry }
+  | { kind: "region"; rule: RegionRule; index: number }
+  | { kind: "ignore"; text: string; category: string }
+  | null;
 
 /// In-place entity assignment: a small popover right on the row offering a
 /// new entity or any existing one, so consolidating a spelling never requires
@@ -444,6 +570,7 @@ function FindingGroupMenu(props: {
   groups: { category: string; text: string }[];
   seed: string;
   onPick: (group: { category: string; text: string }) => void;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -470,6 +597,7 @@ function FindingGroupMenu(props: {
         ref={anchorRef}
         className="mini"
         title={t("review.mergeIntoExisting")}
+        disabled={props.disabled}
         onClick={() => {
           setMenuStyle(popoverPosition(anchorRef.current));
           setOpen((current) => !current);
@@ -498,7 +626,9 @@ function FindingGroupMenu(props: {
                   props.onPick(group);
                 }}
               >
-                <span className="category-tag">{group.category}</span>{" "}
+                <span className="category-tag">
+                  {categoryLabel(t, group.category)}
+                </span>{" "}
                 {group.text}
               </button>
             ))}
@@ -521,26 +651,129 @@ interface DetectedTarget {
 
 const stripWs = (value: string) => value.replace(/[\s　]/g, "");
 
+/// Clipboard copy with a short-lived "copied" flag for a ✓ on the button.
+function useCopyFeedback(): [boolean, (text: string) => void] {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  function copy(text: string) {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1200);
+    });
+  }
+  return [copied, copy];
+}
+
+/// Copy-to-clipboard button showing ✓ for a moment after a copy.
+function CopyPathButton(props: { path: string }) {
+  const { t } = useI18n();
+  const [copied, copy] = useCopyFeedback();
+  return (
+    <button
+      className="mini"
+      title={t("review.copyPath")}
+      aria-label={t("review.copyPath")}
+      onClick={() => copy(props.path)}
+    >
+      {copied ? "✓" : t("review.copy")}
+    </button>
+  );
+}
+
 /// An exported path with a copy-to-clipboard button.
 function ExportPathLine(props: { path: string }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
   return (
     <p className="export-path" title={props.path}>
-      <button
-        className="mini"
-        title={t("review.copyPath")}
-        onClick={() => {
-          void navigator.clipboard.writeText(props.path).then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          });
-        }}
-      >
-        {copied ? "✓" : t("review.copy")}
-      </button>{" "}
+      <CopyPathButton path={props.path} />{" "}
       {t("review.output", { path: props.path })}
     </p>
+  );
+}
+
+/// Button that opens the OS file manager with the project folder selected.
+function RevealButton(props: {
+  project: string;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      className="mini"
+      onClick={() => {
+        revealProject(props.project).catch((failure) =>
+          props.onError(
+            String(failure) === REVEAL_UNSUPPORTED
+              ? t("review.revealUnsupported")
+              : String(failure),
+          ),
+        );
+      }}
+    >
+      {t("review.reveal")}
+    </button>
+  );
+}
+
+/// The project folder's full path in the toolbar, with copy and reveal, so
+/// the user always knows where the confidential working copy lives.
+function ProjectPathLine(props: {
+  path: string;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <span className="project-path-line">
+      <span
+        className="project-path"
+        data-testid="project-path"
+        title={t("review.projectPath", { path: props.path })}
+      >
+        {props.path}
+      </span>
+      <CopyPathButton path={props.path} />
+      <RevealButton project={props.path} onError={props.onError} />
+    </span>
+  );
+}
+
+/// One-time banner after a GUI import: where the project folder was made
+/// and that it holds sensitive copies. Dismissal is not persisted (ADR-014).
+function ImportedNotice(props: {
+  path: string;
+  onDismiss: () => void;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className="imported-notice"
+      data-testid="imported-notice"
+      role="status"
+    >
+      <div className="imported-notice-body">
+        <p className="imported-notice-path">
+          {t("review.importedNotice", { path: props.path })}
+        </p>
+        <p>{t("review.importedCaution")}</p>
+      </div>
+      <RevealButton project={props.path} onError={props.onError} />
+      <button
+        className="mini"
+        title={t("review.dismissNotice")}
+        aria-label={t("review.dismissNotice")}
+        onClick={props.onDismiss}
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }
 
@@ -656,7 +889,7 @@ function RuleCropsPanel(props: {
                           : "center",
                   }}
                 >
-                  {props.action === "replace" ? props.value || "■■■" : ""}
+                  {props.action === "replace" ? props.value || EMPTY_REPLACEMENT : ""}
                 </span>
               </span>
             </button>
@@ -675,10 +908,153 @@ function RuleCropsPanel(props: {
   );
 }
 
+type SaveState = "idle" | "saving" | "saved" | "failed";
+
+interface SaveStatus {
+  state: SaveState;
+  /// The string the Tauri command rejected with; never the payload.
+  error: string | null;
+}
+
+const AUTOSAVE_DELAY_MS = 400;
+
+/// Debounced autosave whose pending write can also be flushed on demand
+/// (leaving the review screen) and whose failures surface as state instead
+/// of being swallowed. Writes are serialized: a flush waits for the write in
+/// flight, then writes the latest payload. A failed write keeps the payload
+/// pending, so a later flush retries it and leaving still refuses to drop it.
+function useAutosave<T>(write: (job: T) => Promise<void>, hydrated: boolean) {
+  const [status, setStatus] = useState<SaveStatus>({
+    state: "idle",
+    error: null,
+  });
+  const hydratedRef = useRef(hydrated);
+  hydratedRef.current = hydrated;
+  const [controller] = useState(() => {
+    let latest: T | null = null;
+    let dirty = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let inflight: Promise<boolean> | null = null;
+    // Each request gets a number; only the newest one may set the status, so
+    // a late answer to an older request can never overwrite a newer result.
+    let seq = 0;
+
+    function cancelTimer() {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    }
+
+    async function flush(): Promise<boolean> {
+      // Never write before the saved state was loaded: the in-memory state
+      // is still the empty initial one and would clobber the file.
+      if (!hydratedRef.current) return true;
+      while (inflight) await inflight;
+      if (!dirty || latest === null) return true;
+      const job = latest;
+      dirty = false;
+      const id = ++seq;
+      setStatus((current) => ({ state: "saving", error: current.error }));
+      const request: Promise<boolean> = write(job)
+        .then(
+          () => {
+            if (id === seq) setStatus({ state: "saved", error: null });
+            return true;
+          },
+          (failure: unknown) => {
+            dirty = true;
+            if (id === seq) {
+              setStatus({ state: "failed", error: String(failure) });
+            }
+            return false;
+          },
+        )
+        .finally(() => {
+          if (inflight === request) inflight = null;
+        });
+      inflight = request;
+      return request;
+    }
+
+    return {
+      schedule(job: T) {
+        latest = job;
+        dirty = true;
+        cancelTimer();
+        timer = setTimeout(() => {
+          timer = undefined;
+          void flush();
+        }, AUTOSAVE_DELAY_MS);
+      },
+      cancelTimer,
+      flush,
+      hasPending: () => dirty,
+      /// Drops the pending payload; only for an explicit user choice.
+      discard() {
+        cancelTimer();
+        dirty = false;
+      },
+    };
+  });
+  return { status, ...controller };
+}
+
+function buildDecisionsPayload(
+  decisions: Record<string, Decision>,
+  textRules: TextRule[],
+  regionRules: RegionRule[],
+  alignOverrides: AlignOverride[],
+): ReviewDecisions {
+  return {
+    findings: Object.entries(decisions).map(([key, decision]) => {
+      const [category, ...rest] = key.split("|::|");
+      return {
+        category,
+        text: rest.join("|::|"),
+        action: decision.action,
+        value: decision.value,
+        align: decision.align,
+      };
+    }),
+    texts: textRules.map((rule) => ({
+      text: rule.text,
+      action: rule.action,
+      value: rule.value,
+      align: rule.align,
+    })),
+    regions: regionRules.map((rule) => ({
+      rect: rule.rect,
+      action: rule.action,
+      page: rule.scope === "all" ? null : rule.scope,
+      drawn_on: rule.drawnOn,
+    })),
+    align_overrides: alignOverrides,
+  };
+}
+
+function writeDecisions(job: { dir: string; payload: ReviewDecisions }) {
+  return saveReviewDecisions(job.dir, job.payload);
+}
+
+function writeEntities(job: { dir: string; entities: Entity[] }) {
+  return saveEntities(job.dir, job.entities);
+}
+
+function combineSaveStatus(a: SaveStatus, b: SaveStatus): SaveStatus {
+  for (const state of ["failed", "saving", "saved"] as const) {
+    const match = [a, b].find((status) => status.state === state);
+    if (match) {
+      return { state, error: a.error ?? b.error };
+    }
+  }
+  return { state: "idle", error: null };
+}
+
 export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
   onClose: () => void;
+  justImported: boolean;
+  onDismissImported: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onLanguageChange: (language: Language) => void;
@@ -691,6 +1067,7 @@ export default function ReviewView(props: {
   const [textRules, setTextRules] = useState<TextRule[]>([]);
   const [regionRules, setRegionRules] = useState<RegionRule[]>([]);
   const [alignOverrides, setAlignOverrides] = useState<AlignOverride[]>([]);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [drawMode, setDrawMode] = useState<DrawMode>("none");
   const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
@@ -712,16 +1089,37 @@ export default function ReviewView(props: {
     Record<string, string[]>
   >({});
   const [entityCounts, setEntityCounts] = useState<Record<string, number>>({});
+  // The single most recent deletion that can still be undone. Kept apart from
+  // `notice` (which every `run` clears) and never persisted to any layer.
+  const [lastDeletion, setLastDeletion] = useState<LastDeletion>(null);
+  // Entity id awaiting the in-app delete confirmation, if any.
+  const [pendingEntityDelete, setPendingEntityDelete] = useState<
+    string | null
+  >(null);
+  // Entity ids whose meta must be refreshed once a restore has landed in
+  // `entities` (the restore itself runs inside a state updater).
+  const pendingMetaRefresh = useRef(new Set<string>());
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportPagesInput, setExportPagesInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Whether a local model is configured. Without one the LLM menu items lead
+  // to the settings dialog; if the config cannot be read, assume configured
+  // so the features stay usable as before.
+  const [llmConfigured, setLlmConfigured] = useState(true);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
+  const previewTitleId = useId();
+  const clearAllTitleId = useId();
+  const bulkApplyTitleId = useId();
+  const homeButton = useRef<HTMLButtonElement>(null);
+  // The export menu items unmount before the confirmation opens, so the
+  // dialog hands focus back to the menu toggle instead.
+  const exportToggle = useRef<HTMLButtonElement>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
   const [scrollPageFlip, setScrollPageFlip] = useState(
     () => localStorage.getItem("menreiki.scrollPageFlip") === "1",
@@ -732,6 +1130,49 @@ export default function ReviewView(props: {
   const [findingFilter, setFindingFilter] = useState("");
   const [findingCategoryFilter, setFindingCategoryFilter] = useState("all");
   const [findingUndecidedOnly, setFindingUndecidedOnly] = useState(false);
+  // The candidate row holding focus; exempt from the "undecided only" filter.
+  const [editingFindingKey, setEditingFindingKey] = useState<string | null>(
+    null,
+  );
+  // The candidate row just switched to replace, whose value field should take
+  // focus when it mounts. A ref so the focus fires exactly once.
+  const pendingFocusKey = useRef<string | null>(null);
+  // Focus moves on pointerdown, before the click lands. Dropping the row that
+  // lost focus right then would shift the rows below it and the click would
+  // miss its button, so editing-row changes made while a pointer is held wait
+  // until it is released (after the click has been dispatched).
+  const pointerHeld = useRef(false);
+  const deferredEditingUpdates = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    const down = () => {
+      pointerHeld.current = true;
+    };
+    const up = () => {
+      pointerHeld.current = false;
+      const updates = deferredEditingUpdates.current;
+      deferredEditingUpdates.current = [];
+      if (updates.length > 0)
+        window.setTimeout(() => updates.forEach((update) => update()), 0);
+    };
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
+  const updateEditingFindingKey = (update: () => void) => {
+    if (pointerHeld.current) deferredEditingUpdates.current.push(update);
+    else update();
+  };
+  // Snapshot of the keys a bulk decision will touch, frozen when the
+  // confirmation opens so later findings or decisions cannot widen it.
+  const [bulkPending, setBulkPending] = useState<{
+    action: BulkAction;
+    targets: BulkTarget[];
+  } | null>(null);
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
@@ -742,12 +1183,28 @@ export default function ReviewView(props: {
   );
   const findingRowRefs = useRef(new Map<string, HTMLDivElement>());
   const [flashKey, setFlashKey] = useState<string | null>(null);
+  const regionRowRefs = useRef(new Map<number, HTMLDivElement>());
+  const [regionFlashIndex, setRegionFlashIndex] = useState<number | null>(
+    null,
+  );
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
+  /// Serialized inputs (policy + findings) of the last successful Apply. The
+  /// renders on disk reflect exactly these inputs; any difference means the
+  /// decisions on screen have not been painted yet.
+  const [appliedKey, setAppliedKey] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  // Long-running analysis (whole-project analyze / LLM detect) is tracked
+  // apart from `busy`, so short operations started mid-run (jump, search)
+  // neither hide its progress and cancel button nor unlock the actions that
+  // assume a finished analysis. The ref mirrors the state for `finally`
+  // blocks, which would otherwise read a stale closure value.
+  const [analysis, setAnalysis] = useState<AnalysisKind | null>(null);
+  const analysisRef = useRef<AnalysisKind | null>(null);
+  const analyzing = analysis !== null;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
@@ -755,8 +1212,33 @@ export default function ReviewView(props: {
   const [exportPath, setExportPath] = useState<string | null>(null);
   const [markdownPath, setMarkdownPath] = useState<string | null>(null);
   const [imagesPath, setImagesPath] = useState<string | null>(null);
-  const [audit, setAudit] = useState<AuditReport | null>(null);
+  const [audit, setAudit] = useState<AuditResult | null>(null);
+  // Set when an OCR-bearing analysis fell back from the requested language;
+  // kept apart from `notice` so other operations and detect-only reruns do
+  // not clear it. Only the next OCR-bearing run without fallback does.
+  const [ocrFallback, setOcrFallback] = useState<OcrLanguageStatus | null>(
+    null,
+  );
+  // Region rules in the policy the shown audit ran with. Kept with the report
+  // (not read from the live `regionRules`) so adding or removing a rectangle
+  // afterwards does not change what the shown result claims.
+  const [auditRegionCount, setAuditRegionCount] = useState(0);
+  // An export held back by the undecided-candidates confirmation. Always set
+  // it as `setPendingExport(() => action)`: passing the function directly
+  // would make React call it as an updater and export on the spot.
+  const [pendingExport, setPendingExport] = useState<(() => void) | null>(
+    null,
+  );
   const [hydrated, setHydrated] = useState(false);
+  // Kept apart from `error` so other operations never clear it: while a
+  // state file failed to load, its autosave stays off until the project is
+  // reopened, and the reviewer must know their edits are not being saved.
+  const [decisionsLoadError, setDecisionsLoadError] = useState<string | null>(
+    null,
+  );
+  const [entitiesLoadError, setEntitiesLoadError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -788,48 +1270,53 @@ export default function ReviewView(props: {
             drawnOn: region.drawn_on,
           })),
         );
+        dropRegionUndo();
         setAlignOverrides(saved.align_overrides ?? []);
         setHydrated(true);
       })
-      .catch(() => {
-        if (!cancelled) setHydrated(true);
+      .catch((failure) => {
+        // Leave `hydrated` unset so the autosave never replaces the
+        // unreadable file with an empty payload.
+        if (!cancelled) setDecisionsLoadError(String(failure));
       });
     return () => {
       cancelled = true;
     };
   }, [project.projectDir]);
 
+  const decisionsAutosave = useAutosave(writeDecisions, hydrated);
+  const entitiesAutosave = useAutosave(writeEntities, entitiesHydrated);
+  const saveStatus = combineSaveStatus(
+    decisionsAutosave.status,
+    entitiesAutosave.status,
+  );
+  const [closing, setClosing] = useState(false);
+  const [closeFailed, setCloseFailed] = useState(false);
+
+  // Safety net for unmounts that bypass goHome(): write what is pending,
+  // fire-and-forget. Kept out of the debounce effects so their per-change
+  // cleanup never triggers a write.
+  useEffect(() => {
+    return () => {
+      for (const autosave of [decisionsAutosave, entitiesAutosave]) {
+        autosave.cancelTimer();
+        if (autosave.hasPending()) void autosave.flush();
+      }
+    };
+    // The controllers are stable for the component's lifetime.
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
-    const timer = setTimeout(() => {
-      const payload: ReviewDecisions = {
-        findings: Object.entries(decisions).map(([key, decision]) => {
-          const [category, ...rest] = key.split("|::|");
-          return {
-            category,
-            text: rest.join("|::|"),
-            action: decision.action,
-            value: decision.value,
-            align: decision.align,
-          };
-        }),
-        texts: textRules.map((rule) => ({
-          text: rule.text,
-          action: rule.action,
-          value: rule.value,
-          align: rule.align,
-        })),
-        regions: regionRules.map((rule) => ({
-          rect: rule.rect,
-          action: rule.action,
-          page: rule.scope === "all" ? null : rule.scope,
-          drawn_on: rule.drawnOn,
-        })),
-        align_overrides: alignOverrides,
-      };
-      void saveReviewDecisions(project.projectDir, payload).catch(() => {});
-    }, 400);
-    return () => clearTimeout(timer);
+    decisionsAutosave.schedule({
+      dir: project.projectDir,
+      payload: buildDecisionsPayload(
+        decisions,
+        textRules,
+        regionRules,
+        alignOverrides,
+      ),
+    });
   }, [
     decisions,
     textRules,
@@ -868,8 +1355,9 @@ export default function ReviewView(props: {
         setEntitiesHydrated(true);
         for (const entity of loaded) void refreshEntityMeta(entity);
       })
-      .catch(() => {
-        if (!cancelled) setEntitiesHydrated(true);
+      .catch((failure) => {
+        // Same as decisions: no hydration, so no overwrite.
+        if (!cancelled) setEntitiesLoadError(String(failure));
       });
     return () => {
       cancelled = true;
@@ -877,11 +1365,22 @@ export default function ReviewView(props: {
   }, [project.projectDir]);
 
   useEffect(() => {
+    setLastDeletion(null);
+    setPendingEntityDelete(null);
+  }, [project.projectDir]);
+
+  useEffect(() => {
+    if (pendingMetaRefresh.current.size === 0) return;
+    const ids = pendingMetaRefresh.current;
+    pendingMetaRefresh.current = new Set();
+    for (const entity of entities) {
+      if (ids.has(entity.id)) void refreshEntityMeta(entity);
+    }
+  }, [entities]);
+
+  useEffect(() => {
     if (!entitiesHydrated) return;
-    const timer = setTimeout(() => {
-      void saveEntities(project.projectDir, entities).catch(() => {});
-    }, 400);
-    return () => clearTimeout(timer);
+    entitiesAutosave.schedule({ dir: project.projectDir, entities });
   }, [entities, entitiesHydrated, project.projectDir]);
 
   async function refreshEntityMeta(entity: Entity) {
@@ -937,10 +1436,158 @@ export default function ReviewView(props: {
     void refreshEntityMeta(updated);
   }
 
+  /// Deleting an entity loses hand-made merges (several spellings, or
+  /// per-position align overrides owned by it), so those ask first. The alias
+  /// is not a signal: every entity gets one automatically on creation.
+  function needsDeleteConfirm(entity: Entity) {
+    return (
+      entity.variants.length >= 2 ||
+      alignOverrides.some((override) => override.owner === `ent-${entity.id}`)
+    );
+  }
+
+  function deleteEntity(entity: Entity) {
+    setPendingEntityDelete(null);
+    const index = entities.findIndex((candidate) => candidate.id === entity.id);
+    if (index < 0) return;
+    setLastDeletion({ kind: "entity", entity: entities[index], index });
+    setEntities((current) =>
+      current.filter((candidate) => candidate.id !== entity.id),
+    );
+  }
+
+  function requestDeleteEntity(entity: Entity) {
+    if (needsDeleteConfirm(entity)) setPendingEntityDelete(entity.id);
+    else deleteEntity(entity);
+  }
+
+  function removeVariant(entity: Entity, variant: string) {
+    const index = entity.variants.indexOf(variant);
+    if (index < 0) return;
+    const updated = {
+      ...entity,
+      variants: entity.variants.filter((candidate) => candidate !== variant),
+    };
+    setLastDeletion({ kind: "variant", entityId: entity.id, variant, index });
+    setEntities((current) =>
+      current.map((candidate) =>
+        candidate.id === entity.id ? updated : candidate,
+      ),
+    );
+    void refreshEntityMeta(updated);
+  }
+
+  function deleteDictionaryEntry(entry: DictionaryEntry) {
+    if (analysisRef.current) return;
+    void run(t("review.removingFromDictionary"), async () => {
+      setDictionary(await removeDictionaryEntry(project.projectDir, entry.text));
+      // Recorded only once the removal itself succeeded; the whole entry is
+      // kept so richer entry shapes survive the round trip.
+      setLastDeletion({ kind: "dictionary", entry });
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
+  }
+
+  /// Restores the most recent deletion. Entity and variant restores are
+  /// checked against the live list and persisted by the entity autosave;
+  /// a dictionary restore re-registers the entry like the to-dictionary button does.
+  function undoLastDeletion() {
+    const deletion = lastDeletion;
+    // Dictionary and ignore restores re-run detection, which must wait for a
+    // running analysis; keep the undo offer until then.
+    if (
+      (deletion?.kind === "dictionary" || deletion?.kind === "ignore") &&
+      analysisRef.current
+    ) {
+      return;
+    }
+    setLastDeletion(null);
+    if (!deletion) return;
+    if (deletion.kind === "entity") {
+      const { entity, index } = deletion;
+      setEntities((current) => {
+        if (current.some((candidate) => candidate.id === entity.id)) {
+          return current;
+        }
+        const next = [...current];
+        next.splice(Math.min(index, next.length), 0, entity);
+        pendingMetaRefresh.current.add(entity.id);
+        return next;
+      });
+    } else if (deletion.kind === "variant") {
+      const { entityId, variant, index } = deletion;
+      setEntities((current) => {
+        const parent = current.find((candidate) => candidate.id === entityId);
+        // A spelling already owned by any entity would make the alias depend
+        // on list order, so it is never restored twice.
+        if (
+          !parent ||
+          current.some((candidate) => candidate.variants.includes(variant))
+        ) {
+          return current;
+        }
+        const variants = [...parent.variants];
+        variants.splice(Math.min(index, variants.length), 0, variant);
+        pendingMetaRefresh.current.add(entityId);
+        return current.map((candidate) =>
+          candidate.id === entityId ? { ...parent, variants } : candidate,
+        );
+      });
+    } else if (deletion.kind === "region") {
+      const { rule, index } = deletion;
+      setRegionRules((current) => {
+        const next = [...current];
+        next.splice(Math.min(index, next.length), 0, rule);
+        return next;
+      });
+    } else if (deletion.kind === "ignore") {
+      undoIgnore(deletion);
+    } else {
+      const { entry } = deletion;
+      void run(t("review.registeringDictionary"), async () => {
+        setDictionary(
+          await addDictionaryEntry(
+            project.projectDir,
+            entry.category,
+            entry.text,
+          ),
+        );
+        if (project.analyzed) {
+          await analyzeProject(project.projectDir, "detect-only");
+          setFindings(await listFindings(project.projectDir));
+        }
+      });
+    }
+  }
+
+  function lastDeletionMessage(deletion: NonNullable<LastDeletion>) {
+    switch (deletion.kind) {
+      case "entity":
+        return t("review.deletedEntity", {
+          alias: deletion.entity.alias || deletion.entity.variants[0] || "",
+        });
+      case "variant":
+        return t("review.removedVariant", { text: deletion.variant });
+      case "dictionary":
+        return t("review.removedDictionaryEntry", { text: deletion.entry.text });
+      case "region":
+        return t("review.regionRemoved");
+      case "ignore":
+        return t("review.ignoredNotice", {
+          text: deletion.text,
+          category: categoryLabel(t, deletion.category),
+        });
+    }
+  }
+
   /// Renames a dictionary entry in place (remove old, add corrected) and
   /// re-runs detection — the fix-a-typo path, so a small correction never
   /// requires delete-and-retype.
   function saveDictionaryEdit(entry: DictionaryEntry, draft: string) {
+    if (analysisRef.current) return;
     const corrected = draft.trim();
     setDictionaryEdit(null);
     if (!corrected || corrected === entry.text) return;
@@ -959,6 +1606,7 @@ export default function ReviewView(props: {
   /// Registers `text` in the project dictionary under `category` and re-runs
   /// detection — the shared path behind every "→辞書" conversion.
   function registerTextToDictionary(category: string, text: string) {
+    if (analysisRef.current) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     void run(t("review.registeringDictionary"), async () => {
@@ -1001,22 +1649,50 @@ export default function ReviewView(props: {
     try {
       return await action();
     } catch (failure) {
-      setError(String(failure));
+      setError(describeError(failure, t));
       return null;
     } finally {
       setBusy(null);
+      // A running analysis owns the progress line; leave it to that run.
+      if (!analysisRef.current) setProgress(null);
+    }
+  }
+
+  /// Runs a long analysis job (analyze / LLM detect) in its own slot, so it
+  /// keeps its progress and cancel button while the reviewer works.
+  async function runAnalysisTask<T>(
+    kind: AnalysisKind,
+    action: () => Promise<T>,
+  ) {
+    analysisRef.current = kind;
+    setAnalysis(kind);
+    setError(null);
+    setNotice(null);
+    try {
+      return await action();
+    } catch (failure) {
+      setError(describeError(failure, t));
+      return null;
+    } finally {
+      analysisRef.current = null;
+      setAnalysis(null);
       setProgress(null);
     }
   }
 
   function runAnalyze(scope: AnalysisScope, pages?: number[]) {
-    void run(t("review.analyzing"), async () => {
+    if (analysisRef.current) return;
+    void runAnalysisTask("analyze", async () => {
+      // Any analysis rewrites OCR, which the apply plan reads, so the renders
+      // no longer match whatever inputs were applied last.
+      setAppliedKey(null);
       if ((scope === "all" || scope === "resume") && !pages) {
         setSearchHits(null);
         setAudit(null);
         setApplySummary(null);
         setAppliedEdits([]);
         setExportPath(null);
+        setMarkdownPath(null);
         setImagesPath(null);
         setHasRenders(false);
         setShowRendered(false);
@@ -1030,6 +1706,9 @@ export default function ReviewView(props: {
         "ja",
         pages,
       );
+      if (outcome.ocr) {
+        setOcrFallback(outcome.ocr.fellBack ? outcome.ocr : null);
+      }
       props.onProjectChange(outcome.project);
       setFindings(await listFindings(project.projectDir).catch(() => []));
       setVersion((current) => current + 1);
@@ -1052,11 +1731,88 @@ export default function ReviewView(props: {
     [findings],
   );
 
+  // Provenance of each candidate group across the whole document, so the
+  // chips and the advisory note do not change with the list filters.
+  const findingSources = useMemo(() => {
+    const byKey = new Map<string, { detectors: string[]; note?: string }>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      let entry = byKey.get(key);
+      if (!entry) {
+        entry = { detectors: [] };
+        byKey.set(key, entry);
+      }
+      if (!entry.detectors.includes(finding.detector))
+        entry.detectors.push(finding.detector);
+      if (
+        entry.note === undefined &&
+        ADVISORY_DETECTORS.has(finding.detector) &&
+        finding.note?.trim()
+      )
+        entry.note = finding.note;
+    }
+    return byKey;
+  }, [flatFindings]);
+
+  // Keys holding a location-unknown candidate that no located finding with
+  // the same text (any category) on the same page resolves, mapped to the
+  // detector's reason. Mirrors the policy's rect path, which edits any stored
+  // finding of the rule text except whole-page placeholders, so the warning
+  // clears exactly when an edit will happen. Built from every finding, not
+  // the filtered list.
+  const unresolvedUnlocated = useMemo(() => {
+    const located = new Set<string>();
+    for (const { pageIndex, finding } of flatFindings) {
+      if (!finding.unlocated)
+        located.add(`${pageIndex}|${stripWs(finding.text)}`);
+    }
+    const unresolved = new Map<string, string | null>();
+    for (const { pageIndex, finding } of flatFindings) {
+      if (!finding.unlocated) continue;
+      if (located.has(`${pageIndex}|${stripWs(finding.text)}`)) continue;
+      const key = findingKey(finding);
+      if (!unresolved.get(key)) unresolved.set(key, finding.note ?? null);
+    }
+    return unresolved;
+  }, [flatFindings]);
+
   const findingCategories = useMemo(
     () =>
       [...new Set(flatFindings.map(({ finding }) => finding.category))].sort(),
     [flatFindings],
   );
+
+  // An entity covers a candidate when one of its variants equals the
+  // candidate text exactly: the policy then drops the candidate's own text
+  // rule in favor of the entity's (same `seenTexts` comparison, no trim), so
+  // the candidate counts as decided. Earlier entities win, as in the policy.
+  // Membership derives from the current ledger, whichever path filled it.
+  const variantToEntity = useMemo(() => {
+    const map = new Map<string, Entity>();
+    for (const entity of entities) {
+      for (const variant of entity.variants) {
+        if (variant && !map.has(variant)) map.set(variant, entity);
+      }
+    }
+    return map;
+  }, [entities]);
+
+  const isDecided = (key: string, text: string) =>
+    !!decisions[key] || variantToEntity.has(text);
+
+  // A covered candidate conflicts when its own decision differs from what the
+  // entity actually outputs (keep, mask, erase, or a different replacement).
+  const conflictOf = (key: string, text: string): Entity | undefined => {
+    const entity = variantToEntity.get(text);
+    const decision = decisions[key];
+    if (!entity || !decision) return undefined;
+    if (
+      decision.action === "replace" &&
+      (decision.value || "■■■") === (entity.alias || "■■■")
+    )
+      return undefined;
+    return entity;
+  };
 
   const filteredFindings = useMemo(() => {
     const needle = findingFilter.trim().toLowerCase();
@@ -1066,11 +1822,18 @@ export default function ReviewView(props: {
         finding.category !== findingCategoryFilter
       )
         return false;
-      if (findingUndecidedOnly && decisions[findingKey(finding)]) return false;
+      const key = findingKey(finding);
+      if (
+        findingUndecidedOnly &&
+        (decisions[key] || variantToEntity.has(finding.text)) &&
+        key !== editingFindingKey
+      )
+        return false;
       if (!needle) return true;
       return (
         finding.text.toLowerCase().includes(needle) ||
         finding.category.toLowerCase().includes(needle) ||
+        categoryLabel(t, finding.category).toLowerCase().includes(needle) ||
         `p.${pageIndex + 1}`.includes(needle)
       );
     });
@@ -1080,6 +1843,9 @@ export default function ReviewView(props: {
     findingCategoryFilter,
     findingUndecidedOnly,
     decisions,
+    t,
+    editingFindingKey,
+    variantToEntity,
   ]);
 
   // Collapse identical candidates (same category + text) into one row with an
@@ -1099,6 +1865,34 @@ export default function ReviewView(props: {
     }
     return [...byKey.values()];
   }, [filteredFindings]);
+
+  // Keys with at least one location-unknown (whole-page VLM) occurrence
+  // anywhere in the document. Their mask may not be drawn, so a bulk decision
+  // must never settle them unseen; checked against every occurrence, not just
+  // the representative row.
+  const unlocatedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const { finding } of flatFindings) {
+      if (finding.unlocated) keys.add(findingKey(finding));
+    }
+    return keys;
+  }, [flatFindings]);
+
+  // Bulk-apply targets: shown rows that are still undecided and fully located.
+  // Decided keys are never overwritten.
+  const bulkCandidates = useMemo(() => {
+    const targets: BulkTarget[] = [];
+    let excluded = 0;
+    for (const { finding } of dedupedFindings) {
+      const key = findingKey(finding);
+      // Entity members already count as decided; a bulk decision on them
+      // would only add conflicts with the entity's replacement.
+      if (decisions[key] || variantToEntity.has(finding.text)) continue;
+      if (unlocatedKeys.has(key)) excluded += 1;
+      else targets.push({ key, finding });
+    }
+    return { targets, excluded };
+  }, [dedupedFindings, decisions, unlocatedKeys, variantToEntity]);
 
   // Every candidate group (category + text) in the document, for assigning a
   // boxed detection to an existing group as a missed occurrence.
@@ -1130,27 +1924,42 @@ export default function ReviewView(props: {
       }));
   }, [flatFindings, decisions]);
 
-  const policy: Policy = useMemo(() => {
+  // Also counts the text rules that fall back to EMPTY_REPLACEMENT, so the
+  // pre-export check can say the output will carry ■■■ instead of an alias.
+  // Counted after de-duplication: a text claimed by an entity with an alias
+  // is not empty in the output. Alignment exceptions are not counted; they
+  // only repeat their owning rule's value.
+  const { policy, emptyReplaceCount } = useMemo((): {
+    policy: Policy;
+    emptyReplaceCount: number;
+  } => {
     const rules: PolicyRule[] = [];
     const seenTexts = new Set<string>();
+    let emptyReplaceCount = 0;
     // Per-occurrence alignment exceptions become region-scoped replace rules
     // pushed FIRST: the planner keeps the first of two same-box edits, so
     // these one-spot rules win over the document-wide text rule below.
     const replaceValueByOwner = new Map<string, string>();
     for (const entity of entities) {
-      replaceValueByOwner.set(`ent-${entity.id}`, entity.alias || "■■■");
+      replaceValueByOwner.set(
+        `ent-${entity.id}`,
+        entity.alias || EMPTY_REPLACEMENT,
+      );
     }
     for (const entry of decidedEntries) {
       if (entry.decision.action === "replace") {
         replaceValueByOwner.set(
           `dec-${entry.key}`,
-          entry.decision.value || "■■■",
+          entry.decision.value || EMPTY_REPLACEMENT,
         );
       }
     }
     for (const rule of textRules) {
       if (rule.action === "replace") {
-        replaceValueByOwner.set(`txt-${rule.text}`, rule.value || "■■■");
+        replaceValueByOwner.set(
+          `txt-${rule.text}`,
+          rule.value || EMPTY_REPLACEMENT,
+        );
       }
     }
     for (const override of alignOverrides) {
@@ -1169,11 +1978,16 @@ export default function ReviewView(props: {
     ) => {
       if (!text || seenTexts.has(text)) return;
       seenTexts.add(text);
+      if (action === "replace" && !value) emptyReplaceCount += 1;
       rules.push({
         match: { text },
         action:
           action === "replace"
-            ? { type: "replace", value: value || "■■■", align: align ?? "center" }
+            ? {
+                type: "replace",
+                value: value || EMPTY_REPLACEMENT,
+                align: align ?? "center",
+              }
             : action === "mask"
               ? { type: "mask" }
               : { type: "remove" },
@@ -1205,8 +2019,17 @@ export default function ReviewView(props: {
           region.action === "mask" ? { type: "mask" } : { type: "remove" },
       });
     }
-    return { rules };
+    return { policy: { rules }, emptyReplaceCount };
   }, [entities, decidedEntries, textRules, regionRules, alignOverrides]);
+
+  /// The apply plan depends on the policy and on the findings (category and
+  /// text rules also paint the findings' rects), so both form the key. A
+  /// reorder-only change reads as stale, which errs on the safe side.
+  const inputKey = useMemo(
+    () => JSON.stringify([policy, findings]),
+    [policy, findings],
+  );
+  const stale = hasRenders && appliedKey !== inputKey;
 
   /// Text → pending transformation, so the viewer can paint what each
   /// finding on the page will become (green replace / blue mask / red erase),
@@ -1296,8 +2119,18 @@ export default function ReviewView(props: {
   }
 
   function runApply() {
+    // Capture the key before awaiting: inputs edited mid-apply must still
+    // read as unapplied afterwards.
+    const key = inputKey;
     void run(t("review.applying"), async () => {
+      // A failed apply may leave old and new renders mixed, so the renders
+      // match no inputs until this one succeeds.
+      setAppliedKey(null);
       const summary = await applyPolicy(project.projectDir, policy);
+      setAppliedKey(key);
+      setExportPath(null);
+      setMarkdownPath(null);
+      setImagesPath(null);
       setApplySummary(summary);
       setAppliedEdits(
         await listAppliedEdits(project.projectDir).catch(() => []),
@@ -1309,8 +2142,40 @@ export default function ReviewView(props: {
     });
   }
 
+  // Builds the status notice shown after a successful export: the page-scope
+  // note, then what the reviewer may not have meant to ship (undecided
+  // candidates, decisions that are not applied because the candidate's
+  // location is unknown, empty replacements), then the audit nudge while no
+  // audit result exists. Warnings never block the export. The scope note is
+  // embedded through `{scope}` so it is not repeated; joining whitespace lives
+  // in the dictionary strings, so the result is only trimmed.
+  function composeExportNotice(scopeNote: string): string | null {
+    let text =
+      undecidedCount > 0
+        ? t("review.undecidedWarning", {
+            scope: scopeNote,
+            count: undecidedCount,
+          })
+        : scopeNote;
+    if (unlocatedUnresolvedCount > 0) {
+      text = t("review.unlocatedWarning", {
+        scope: text,
+        count: unlocatedUnresolvedCount,
+      });
+    }
+    if (emptyReplaceCount > 0) {
+      text += t("review.emptyReplaceWarning", { count: emptyReplaceCount });
+    }
+    if (audit === null) text += t("review.auditNudge");
+    text = text.trim();
+    return text === "" ? null : text;
+  }
+
   function runExport(pages?: number[]) {
     setExportMenuOpen(false);
+    // The page menu can stay open while inputs change underneath it (e.g. by
+    // keyboard focus behind the backdrop), so re-check staleness here too.
+    if (stale) return;
     void run(t("review.rebuildingPdf"), async () => {
       setExportPath(await exportProject(project.projectDir, 300, pages));
       // Any joining whitespace lives in the dictionary strings: English pads
@@ -1319,49 +2184,79 @@ export default function ReviewView(props: {
         pages && pages.length > 0
           ? t("review.exportedPages", { count: pages.length })
           : "";
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", {
-            scope: scopeNote,
-            count: undecidedCount,
-          }),
-        );
-      } else if (scopeNote) {
-        setNotice(scopeNote);
-      }
+      setNotice(composeExportNotice(scopeNote));
     });
+  }
+
+  /// Every export path goes through here: with undecided candidates left the
+  /// export waits for the confirmation dialog, otherwise it runs at once.
+  function guardExport(action: () => void) {
+    setExportMenuOpen(false);
+    if (undecidedCount > 0) {
+      setPendingExport(() => action);
+    } else {
+      action();
+    }
   }
 
   function runExportImages() {
     void run(t("review.exportingImages"), async () => {
       setImagesPath(await exportImages(project.projectDir));
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
-        );
-      }
+      setNotice(composeExportNotice(""));
     });
   }
 
   function runExportMarkdown() {
     void run(t("review.generatingMarkdown"), async () => {
       setMarkdownPath(await exportMarkdown(project.projectDir));
-      if (undecidedCount > 0) {
-        setNotice(
-          t("review.undecidedWarning", { scope: "", count: undecidedCount }),
-        );
-      }
+      setNotice(composeExportNotice(""));
     });
   }
 
   function runAudit() {
+    // The re-OCR audit only checks text terms; decide here, outside `run()`
+    // (which clears the notice), so a policy with nothing to check gets a
+    // translated explanation instead of the core's CLI-oriented error.
+    if (!policy.rules.some((rule) => rule.match.text)) {
+      setAudit(null);
+      setError(null);
+      setNotice(
+        regionRules.length > 0
+          ? t("review.auditRegionsOnly", {
+              showTransformed: t("review.showTransformed"),
+            })
+          : t("review.auditNoTerms"),
+      );
+      return;
+    }
+    const regionCount = regionRules.length;
     void run(t("review.auditing"), async () => {
-      setAudit(await auditProject(project.projectDir, policy));
+      // Never show the previous verdict next to a running, failed or
+      // cancelled audit.
+      setAudit(null);
+      const outcome = await auditProject(project.projectDir, policy);
+      if (outcome.cancelled || outcome.report === null) {
+        setNotice(t("review.auditCancelled"));
+      } else {
+        setAudit({ report: outcome.report, ocr: outcome.ocr });
+        setAuditRegionCount(regionCount);
+      }
     });
   }
 
+  function refreshLlmConfigured() {
+    getConfig()
+      .then((config) =>
+        setLlmConfigured(config.inference.model.trim() !== ""),
+      )
+      .catch(() => setLlmConfigured(true));
+  }
+
+  useEffect(refreshLlmConfigured, []);
+
   function runLlmDetect(useImage: boolean) {
-    void run(t("review.llmDetecting"), async () => {
+    if (analysisRef.current) return;
+    void runAnalysisTask("llm", async () => {
       await llmDetect(project.projectDir, useImage);
       setFindings(await listFindings(project.projectDir));
     });
@@ -1405,14 +2300,22 @@ export default function ReviewView(props: {
   /// with the group's text, so it joins that row and shares its decision.
   function assignDetectedToGroup(group: { category: string; text: string }) {
     const target = detectedTarget;
-    if (!target) return;
+    if (!target || analysisRef.current) return;
     void run(t("review.mergingIntoExisting"), async () => {
-      await removeManualFinding(
-        project.projectDir,
-        target.page,
-        target.category,
-        target.text,
-      ).catch(() => {});
+      // The stand-in is only a misread when it differs from the group. When
+      // the box already read as the group's own category and text, removing
+      // it would also drop every earlier box of that text on this page
+      // (removal matches category+text, not rect), so it is kept as is.
+      const sameAsGroup =
+        target.category === group.category && target.text === group.text;
+      if (!sameAsGroup) {
+        await removeManualFinding(
+          project.projectDir,
+          target.page,
+          target.category,
+          target.text,
+        ).catch(() => {});
+      }
       await addManualFinding(
         project.projectDir,
         target.page,
@@ -1514,8 +2417,7 @@ export default function ReviewView(props: {
     return flatFindings
       .filter(
         ({ finding }) =>
-          needles.includes(stripWs(finding.text)) &&
-          !finding.note?.startsWith("位置未特定"),
+          needles.includes(stripWs(finding.text)) && !finding.unlocated,
       )
       .map(({ pageIndex, finding }) => ({ page: pageIndex, rect: finding.rect }));
   }
@@ -1532,42 +2434,102 @@ export default function ReviewView(props: {
     window.setTimeout(() => setFlashKey(null), 1300);
   }
 
+  /// Scrolls the rules list to the region rule at `index` and flashes it —
+  /// what a click on a region rect in the main view does (never a deletion).
+  function revealRegionRow(index: number) {
+    regionRowRefs.current
+      .get(index)
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setRegionFlashIndex(index);
+    window.setTimeout(() => setRegionFlashIndex(null), 1300);
+  }
+
+  /// Deletes a region rule from the pane and offers it in the pane's one-step
+  /// undo bar, so a deletion never silently loses an approved rule.
+  function removeRegionRule(index: number) {
+    const rule = regionRules[index];
+    if (!rule) return;
+    setLastDeletion({ kind: "region", rule, index });
+    setRegionRules((current) => current.filter((_, i) => i !== index));
+  }
+
+  /// Forgets a pending region-rule undo (the rule list was replaced), while
+  /// leaving an entity or dictionary undo offer in place.
+  function dropRegionUndo() {
+    setLastDeletion((current) => (current?.kind === "region" ? null : current));
+  }
+
   // The mode stays active afterwards (like erase/mask), so several spots can
   // be boxed in a row without re-selecting it.
   function detectRegion(rect: Rect) {
+    if (analysisRef.current) return;
     void run(t("review.readingRegion"), async () => {
       // The box is ground truth for both position and extent. Read its text
       // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
       // to the whole-page words in the box, then to the vision model.
+      // Each stage that fails is recorded with its name instead of being
+      // collapsed into "no text", so the reviewer can tell an engine or
+      // connection failure apart from a genuinely empty region.
+      const failures: string[] = [];
+      const note = (stage: MessageKey) => (failure: unknown) => {
+        failures.push(`${t(stage)}: ${describeError(failure, t)}`);
+        return "";
+      };
+      const readFailed = () =>
+        t("review.regionReadFailed", { errors: failures.join(" / ") });
       let text = (
-        await readRegion(project.projectDir, page, rect).catch(() => "")
+        await readRegion(project.projectDir, page, rect).catch(
+          note("review.stageRegionOcr"),
+        )
       ).trim();
       if (!text) {
         text = (
-          await textInRegion(project.projectDir, page, rect).catch(() => "")
+          await textInRegion(project.projectDir, page, rect).catch(
+            note("review.stagePageOcr"),
+          )
         ).trim();
       }
       if (!text) {
+        // The VLM is optional and off by default (an empty model): skip it
+        // and point at the setting instead of surfacing its "not configured"
+        // error. Decide from the config, never from error text; if the config
+        // cannot be read, try the VLM as before.
+        const vlmOn = await getConfig().then(
+          (config) => config.inference.model.trim() !== "",
+          () => true,
+        );
+        if (!vlmOn) {
+          const lead = failures.length ? readFailed() : t("review.regionNoText");
+          setNotice(`${lead} ${t("review.regionVlmOffHint")}`);
+          return;
+        }
         setProgress(t("review.vlmReadingRegion"));
         const read = await vlmInRegion(project.projectDir, page, rect).catch(
-          () => [] as string[],
+          (failure: unknown) => {
+            note("review.stageVlm")(failure);
+            return [] as string[];
+          },
         );
         text = (read[0] ?? "").trim();
         if (read.length > 1) setNotice(t("review.vlmRead", { texts: read.join(" / ") }));
       }
       if (!text) {
-        setNotice(t("review.regionNoText"));
+        // A failure of the optional fallbacks goes to the status line, not
+        // the error banner.
+        setNotice(failures.length ? readFailed() : t("review.regionNoText"));
         return;
       }
       // Pin the candidate at the exact box, so it appears in 検出候補 with
       // the reviewer's own coordinates even if page OCR misread the text.
+      // A failed save propagates to run() and shows as an error, so the
+      // reviewer is not offered a target that was never pinned.
       await addManualFinding(
         project.projectDir,
         page,
         rect,
         dictionaryCategory,
         text,
-      ).catch(() => {});
+      );
       setFindings(await listFindings(project.projectDir).catch(() => findings));
       setSearchHits(
         await searchProject(project.projectDir, text).catch(() => null),
@@ -1579,16 +2541,18 @@ export default function ReviewView(props: {
   /// Asks the local model which sensitive terms it would look for in this
   /// document; the reviewer picks one to search and turn into a rule.
   function runSuggestTargets() {
+    if (analysisRef.current) return;
     setSuggestingTargets(true);
     setTargetSuggestions(null);
     setError(null);
     suggestTargets(project.projectDir)
       .then((terms) => setTargetSuggestions(terms))
-      .catch((failure) => setError(String(failure)))
+      .catch((failure) => setError(describeError(failure, t)))
       .finally(() => setSuggestingTargets(false));
   }
 
   function ignoreFinding(finding: Finding) {
+    if (analysisRef.current) return;
     void run(t("review.addingToIgnore"), async () => {
       const settings = await getProjectSettings(project.projectDir);
       const ignored = settings.ignored ?? [];
@@ -1608,6 +2572,49 @@ export default function ReviewView(props: {
             { text: finding.text, category: finding.category },
           ],
         });
+        // Offered in the side pane's undo bar right after saving, so the
+        // undo stays available even when the re-detection below fails. An
+        // entry that was already there is the reviewer's own; offering to
+        // undo it would remove something this click did not add.
+        setLastDeletion({
+          kind: "ignore",
+          text: finding.text,
+          category: finding.category,
+        });
+      }
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
+  }
+
+  /// Removes the entry the last "Ignore" added and re-detects, so the
+  /// candidate returns with its earlier decision (decisions are kept by key).
+  function undoIgnore(target: { text: string; category: string }) {
+    if (analysisRef.current) return;
+    void run(t("review.undoingIgnore"), async () => {
+      const settings = await getProjectSettings(project.projectDir);
+      const ignored = settings.ignored ?? [];
+      // Drop only the last exactly matching object entry; everything else
+      // keeps its content and order.
+      let index = -1;
+      for (let i = ignored.length - 1; i >= 0; i--) {
+        const entry = ignored[i];
+        if (
+          typeof entry === "object" &&
+          entry.text === target.text &&
+          entry.category === target.category
+        ) {
+          index = i;
+          break;
+        }
+      }
+      if (index >= 0) {
+        await setProjectSettings(project.projectDir, {
+          ...settings,
+          ignored: [...ignored.slice(0, index), ...ignored.slice(index + 1)],
+        });
       }
       if (project.analyzed) {
         await analyzeProject(project.projectDir, "detect-only");
@@ -1626,6 +2633,7 @@ export default function ReviewView(props: {
   }
 
   function registerToDictionary() {
+    if (analysisRef.current) return;
     const text = searchInput.trim();
     if (!text) return;
     void run(t("review.registeringDictionary"), async () => {
@@ -1655,14 +2663,43 @@ export default function ReviewView(props: {
     .map((rule, index) => ({ ...rule, index }))
     .filter((rule) => rule.scope === "all" || rule.scope === page);
 
-  const uniqueFindingKeys = useMemo(
-    () => new Set(flatFindings.map(({ finding }) => findingKey(finding))),
-    [flatFindings],
-  );
-  const decidedCount = [...uniqueFindingKeys].filter(
-    (key) => decisions[key],
+  const uniqueFindings = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      if (!unique.has(key)) unique.set(key, finding.text);
+    }
+    return [...unique.entries()];
+  }, [flatFindings]);
+  // Three disjoint sets: a mask/erase/replace outcome (the row's own decision,
+  // or the covering entity's replacement, which takes precedence) on a key
+  // whose location-unknown candidate is still unresolved edits nothing, so it
+  // is counted apart instead of as decided. Keep still counts as decided.
+  const isUnappliedDecision = (key: string, text: string) =>
+    unresolvedUnlocated.has(key) &&
+    (variantToEntity.has(text) ||
+      (!!decisions[key] && decisions[key].action !== "keep"));
+  const undecidedCount = uniqueFindings.filter(
+    ([key, text]) => !isDecided(key, text),
   ).length;
-  const undecidedCount = uniqueFindingKeys.size - decidedCount;
+  const unlocatedUnresolvedCount = uniqueFindings.filter(([key, text]) =>
+    isUnappliedDecision(key, text),
+  ).length;
+  const decidedCount =
+    uniqueFindings.length - undecidedCount - unlocatedUnresolvedCount;
+  const entityCoveredCount = uniqueFindings.filter(([, text]) =>
+    variantToEntity.has(text),
+  ).length;
+  const conflictCount = uniqueFindings.filter(([key, text]) =>
+    conflictOf(key, text),
+  ).length;
+  // Highlight Audit while an export exists but the transformed pages have not
+  // been audited yet. Stale renders disable Audit, so they are not highlighted.
+  const needsAudit =
+    hasRenders &&
+    !stale &&
+    audit === null &&
+    Boolean(exportPath || markdownPath || imagesPath);
 
   const currentPageSearchHits =
     searchHits?.find((entry) => entry.page_index === page)?.findings ?? [];
@@ -1683,6 +2720,26 @@ export default function ReviewView(props: {
       }
       return next;
     });
+  }
+
+  function openBulkApply(action: BulkAction) {
+    if (bulkCandidates.targets.length === 0) return;
+    setBulkPending({ action, targets: [...bulkCandidates.targets] });
+  }
+
+  function confirmBulkApply() {
+    if (!bulkPending) return;
+    const { action, targets } = bulkPending;
+    setDecisions((current) => {
+      const next = { ...current };
+      for (const { key } of targets) {
+        // A key decided individually while the dialog was open keeps that
+        // decision.
+        if (!next[key]) next[key] = { action, value: "" };
+      }
+      return next;
+    });
+    setBulkPending(null);
   }
 
   function setDecisionValue(key: string, value: string) {
@@ -1709,23 +2766,84 @@ export default function ReviewView(props: {
     );
   }
 
+  async function goHome() {
+    setClosing(true);
+    decisionsAutosave.cancelTimer();
+    entitiesAutosave.cancelTimer();
+    const [decisionsSaved, entitiesSaved] = await Promise.all([
+      decisionsAutosave.flush(),
+      entitiesAutosave.flush(),
+    ]);
+    if (decisionsSaved && entitiesSaved) {
+      props.onClose();
+      return;
+    }
+    // Stay: the reviewer's decisions are only dropped by an explicit choice.
+    setClosing(false);
+    setCloseFailed(true);
+  }
+
+  function discardAndGoHome() {
+    decisionsAutosave.discard();
+    entitiesAutosave.discard();
+    props.onClose();
+  }
+
   function clearAllRules() {
     setDecisions({});
     setTextRules([]);
     setRegionRules([]);
+    dropRegionUndo();
   }
+
+  // What the bulk clear removes. Counted from state, not from the current
+  // candidates: decisions from earlier analyses and hidden "keep" decisions
+  // are cleared too, so the reviewer must see them in the confirmation.
+  const clearableDecisionCount = Object.keys(decisions).length;
+  const clearableKeepCount = Object.values(decisions).filter(
+    (decision) => decision.action === "keep",
+  ).length;
+  const clearableCount =
+    clearableDecisionCount + textRules.length + regionRules.length;
 
   return (
     <div className="review">
       <header className="toolbar">
-        <button onClick={props.onClose}>{t("review.home")}</button>
+        <button
+          ref={homeButton}
+          disabled={closing}
+          onClick={() => void goHome()}
+        >
+          {t("review.home")}
+        </button>
         <span className="file-name" title={project.projectDir}>
           {project.fileName}
         </span>
+        <ProjectPathLine path={project.projectDir} onError={setError} />
+        <span
+          className={`save-state ${saveStatus.state}`}
+          data-save-state={saveStatus.state}
+          role="status"
+        >
+          {[
+            saveStatus.state === "saving" && t("review.saveSaving"),
+            saveStatus.state === "saved" && t("review.saveSaved"),
+            // A failure stays shown while retrying, until a save succeeds.
+            saveStatus.error !== null &&
+              t("review.saveFailed", { error: saveStatus.error }),
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        </span>
+        {closeFailed && saveStatus.state === "failed" && (
+          <button onClick={discardAndGoHome}>
+            {t("review.discardAndHome")}
+          </button>
+        )}
         {project.analyzed ? (
           <div className="reanalyze-menu">
             <button
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
               onClick={() => setReanalyzeOpen((open) => !open)}
             >
               {t("review.reanalyze")} <ChevronDown size={13} />
@@ -1769,16 +2887,28 @@ export default function ReviewView(props: {
                         t("review.reanalyzeDetect"),
                         () => runAnalyze("detect-only"),
                       ],
-                      [
-                        "llm",
-                        t("review.reanalyzeLlm"),
-                        () => runLlmDetect(false),
-                      ],
-                      [
-                        "vlm",
-                        t("review.reanalyzeVlm"),
-                        () => runLlmDetect(true),
-                      ],
+                      llmConfigured
+                        ? [
+                            "llm",
+                            t("review.reanalyzeLlm"),
+                            () => runLlmDetect(false),
+                          ]
+                        : [
+                            "llm",
+                            t("review.reanalyzeLlmSetup"),
+                            () => setSettingsOpen(true),
+                          ],
+                      llmConfigured
+                        ? [
+                            "vlm",
+                            t("review.reanalyzeVlm"),
+                            () => runLlmDetect(true),
+                          ]
+                        : [
+                            "vlm",
+                            t("review.reanalyzeVlmSetup"),
+                            () => setSettingsOpen(true),
+                          ],
                     ] as [string, string, () => void][]
                   ).map(([key, label, action]) => (
                     <button
@@ -1800,14 +2930,14 @@ export default function ReviewView(props: {
             <button
               className="primary"
               onClick={() => runAnalyze("resume")}
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
               title={t("review.resumeHint")}
             >
               {t("review.resume")}
             </button>
             <button
               onClick={() => runAnalyze("all")}
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
             >
               {t("review.fromScratch")}
             </button>
@@ -1816,7 +2946,7 @@ export default function ReviewView(props: {
           <button
             className="primary"
             onClick={() => runAnalyze("all")}
-            disabled={busy !== null}
+            disabled={busy !== null || analyzing}
           >
             {t("review.runAnalysis")}
           </button>
@@ -1824,7 +2954,7 @@ export default function ReviewView(props: {
         <span className="spacer" />
         <button
           onClick={() => setSettingsOpen(true)}
-          disabled={busy !== null}
+          disabled={busy !== null || analyzing}
           title={t("review.settingsTitle")}
         >
           <Settings2 size={14} /> {t("review.settings")}
@@ -1841,14 +2971,24 @@ export default function ReviewView(props: {
         <button
           className="primary"
           onClick={runApply}
-          disabled={busy !== null || policy.rules.length === 0}
+          disabled={
+            busy !== null ||
+            analyzing ||
+            (policy.rules.length === 0 && !stale)
+          }
         >
           {t("review.apply", { count: policy.rules.length })}
         </button>
+        {stale && (
+          <span className="unapplied" role="status">
+            {t("review.unappliedChanges")}
+          </span>
+        )}
         <div className="reanalyze-menu">
           <button
+            ref={exportToggle}
             onClick={() => setExportMenuOpen((open) => !open)}
-            disabled={busy !== null || !hasRenders}
+            disabled={busy !== null || analyzing || !hasRenders || stale}
           >
             {t("review.exportPdf")} <ChevronDown size={13} />
           </button>
@@ -1859,7 +2999,7 @@ export default function ReviewView(props: {
                 onClick={() => setExportMenuOpen(false)}
               />
               <div className="menu export-menu">
-                <button onClick={() => runExport()}>
+                <button onClick={() => guardExport(() => runExport())}>
                   {t("review.exportAllPages")}
                 </button>
                 <div className="export-range">
@@ -1876,7 +3016,13 @@ export default function ReviewView(props: {
                           exportPagesInput,
                           project.pageCount,
                         );
-                        if (pages.length > 0) runExport(pages);
+                        if (pages.length > 0) {
+                          // Without this, the same Enter's keypress lands on
+                          // the dialog's autofocused "back" button and
+                          // cancels the confirmation the moment it opens.
+                          event.preventDefault();
+                          guardExport(() => runExport(pages));
+                        }
                       }
                     }}
                   />
@@ -1886,7 +3032,9 @@ export default function ReviewView(props: {
                         exportPagesInput,
                         project.pageCount,
                       );
-                      if (pages.length > 0) runExport(pages);
+                      if (pages.length > 0) {
+                        guardExport(() => runExport(pages));
+                      }
                     }}
                   >
                     {t("review.exportSelectedPages")}
@@ -1897,19 +3045,23 @@ export default function ReviewView(props: {
           )}
         </div>
         <button
-          onClick={runExportMarkdown}
-          disabled={busy !== null || !hasRenders}
+          onClick={() => guardExport(runExportMarkdown)}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
         >
           {t("review.exportMarkdown")}
         </button>
         <button
-          onClick={runExportImages}
-          disabled={busy !== null || !hasRenders}
+          onClick={() => guardExport(runExportImages)}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
           title={t("review.exportImagesTitle")}
         >
           {t("review.exportImages")}
         </button>
-        <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
+        <button
+          className={needsAudit ? "primary" : undefined}
+          onClick={runAudit}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
+        >
           {t("review.audit")}
         </button>
         <button
@@ -1928,17 +3080,48 @@ export default function ReviewView(props: {
         </button>
       </header>
 
-      {(busy || progress || error || notice) && (
+      {props.justImported && (
+        <ImportedNotice
+          path={project.projectDir}
+          onDismiss={props.onDismissImported}
+          onError={setError}
+        />
+      )}
+
+      {(busy ||
+        analysis ||
+        progress ||
+        error ||
+        notice ||
+        decisionsLoadError ||
+        entitiesLoadError) && (
         <div className="statusbar">
-          {busy && <span className="status">{progress ?? busy}</span>}
-          {(busy === t("review.analyzing") ||
-            busy === t("review.llmDetecting")) && (
+          {(busy || analysis) && (
+            <span className="status">
+              {progress ??
+                busy ??
+                (analysis === "llm"
+                  ? t("review.llmDetecting")
+                  : t("review.analyzing"))}
+            </span>
+          )}
+          {(analysis !== null || busy === t("review.auditing")) && (
             <button onClick={() => void cancelAnalysis()}>
               {t("review.cancel")}
             </button>
           )}
           {notice && <span className="status">{notice}</span>}
           {error && <span className="error">{error}</span>}
+          {decisionsLoadError && (
+            <span className="error load-error">
+              {t("review.decisionsLoadFailed", { error: decisionsLoadError })}
+            </span>
+          )}
+          {entitiesLoadError && (
+            <span className="error load-error">
+              {t("review.entitiesLoadFailed", { error: entitiesLoadError })}
+            </span>
+          )}
         </div>
       )}
 
@@ -1974,6 +3157,7 @@ export default function ReviewView(props: {
               className={
                 index === page ? "page-button current" : "page-button"
               }
+              aria-current={index === page ? "page" : undefined}
               onClick={() => goToPage(index)}
             >
               <PageThumb
@@ -2018,106 +3202,129 @@ export default function ReviewView(props: {
         />
 
         <main className="viewer-pane">
-          <div className="viewer-toolbar">
-            <span>{t("review.rectSelect")}</span>
-            {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
+          {project.pageCount === 0 ? (
+            // No page images yet (fresh import, or pages/ went missing):
+            // PageViewer would sit on "loading" forever, so invite analysis.
+            <div className="viewer-empty">
+              <p className="status">
+                {project.analyzed
+                  ? t("viewer.emptyImagesMissing")
+                  : t("viewer.emptyNotAnalyzed")}
+              </p>
               <button
-                key={mode}
-                className={drawMode === mode ? "mode current" : "mode"}
-                onClick={() => setDrawMode(mode)}
+                className="primary"
+                onClick={() => runAnalyze("all")}
+                disabled={busy !== null || analyzing}
               >
-                {mode === "none"
-                  ? t("review.drawNone")
-                  : mode === "detect"
-                    ? t("review.drawDetect")
-                    : actionLabel(t, mode)}
+                {t("review.runAnalysis")}
               </button>
-            ))}
-            {(drawMode === "erase" || drawMode === "mask") && (
-              <>
-                <span>{t("review.scope")}</span>
-                {(["all", "page"] as const).map((scope) => (
+            </div>
+          ) : (
+            <>
+              <div className="viewer-toolbar">
+                <span>{t("review.rectSelect")}</span>
+                {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
                   <button
-                    key={scope}
-                    className={drawScope === scope ? "mode current" : "mode"}
-                    onClick={() => setDrawScope(scope)}
+                    key={mode}
+                    className={drawMode === mode ? "mode current" : "mode"}
+                    aria-pressed={drawMode === mode}
+                    onClick={() => setDrawMode(mode)}
                   >
-                    {scope === "all"
-                      ? t("review.scopeAll")
-                      : t("review.scopeThisPage")}
+                    {mode === "none"
+                      ? t("review.drawNone")
+                      : mode === "detect"
+                        ? t("review.drawDetect")
+                        : actionLabel(t, mode)}
                   </button>
                 ))}
-                <span className="hint">{t("review.dragToAddRegion")}</span>
-              </>
-            )}
-            {drawMode === "detect" && (
-              <span className="hint">{t("review.dragToDetect")}</span>
-            )}
-            <span className="spacer" />
-            <label
-              className="toggle"
-              title={t("review.scrollPagingTitle")}
-            >
-              <input
-                type="checkbox"
-                checked={scrollPageFlip}
-                onChange={(event) => {
-                  setScrollPageFlip(event.target.checked);
-                  localStorage.setItem(
-                    "menreiki.scrollPageFlip",
-                    event.target.checked ? "1" : "0",
-                  );
+                {(drawMode === "erase" || drawMode === "mask") && (
+                  <>
+                    <span>{t("review.scope")}</span>
+                    {(["all", "page"] as const).map((scope) => (
+                      <button
+                        key={scope}
+                        className={drawScope === scope ? "mode current" : "mode"}
+                        aria-pressed={drawScope === scope}
+                        onClick={() => setDrawScope(scope)}
+                      >
+                        {scope === "all"
+                          ? t("review.scopeAll")
+                          : t("review.scopeThisPage")}
+                      </button>
+                    ))}
+                    <span className="hint">{t("review.dragToAddRegion")}</span>
+                  </>
+                )}
+                {drawMode === "detect" && (
+                  <span className="hint">
+                    {analyzing
+                      ? t("review.detectWaitsForAnalysis")
+                      : t("review.dragToDetect")}
+                  </span>
+                )}
+                <span className="spacer" />
+                <label
+                  className="toggle"
+                  title={t("review.scrollPagingTitle")}
+                >
+                  <input
+                    type="checkbox"
+                    checked={scrollPageFlip}
+                    onChange={(event) => {
+                      setScrollPageFlip(event.target.checked);
+                      localStorage.setItem(
+                        "menreiki.scrollPageFlip",
+                        event.target.checked ? "1" : "0",
+                      );
+                    }}
+                  />
+                  {t("review.scrollPaging")}
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={showRulePreview}
+                    onChange={(event) => setShowRulePreview(event.target.checked)}
+                  />
+                  {t("review.overlayPending")}
+                </label>
+              </div>
+              <PageViewer
+                projectDir={project.projectDir}
+                pageIndex={page}
+                rendered={showRendered && hasRenders}
+                version={version}
+                findings={currentPageFindings}
+                regions={visibleRegions}
+                highlightKey={highlightKey}
+                findingKey={findingKey}
+                drawMode={drawMode}
+                rulePreview={showRulePreview ? previewByText : null}
+                focusRect={focus?.rect ?? null}
+                focusNonce={focus?.nonce ?? 0}
+                onRegion={(rect) => {
+                  if (drawMode === "detect") {
+                    if (!analysisRef.current) detectRegion(rect);
+                    return;
+                  }
+                  setRegionRules((current) => [
+                    ...current,
+                    {
+                      rect,
+                      action: drawMode === "mask" ? "mask" : "erase",
+                      scope: drawScope === "all" ? "all" : page,
+                      drawnOn: page,
+                    },
+                  ]);
                 }}
+                onRegionReveal={revealRegionRow}
+                onFindingClick={revealFindingRow}
+                pageCount={project.pageCount}
+                scrollPageFlip={scrollPageFlip}
+                onPageChange={goToPage}
               />
-              {t("review.scrollPaging")}
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={showRulePreview}
-                onChange={(event) => setShowRulePreview(event.target.checked)}
-              />
-              {t("review.overlayPending")}
-            </label>
-          </div>
-          <PageViewer
-            projectDir={project.projectDir}
-            pageIndex={page}
-            rendered={showRendered && hasRenders}
-            version={version}
-            findings={currentPageFindings}
-            regions={visibleRegions}
-            highlightKey={highlightKey}
-            findingKey={findingKey}
-            drawMode={drawMode}
-            rulePreview={showRulePreview ? previewByText : null}
-            focusRect={focus?.rect ?? null}
-            focusNonce={focus?.nonce ?? 0}
-            onRegion={(rect) => {
-              if (drawMode === "detect") {
-                detectRegion(rect);
-                return;
-              }
-              setRegionRules((current) => [
-                ...current,
-                {
-                  rect,
-                  action: drawMode === "mask" ? "mask" : "erase",
-                  scope: drawScope === "all" ? "all" : page,
-                  drawnOn: page,
-                },
-              ]);
-            }}
-            onRegionRemove={(index) =>
-              setRegionRules((current) =>
-                current.filter((_, i) => i !== index),
-              )
-            }
-            onFindingClick={revealFindingRow}
-            pageCount={project.pageCount}
-            scrollPageFlip={scrollPageFlip}
-            onPageChange={goToPage}
-          />
+            </>
+          )}
         </main>
 
         <div
@@ -2127,13 +3334,63 @@ export default function ReviewView(props: {
         />
 
         <aside className="side-pane">
+          {lastDeletion && (
+            <div className="undo-bar" role="status">
+              <span className="undo-message">
+                {lastDeletionMessage(lastDeletion)}
+              </span>
+              <button
+                disabled={
+                  (lastDeletion.kind === "dictionary" ||
+                    lastDeletion.kind === "ignore") &&
+                  (busy !== null || analyzing)
+                }
+                onClick={undoLastDeletion}
+              >
+                {t("review.undoDeletion")}
+              </button>
+              <button
+                className="mini"
+                title={t("review.dismissUndo")}
+                aria-label={t("review.dismissUndo")}
+                onClick={() => setLastDeletion(null)}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           <section className="section-precheck">
             <h2>{t("review.preflight")}</h2>
-            <div className={undecidedCount > 0 ? "precheck warn" : "precheck ok"}>
+            <div
+              className={
+                undecidedCount > 0 ||
+                unlocatedUnresolvedCount > 0 ||
+                emptyReplaceCount > 0 ||
+                conflictCount > 0
+                  ? "precheck warn"
+                  : "precheck ok"
+              }
+            >
               <span>
                 {t("review.undecidedCount", { count: undecidedCount })}
               </span>
+              {unlocatedUnresolvedCount > 0 && (
+                <span className="precheck-unlocated">
+                  {t("review.unlocatedCount", {
+                    count: unlocatedUnresolvedCount,
+                  })}
+                </span>
+              )}
+              {emptyReplaceCount > 0 && (
+                <span>
+                  {t("review.emptyReplaceCount", { count: emptyReplaceCount })}
+                </span>
+              )}
               <span>{t("review.decidedCount", { count: decidedCount })}</span>
+              <span className="precheck-sub">
+                {t("review.entityCoveredCount", { count: entityCoveredCount })}
+              </span>
+              <span>{t("review.conflictCount", { count: conflictCount })}</span>
               <span>
                 {t("review.pendingRules", { count: policy.rules.length })}
               </span>
@@ -2217,9 +3474,10 @@ export default function ReviewView(props: {
                     )}
                     seed={detectedTarget.text}
                     onPick={assignDetectedToGroup}
+                    disabled={analyzing}
                   />
                   <button
-                    disabled={busy !== null}
+                    disabled={busy !== null || analyzing}
                     onClick={() => {
                       registerTextToDictionary(
                         dictionaryCategory,
@@ -2252,7 +3510,7 @@ export default function ReviewView(props: {
                 className="mini"
                 title={t("review.suggestTargetsTitle")}
                 onClick={runSuggestTargets}
-                disabled={suggestingTargets || busy !== null}
+                disabled={suggestingTargets || busy !== null || analyzing}
               >
                 {suggestingTargets ? (
                   t("review.suggesting")
@@ -2330,22 +3588,16 @@ export default function ReviewView(props: {
                       setDictionaryCategory(event.target.value)
                     }
                   >
-                    <option value="organization">
-                      {t("review.categoryOrganization")}
-                    </option>
-                    <option value="department">
-                      {t("review.categoryDepartment")}
-                    </option>
-                    <option value="person">
-                      {t("review.categoryPerson")}
-                    </option>
-                    <option value="product">
-                      {t("review.categoryProduct")}
-                    </option>
-                    <option value="place">{t("review.categoryPlace")}</option>
-                    <option value="custom">{t("review.categoryOther")}</option>
+                    {DICTIONARY_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {categoryLabel(t, category)}
+                      </option>
+                    ))}
                   </select>
-                  <button onClick={registerToDictionary} disabled={busy !== null}>
+                  <button
+                    onClick={registerToDictionary}
+                    disabled={busy !== null || analyzing}
+                  >
                     {t("review.registerDictionary")}
                   </button>
                 </div>
@@ -2360,7 +3612,9 @@ export default function ReviewView(props: {
               <div className="rule-list">
                 {dictionary.map((entry) => (
                   <div key={entry.text} className="rule-entry">
-                    <span className="category-tag">{entry.category}</span>
+                    <span className="category-tag">
+                      {categoryLabel(t, entry.category)}
+                    </span>
                     {dictionaryEdit?.original === entry.text ? (
                       <>
                         <input
@@ -2374,7 +3628,7 @@ export default function ReviewView(props: {
                             })
                           }
                           onKeyDown={(event) => {
-                            if (event.key === "Enter")
+                            if (event.key === "Enter" && !analysisRef.current)
                               saveDictionaryEdit(entry, dictionaryEdit.draft);
                             if (event.key === "Escape") setDictionaryEdit(null);
                           }}
@@ -2383,7 +3637,7 @@ export default function ReviewView(props: {
                           className="mini"
                           title={t("review.save")}
                           aria-label={t("review.save")}
-                          disabled={busy !== null}
+                          disabled={busy !== null || analyzing}
                           onClick={() =>
                             saveDictionaryEdit(entry, dictionaryEdit.draft)
                           }
@@ -2429,23 +3683,8 @@ export default function ReviewView(props: {
                       onAssign={(id) => addVariant(id, entry.text)}
                     />
                     <button
-                      onClick={() => {
-                        void run(t("review.removingFromDictionary"), async () => {
-                          setDictionary(
-                            await removeDictionaryEntry(
-                              project.projectDir,
-                              entry.text,
-                            ),
-                          );
-                          if (project.analyzed) {
-                            await analyzeProject(
-                              project.projectDir,
-                              "detect-only",
-                            );
-                            setFindings(await listFindings(project.projectDir));
-                          }
-                        });
-                      }}
+                      disabled={analyzing}
+                      onClick={() => deleteDictionaryEntry(entry)}
                     >
                       {t("review.delete")}
                     </button>
@@ -2557,30 +3796,19 @@ export default function ReviewView(props: {
                     }}
                   >
                     <span className="category-tag">
-                      {entry.finding.category}
+                      {categoryLabel(t, entry.finding.category)}
                     </span>
                     <span className="finding-text">{entry.finding.text}</span>
                   </button>
                   {entry.decision.action === "replace" && (
-                    <>
-                      <input
-                        className="replace-input"
-                        placeholder={t("review.replacementPlaceholder")}
-                        value={entry.decision.value}
-                        onChange={(event) =>
-                          setDecisionValue(entry.key, event.target.value)
-                        }
-                      />
-                      <AliasSuggest
-                        text={entry.finding.text}
-                        category={entry.finding.category}
-                        onPick={(value) => setDecisionValue(entry.key, value)}
-                      />
-                      <AlignToggle
-                        value={entry.decision.align}
-                        onChange={(align) => setDecisionAlign(entry.key, align)}
-                      />
-                    </>
+                    <ReplaceValueEditor
+                      text={entry.finding.text}
+                      category={entry.finding.category}
+                      value={entry.decision.value}
+                      align={entry.decision.align}
+                      onValue={(value) => setDecisionValue(entry.key, value)}
+                      onAlign={(align) => setDecisionAlign(entry.key, align)}
+                    />
                   )}
                   <EntityMenu
                     entities={entities}
@@ -2731,7 +3959,19 @@ export default function ReviewView(props: {
               ))}
 
               {regionRules.map((rule, index) => (
-                <div key={`region-${index}`} className="rule-entry region">
+                <div
+                  key={`region-${index}`}
+                  ref={(element) => {
+                    if (element) regionRowRefs.current.set(index, element);
+                    else regionRowRefs.current.delete(index);
+                  }}
+                  className={[
+                    "rule-entry region",
+                    regionFlashIndex === index ? "reveal-flash" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
                   <div className="rule-entry-main">
                     <span className="chip-action">
                       {actionLabel(t, rule.action)}
@@ -2760,13 +4000,7 @@ export default function ReviewView(props: {
                         {t("review.preview")}
                       </button>
                     )}
-                    <button
-                      onClick={() =>
-                        setRegionRules((current) =>
-                          current.filter((_, i) => i !== index),
-                        )
-                      }
-                    >
+                    <button onClick={() => removeRegionRule(index)}>
                       {t("review.delete")}
                     </button>
                   </div>
@@ -2785,8 +4019,11 @@ export default function ReviewView(props: {
                   {t("review.rulesEmpty")}
                 </p>
               )}
-              {policy.rules.length > 0 && (
-                <button onClick={clearAllRules}>
+              {clearableCount > 0 && (
+                <button
+                  className="danger"
+                  onClick={() => setConfirmClearAll(true)}
+                >
                   {t("review.clearAllRules")}
                 </button>
               )}
@@ -2799,7 +4036,9 @@ export default function ReviewView(props: {
               {entities.map((entity) => (
                 <div key={entity.id} className="entity-card">
                   <div className="entity-head">
-                    <span className="category-tag">{entity.category}</span>
+                    <span className="category-tag">
+                      {categoryLabel(t, entity.category)}
+                    </span>
                     <input
                       className="alias-input"
                       value={entity.alias}
@@ -2842,7 +4081,11 @@ export default function ReviewView(props: {
                     <button
                       className="mini"
                       title={t("review.registerRepresentative")}
-                      disabled={busy !== null || entity.variants.length === 0}
+                      disabled={
+                        busy !== null ||
+                        analyzing ||
+                        entity.variants.length === 0
+                      }
                       onClick={() =>
                         registerTextToDictionary(
                           entity.category,
@@ -2852,18 +4095,29 @@ export default function ReviewView(props: {
                     >
                       {t("review.toDictionaryArrow")}
                     </button>
-                    <button
-                      onClick={() =>
-                        setEntities((current) =>
-                          current.filter(
-                            (candidate) => candidate.id !== entity.id,
-                          ),
-                        )
-                      }
-                    >
+                    <button onClick={() => requestDeleteEntity(entity)}>
                       {t("review.delete")}
                     </button>
                   </div>
+                  {pendingEntityDelete === entity.id && (
+                    <div className="entity-delete-confirm" role="alert">
+                      <span>
+                        {t("review.confirmDeleteEntity", {
+                          alias: entity.alias || entity.variants[0] || "",
+                          count: entity.variants.length,
+                        })}
+                      </span>
+                      <button
+                        className="danger"
+                        onClick={() => deleteEntity(entity)}
+                      >
+                        {t("review.confirmDelete")}
+                      </button>
+                      <button onClick={() => setPendingEntityDelete(null)}>
+                        {t("review.cancel")}
+                      </button>
+                    </div>
+                  )}
                   <div className="entity-variants">
                     {entity.variants.map((variant) => (
                       <span key={variant} className="variant-chip">
@@ -2880,22 +4134,7 @@ export default function ReviewView(props: {
                           </span>
                         )}
                         <button
-                          onClick={() => {
-                            const updated = {
-                              ...entity,
-                              variants: entity.variants.filter(
-                                (candidate) => candidate !== variant,
-                              ),
-                            };
-                            setEntities((current) =>
-                              current.map((candidate) =>
-                                candidate.id === entity.id
-                                  ? updated
-                                  : candidate,
-                              ),
-                            );
-                            void refreshEntityMeta(updated);
-                          }}
+                          onClick={() => removeVariant(entity, variant)}
                           aria-label={t("review.removeVariant")}
                         >
                           <X size={11} />
@@ -2943,6 +4182,14 @@ export default function ReviewView(props: {
                       : "",
               })}
             </h2>
+            {ocrFallback && (
+              <p
+                className="ocr-fallback-warning"
+                data-testid="ocr-fallback-warning"
+              >
+                {t("review.ocrFallbackWarning", { lang: ocrFallback.used })}
+              </p>
+            )}
             <div className="finding-filter">
               <input
                 value={findingFilter}
@@ -2958,7 +4205,7 @@ export default function ReviewView(props: {
                 <option value="all">{t("review.allCategories")}</option>
                 {findingCategories.map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {categoryLabel(t, category)}
                   </option>
                 ))}
               </select>
@@ -2973,21 +4220,84 @@ export default function ReviewView(props: {
                 {t("review.undecidedOnly")}
               </label>
             </div>
+            <div className="bulk-apply">
+              <span>
+                {t("review.bulkApplyLabel", {
+                  count: bulkCandidates.targets.length,
+                })}
+              </span>
+              {(["mask", "erase", "keep"] as const).map((action) => (
+                <button
+                  key={action}
+                  className="mini"
+                  disabled={bulkCandidates.targets.length === 0}
+                  onClick={() => openBulkApply(action)}
+                >
+                  {t(`action.${action}`)}
+                </button>
+              ))}
+              {bulkCandidates.excluded > 0 && (
+                <span className="bulk-apply-excluded">
+                  {t("review.bulkApplyExcluded", {
+                    count: bulkCandidates.excluded,
+                  })}
+                </span>
+              )}
+            </div>
             <div className="findings-list">
-              {dedupedFindings.map(({ pageIndex, finding, count }, index) => {
+              {dedupedFindings.map(({ pageIndex, finding, count }) => {
                 const key = findingKey(finding);
                 const decision = decisions[key];
+                const sources = findingSources.get(key);
+                const entity = variantToEntity.get(finding.text);
+                const entityAlias = entity ? entity.alias || "■■■" : undefined;
+                const conflict = conflictOf(key, finding.text);
+                const unlocated = unresolvedUnlocated.has(key);
+                const note = unlocated
+                  ? unresolvedUnlocated.get(key)
+                  : finding.note;
+                const title = [
+                  finding.text,
+                  unlocated ? t("review.unlocatedHint") : null,
+                  note,
+                ]
+                  .filter(Boolean)
+                  .join("\n");
                 return (
                   <div
-                    key={index}
+                    key={key}
                     ref={(element) => {
                       if (element) findingRowRefs.current.set(key, element);
                       else findingRowRefs.current.delete(key);
                     }}
+                    // While focus is anywhere in the row it stays listed even
+                    // under "undecided only", so deciding does not yank away
+                    // the value field the reviewer is about to type into.
+                    onFocus={() =>
+                      updateEditingFindingKey(() => setEditingFindingKey(key))
+                    }
+                    onBlur={(event) => {
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        updateEditingFindingKey(() =>
+                          setEditingFindingKey((current) =>
+                            current === key ? null : current,
+                          ),
+                        );
+                      }
+                    }}
                     className={[
                       "finding-row",
                       highlightKey === key ? "highlight" : "",
-                      decision ? "decided" : "",
+                      (decision || entity) &&
+                      !isUnappliedDecision(key, finding.text)
+                        ? "decided"
+                        : "",
+                      unlocated ? "unlocated" : "",
+                      conflict ? "conflict" : "",
                       flashKey === key ? "reveal-flash" : "",
                     ]
                       .filter(Boolean)
@@ -2995,11 +4305,7 @@ export default function ReviewView(props: {
                   >
                     <button
                       className="finding-label"
-                      title={
-                        finding.note
-                          ? `${finding.text}\n${finding.note}`
-                          : finding.text
-                      }
+                      title={title}
                       onClick={() => jumpTo(pageIndex, finding)}
                     >
                       <span className="page-tag">
@@ -3007,16 +4313,75 @@ export default function ReviewView(props: {
                         {count > 1 ? `+${count - 1}` : ""}
                       </span>
                       <span className={`category-tag cat-${finding.category}`}>
-                        {finding.category}
+                        {categoryLabel(t, finding.category)}
                       </span>
-                      <span className="finding-text">{finding.text}</span>
+                      {(sources?.detectors ?? [
+                        finding.detector,
+                      ]).map((detector) => {
+                        const source = sourceLabel(detector, t);
+                        return (
+                          <span
+                            key={detector}
+                            className={
+                              source.advisory
+                                ? "source-tag source-advisory"
+                                : "source-tag"
+                            }
+                            title={
+                              source.advisory
+                                ? t("review.source.advisory")
+                                : undefined
+                            }
+                          >
+                            {source.label}
+                          </span>
+                        );
+                      })}
+                      <span className="finding-main">
+                        <span className="finding-text">{finding.text}</span>
+                        {sources?.note && (
+                          <span className="finding-note">{sources.note}</span>
+                        )}
+                      </span>
+                      {unlocated && (
+                        <span className="badge lost">
+                          {t("review.unlocatedBadge")}
+                        </span>
+                      )}
                     </button>
+                    {entityAlias !== undefined && (
+                      <span className="entity-alias-chip" title={entityAlias}>
+                        → {entityAlias}
+                      </span>
+                    )}
+                    {conflict && (
+                      <span
+                        className="conflict-badge"
+                        title={t("review.conflictTooltip", {
+                          alias: entityAlias ?? "",
+                        })}
+                      >
+                        {t("review.conflictBadge")}
+                      </span>
+                    )}
                     <DecisionButtons
+                      label={t("review.decisionGroup", {
+                        category: categoryLabel(t, finding.category),
+                        text: finding.text,
+                      })}
                       value={decision?.action}
-                      onChange={(action) => setDecision(key, action)}
+                      onChange={(action) => {
+                        pendingFocusKey.current =
+                          action === "replace" && decision?.action !== "replace"
+                            ? key
+                            : null;
+                        setEditingFindingKey(key);
+                        setDecision(key, action);
+                      }}
                     />
                     <EntityMenu
                       entities={entities}
+                      label={entityAlias}
                       onNew={() => createEntity(finding.category, finding.text)}
                       onAssign={(id) => addVariant(id, finding.text)}
                     />
@@ -3024,12 +4389,33 @@ export default function ReviewView(props: {
                       className="mini"
                       title={t("review.excludeFromDetection", {
                         text: finding.text,
-                        category: finding.category,
+                        category: categoryLabel(t, finding.category),
                       })}
+                      disabled={analyzing}
                       onClick={() => ignoreFinding(finding)}
                     >
                       {t("review.ignore")}
                     </button>
+                    {decision?.action === "replace" && (
+                      <ReplaceValueEditor
+                        className="finding-replace"
+                        inputClassName="finding-replace-input"
+                        inputLabel={t("review.findingReplacementLabel", {
+                          text: finding.text,
+                        })}
+                        text={finding.text}
+                        category={finding.category}
+                        value={decision.value}
+                        align={decision.align}
+                        onValue={(value) => setDecisionValue(key, value)}
+                        onAlign={(align) => setDecisionAlign(key, align)}
+                        autoFocus={pendingFocusKey.current === key}
+                        onAutoFocused={() => {
+                          if (pendingFocusKey.current === key)
+                            pendingFocusKey.current = null;
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -3048,7 +4434,7 @@ export default function ReviewView(props: {
 
           <section className="results-section">
             <h2>{t("review.results")}</h2>
-            {applySummary && (
+            {!stale && applySummary && (
               <p>
                 {t("review.applied", {
                   edits: applySummary.edit_count,
@@ -3056,7 +4442,7 @@ export default function ReviewView(props: {
                 })}
               </p>
             )}
-            {applySummary && appliedEdits.length > 0 && (
+            {!stale && applySummary && appliedEdits.length > 0 && (
               <div className="applied-list">
                 {appliedEdits.map((edit, index) => (
                   <div key={index} className="applied-row">
@@ -3103,23 +4489,57 @@ export default function ReviewView(props: {
                 ))}
               </div>
             )}
-            {exportPath && <ExportPathLine path={exportPath} />}
-            {markdownPath && <ExportPathLine path={markdownPath} />}
-            {imagesPath && <ExportPathLine path={imagesPath} />}
-            {audit && (
+            {!stale && exportPath && <ExportPathLine path={exportPath} />}
+            {!stale && markdownPath && <ExportPathLine path={markdownPath} />}
+            {!stale && imagesPath && <ExportPathLine path={imagesPath} />}
+            {!stale && audit && (
               <div
                 className={
-                  audit.verdict === "pass" ? "audit pass" : "audit fail"
+                  audit.report.verdict === "fail"
+                    ? "audit fail"
+                    : audit.ocr.fellBack
+                      ? "audit warn"
+                      : "audit pass"
                 }
               >
                 <p className="verdict">
                   {t("review.auditResult", {
-                    verdict: audit.verdict === "pass" ? "Pass" : "Fail",
-                    terms: audit.checked_terms,
-                    pages: audit.page_count,
+                    verdict:
+                      audit.report.verdict === "fail"
+                        ? "Fail"
+                        : audit.ocr.fellBack
+                          ? t("review.auditVerdictPassWithWarnings")
+                          : "Pass",
+                    terms: audit.report.checked_terms,
+                    pages: audit.report.page_count,
                   })}
                 </p>
-                {audit.residuals.map((residual, index) => (
+                {audit.ocr.fellBack && (
+                  <p
+                    className="audit-warning"
+                    data-testid="audit-ocr-fallback-warning"
+                  >
+                    {t("review.auditOcrFallbackWarning", {
+                      lang: audit.ocr.used,
+                    })}
+                  </p>
+                )}
+                {auditRegionCount > 0 && (
+                  <p className="hint">
+                    {t("review.auditRegionsUnchecked", {
+                      count: auditRegionCount,
+                      showTransformed: t("review.showTransformed"),
+                    })}
+                  </p>
+                )}
+                {audit.report.verdict === "pass" && undecidedCount > 0 && (
+                  <p className="hint">
+                    {t("review.auditPassUndecidedNote", {
+                      count: undecidedCount,
+                    })}
+                  </p>
+                )}
+                {audit.report.residuals.map((residual, index) => (
                   <button
                     key={index}
                     className="residual"
@@ -3145,12 +4565,34 @@ export default function ReviewView(props: {
         </aside>
       </div>
 
+      {pendingExport !== null && (
+        <ExportConfirmDialog
+          undecidedCount={undecidedCount}
+          busy={busy !== null}
+          onCancel={() => setPendingExport(null)}
+          fallbackFocus={() =>
+            exportToggle.current && !exportToggle.current.disabled
+              ? exportToggle.current
+              : homeButton.current
+          }
+          onProceed={() => {
+            const action = pendingExport;
+            setPendingExport(null);
+            action();
+          }}
+        />
+      )}
+
       {helpOpen && <HelpView onClose={() => setHelpOpen(false)} />}
 
       {settingsOpen && (
         <SettingsView
           projectDir={project.projectDir}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            refreshLlmConfigured();
+          }}
+          fallbackFocus={() => homeButton.current}
           onLanguageChange={props.onLanguageChange}
           onDetectorsChanged={() => {
             if (project.analyzed) {
@@ -3163,45 +4605,128 @@ export default function ReviewView(props: {
         />
       )}
 
-      {previewRegion !== null && regionRules[previewRegion] && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setPreviewRegion(null)}
+      {confirmClearAll && (
+        <Modal
+          titleId={clearAllTitleId}
+          className="confirm-modal"
+          onDismiss={() => setConfirmClearAll(false)}
+          fallbackFocus={() => homeButton.current}
         >
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>
-                {t("review.regionPreview", {
-                  pages: project.pageCount,
-                  action: actionLabel(
-                    t,
-                    regionRules[previewRegion].action,
-                  ),
-                })}
-              </h2>
-              <button onClick={() => setPreviewRegion(null)}>
-                {t("review.close")}
-              </button>
-            </div>
-            <p className="status">
-              {t("review.regionPreviewHint")}
-            </p>
-            <div className="modal-body">
-              {Array.from({ length: project.pageCount }, (_, index) => (
-                <div key={index} className="preview-row">
-                  <span className="page-tag">p.{index + 1}</span>
-                  <RegionThumb
-                    projectDir={project.projectDir}
-                    pageIndex={index}
-                    rect={regionRules[previewRegion].rect}
-                    maxWidth={520}
-                    maxHeight={110}
-                  />
-                </div>
-              ))}
-            </div>
+          <h2 id={clearAllTitleId}>{t("review.clearAllTitle")}</h2>
+          <p>
+            {t("review.clearAllBody", {
+              decisions: clearableDecisionCount,
+              keep: clearableKeepCount,
+              texts: textRules.length,
+              regions: regionRules.length,
+            })}
+          </p>
+          <div className="modal-actions">
+            <button autoFocus onClick={() => setConfirmClearAll(false)}>
+              {t("review.cancel")}
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                clearAllRules();
+                setConfirmClearAll(false);
+              }}
+            >
+              {t("review.clearAllConfirm")}
+            </button>
           </div>
-        </div>
+        </Modal>
+      )}
+
+      {bulkPending && (
+        <Modal
+          titleId={bulkApplyTitleId}
+          className="bulk-apply-modal"
+          onDismiss={() => setBulkPending(null)}
+          fallbackFocus={() => homeButton.current}
+        >
+          <div className="modal-header">
+            <h2 id={bulkApplyTitleId}>
+              {t("review.bulkApplyTitle", {
+                action: t(`action.${bulkPending.action}`),
+                count: bulkPending.targets.length,
+              })}
+            </h2>
+          </div>
+          <p className="status">{t("review.bulkApplyScope")}</p>
+          <p className="status">{t("review.bulkApplyTextWide")}</p>
+          {bulkPending.action === "keep" && (
+            <>
+              <p className="bulk-apply-warning">
+                {t("review.bulkApplyKeepOutput")}
+              </p>
+              <p className="bulk-apply-warning">
+                {t("review.bulkApplyKeepCount")}
+              </p>
+            </>
+          )}
+          <div className="modal-body bulk-apply-targets">
+            {bulkPending.targets.map(({ key, finding }) => (
+              <div key={key} className="bulk-apply-target">
+                <span className={`category-tag cat-${finding.category}`}>
+                  {categoryLabel(t, finding.category)}
+                </span>
+                <span className="finding-text">{finding.text}</span>
+              </div>
+            ))}
+          </div>
+          <div className="modal-actions">
+            <button onClick={() => setBulkPending(null)}>
+              {t("review.cancel")}
+            </button>
+            <button className="primary" onClick={confirmBulkApply}>
+              {t("review.bulkApplyConfirm", {
+                action: t(`action.${bulkPending.action}`),
+                count: bulkPending.targets.length,
+              })}
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {previewRegion !== null && regionRules[previewRegion] && (
+        <Modal
+          titleId={previewTitleId}
+          onDismiss={() => setPreviewRegion(null)}
+          fallbackFocus={() => homeButton.current}
+        >
+          <div className="modal-header">
+            <h2 id={previewTitleId}>
+              {t("review.regionPreview", {
+                pages: project.pageCount,
+                action: actionLabel(
+                  t,
+                  regionRules[previewRegion].action,
+                ),
+              })}
+            </h2>
+            <button onClick={() => setPreviewRegion(null)}>
+              {t("review.close")}
+            </button>
+          </div>
+          <p className="status">
+            {t("review.regionPreviewHint")}
+          </p>
+          <div className="modal-body">
+            {Array.from({ length: project.pageCount }, (_, index) => (
+              <div key={index} className="preview-row">
+                <span className="page-tag">p.{index + 1}</span>
+                <RegionThumb
+                  projectDir={project.projectDir}
+                  pageIndex={index}
+                  rect={regionRules[previewRegion].rect}
+                  maxWidth={520}
+                  maxHeight={110}
+                />
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );

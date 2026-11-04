@@ -29,6 +29,10 @@ let page: Page;
 
 const enabled = process.env.SCREENSHOTS === "1";
 
+// The toolbar shows the project folder's full path, and the temporary
+// work dir contains the developer's user name; paint it out of every shot.
+const pathMask = () => [page.getByTestId("project-path")];
+
 async function waitFor(
   check: () => Promise<boolean>,
   label: string,
@@ -138,7 +142,10 @@ test("capture store and readme screenshots", async () => {
   });
   // Let thumbnails and the page image settle before the first shot.
   await page.waitForTimeout(2_500);
-  await page.screenshot({ path: path.join(outDir, "01-review.png") });
+  await page.screenshot({
+    path: path.join(outDir, "01-review.png"),
+    mask: pathMask(),
+  });
 
   // A replacement rule with its before/after occurrence crops open.
   await page
@@ -155,7 +162,10 @@ test("capture store and readme screenshots", async () => {
   await page.waitForTimeout(2_500);
   await ruleBlock.scrollIntoViewIfNeeded();
   await page.waitForTimeout(500);
-  await page.screenshot({ path: path.join(outDir, "02-rule-preview.png") });
+  await page.screenshot({
+    path: path.join(outDir, "02-rule-preview.png"),
+    mask: pathMask(),
+  });
 
   // Applied result with the before/after gallery.
   const applyButton = page.getByRole("button", { name: /適用（\d+ルール）/ });
@@ -169,10 +179,16 @@ test("capture store and readme screenshots", async () => {
     .scrollIntoViewIfNeeded()
     .catch(() => {});
   await page.waitForTimeout(1_000);
-  await page.screenshot({ path: path.join(outDir, "03-applied.png") });
+  await page.screenshot({
+    path: path.join(outDir, "03-applied.png"),
+    mask: pathMask(),
+  });
 
   // The plain-diagram help page.
   await page.getByRole("button", { name: "ヘルプ（各要素の対応関係とデータの流れ）" }).click();
   await page.waitForTimeout(800);
-  await page.screenshot({ path: path.join(outDir, "04-help.png") });
+  await page.screenshot({
+    path: path.join(outDir, "04-help.png"),
+    mask: pathMask(),
+  });
 });

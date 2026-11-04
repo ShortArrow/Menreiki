@@ -5,7 +5,7 @@ import type {
   AppConfig,
   AppliedEdit,
   ApplySummary,
-  AuditReport,
+  AuditOutcome,
   DictionaryEntry,
   Entity,
   PackInfo,
@@ -58,6 +58,14 @@ export function openProject(project: string) {
 
 export function openSample() {
   return invoke<ProjectInfo>("open_sample");
+}
+
+/// Error string `reveal_project` returns where no file manager is supported.
+export const REVEAL_UNSUPPORTED = "reveal-unsupported";
+
+/// Opens the OS file manager with the project folder selected.
+export function revealProject(project: string) {
+  return invoke<void>("reveal_project", { project });
 }
 
 export function analyzeProject(
@@ -260,7 +268,7 @@ export function auditProject(
   extraTerms: string[] = [],
   ocrLanguage = "ja",
 ) {
-  return invoke<AuditReport>("audit_project", {
+  return invoke<AuditOutcome>("audit_project", {
     project,
     policy,
     extraTerms,

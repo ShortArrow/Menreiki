@@ -429,9 +429,14 @@ fn run(cli: Cli) -> Result<(), String> {
                 .unwrap_or_default();
             let engine = ocr_engine(&ocr_language)?;
 
-            let report =
-                menreiki_project::audit_output(&project, policy.as_ref(), &extra_terms, &engine)
-                    .map_err(|error| error.to_string())?;
+            let report = menreiki_project::audit_output(
+                &project,
+                policy.as_ref(),
+                &extra_terms,
+                &engine,
+                &mut |_, _| true,
+            )
+            .map_err(|error| error.to_string())?;
             for residual in &report.residuals {
                 println!(
                     "page {:>3}  residual [{}]  {}",
@@ -445,6 +450,15 @@ fn run(cli: Cli) -> Result<(), String> {
                 report.page_count,
                 menreiki_project::audit_report_path(&project).display()
             );
+            let unaudited_regions = policy
+                .as_ref()
+                .map_or(0, menreiki_policy::Policy::unaudited_region_rule_count);
+            if unaudited_regions > 0 {
+                eprintln!(
+                    "note: {unaudited_regions} region rule(s) are not checked by the audit; \
+                     inspect the transformed pages visually"
+                );
+            }
             match report.verdict {
                 menreiki_audit::Verdict::Pass => Ok(()),
                 menreiki_audit::Verdict::Fail => Err(format!(

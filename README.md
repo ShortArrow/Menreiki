@@ -10,7 +10,9 @@
 
 Menreiki detects identifying information in PDFs and images — names, organizations, product and model numbers, locations, reference numbers — entirely on your machine, and lets a human reviewer remove, mask, pseudonymize, or generalize it. Spelling variants of the same subject are unified under one consistent alias, so the derived document keeps its meaning and relationships while the original subjects become unidentifiable.
 
-> **Status: beta, Windows only.** Detection is not exhaustive and a passing audit means the configured checks passed — it is not a guarantee of absolute safety. A human must always make the final release decision. See [docs/QUALITY.jp.md](docs/QUALITY.jp.md) for the quality model and responsibility boundaries, and [docs/PRIVACY.md](docs/PRIVACY.md) for the privacy policy (nothing is collected).
+> **Status: beta, Windows only.** Detection is not exhaustive and a passing audit means the configured checks passed — it is not a guarantee of absolute safety. A human must always make the final release decision. See [docs/QUALITY.jp.md](docs/QUALITY.jp.md) for the quality model and responsibility boundaries, and [docs/PRIVACY.md](docs/PRIVACY.md) for the privacy policy (nothing is collected). Recognition needs the Windows OCR Japanese language pack; without it, pages are read with the OCR of the Windows display language and the GUI shows a warning above the candidate list and in the audit result, because Japanese identifying text is then mostly missed and the audit cannot be trusted.
+>
+> The audit does not check areas erased or masked with a rectangle (also when they are mixed with text rules): it re-reads the output only for the texts your decisions replace or mask. Inspect those areas in the output images by eye.
 
 ![Review workflow: detected candidates on a fictional test document](docs/images/review.png)
 
@@ -20,7 +22,7 @@ Menreiki detects identifying information in PDFs and images — names, organizat
 
 - **Local-first** — analysis, OCR, transformation, and auditing all run locally; the app makes no network connections. Optional LLM assistance connects to a localhost-only OpenAI-compatible endpoint.
 - **Safe output** — the sanitized PDF and Markdown are rebuilt from transformed page pixels alone, so text layers, metadata, annotations, and attachments of the source can never leak into them.
-- **Review workbench** — a three-pane GUI with detected candidates overlaid on page images, entity management for spelling variants, region selection across pages, and a re-OCR audit that reports any residual identifying text.
+- **Review workbench** — a three-pane GUI with detected candidates overlaid on page images, entity management for spelling variants, region selection across pages, and a re-OCR audit that reports any residual identifying text (it checks text terms only; erase/mask regions are not checked and need a visual inspection).
 - **Bilingual interface** — the UI is available in Japanese and English and follows the language of the OS by default, with an explicit picker in Settings. Detection itself is tuned for Japanese documents.
 
 ## Documentation

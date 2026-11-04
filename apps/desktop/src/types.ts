@@ -19,6 +19,17 @@ export interface ProjectInfo {
   analyzed: boolean;
 }
 
+/// What `import_document` rejects with. `sameSource` is null when either
+/// the existing project or the input could not be read.
+export type ImportFailure =
+  | {
+      kind: "projectExists";
+      path: string;
+      sameSource: boolean | null;
+      existingFileName: string | null;
+    }
+  | { kind: "other"; message: string };
+
 export type AnalysisScope =
   | "all"
   | "resume"
@@ -26,9 +37,20 @@ export type AnalysisScope =
   | "ocr-only"
   | "detect-only";
 
+/// Which OCR language a run asked for and which one the engine used.
+/// `fellBack` is true when the requested language pack was unavailable and
+/// the profile languages were used instead.
+export interface OcrLanguageStatus {
+  requested: string;
+  used: string;
+  fellBack: boolean;
+}
+
 export interface AnalyzeOutcome {
   cancelled: boolean;
   project: ProjectInfo;
+  /// Present only when the run reached the OCR stage.
+  ocr: OcrLanguageStatus | null;
 }
 
 export interface Rect {
@@ -44,6 +66,9 @@ export interface Finding {
   rect: Rect;
   detector: string;
   note?: string | null;
+  /** The detector saw the text but could not place it: `rect` is the whole
+   *  page, and no decision on this finding alone edits anything. */
+  unlocated?: boolean;
 }
 
 export interface PageFindings {
@@ -112,6 +137,10 @@ export interface Policy {
   rules: PolicyRule[];
 }
 
+/// What a replace rule writes when its value was left empty. The preview
+/// draws the same string so it never promises an alias the export lacks.
+export const EMPTY_REPLACEMENT = "■■■";
+
 export interface ApplySummary {
   page_count: number;
   edit_count: number;
@@ -146,4 +175,34 @@ export interface AuditReport {
   checked_terms: number;
   page_count: number;
   residuals: Residual[];
+}
+
+/** A finished audit: the core report plus the OCR status it was read with. */
+export interface AuditResult {
+  report: AuditReport;
+  ocr: OcrLanguageStatus;
+}
+
+/** What `audit_project` returns. A cancelled audit has no report and
+ * therefore no verdict. */
+export interface AuditOutcome {
+  cancelled: boolean;
+  report: AuditReport | null;
+  ocr: OcrLanguageStatus;
+}
+
+/// Codes the backend attaches to errors the UI explains in its own words
+/// (see `src-tauri/src/ui_error.rs`).
+export type ErrorCode =
+  | "audit.noTerms"
+  | "inference.modelMissing"
+  | "inference.invalidUrl"
+  | "inference.notLocal"
+  | "inference.request";
+
+/// The shape a coded command rejects with. `detail` is the backend's own
+/// message, shown as is when `code` is null.
+export interface UiError {
+  code: ErrorCode | null;
+  detail: string;
 }

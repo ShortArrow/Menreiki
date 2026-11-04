@@ -4,7 +4,9 @@
 //! operations run on a blocking thread and report progress through the
 //! `analyze-progress` event.
 
+mod ocr_language;
 mod settings;
+mod ui_error;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +15,11 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{Emitter, Manager};
 
-/// Set to true by `cancel_analysis`; analysis loops stop between pages.
+use ocr_language::OcrLanguageStatus;
+use ui_error::UiError;
+
+/// Set to true by `cancel_analysis`; analysis and audit loops stop between
+/// pages.
 struct AnalysisCancel(Arc<AtomicBool>);
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,15 +83,39 @@ fn rasterizer_for(
     }
 }
 
+type SelectedOcrEngine = (
+    menreiki_adapter_windows_ocr::WindowsOcrEngine,
+    OcrLanguageStatus,
+);
+
 /// The requested OCR language, or the profile languages when that language
-/// pack is not installed.
-fn ocr_engine(
-    language: &str,
-) -> Result<menreiki_adapter_windows_ocr::WindowsOcrEngine, String> {
-    menreiki_adapter_windows_ocr::WindowsOcrEngine::from_language(language).or_else(|_| {
-        menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
-            .map_err(|error| error.to_string())
-    })
+/// pack is not installed, together with which language was actually used.
+fn ocr_engine(language: &str) -> Result<SelectedOcrEngine, String> {
+    ocr_language::select_engine(
+        language,
+        |tag| {
+            if force_ocr_fallback() {
+                return Err("forced by MENREIKI_TEST_FORCE_OCR_FALLBACK".to_string());
+            }
+            menreiki_adapter_windows_ocr::WindowsOcrEngine::from_language(tag)
+                .map_err(|error| error.to_string())
+        },
+        menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages,
+        |engine| engine.recognizer_language_tag().ok(),
+    )
+}
+
+/// Debug builds only: `MENREIKI_TEST_FORCE_OCR_FALLBACK=1` makes the
+/// requested-language engine fail, so the fallback warning can be
+/// exercised end to end on a machine that has the language pack.
+#[cfg(debug_assertions)]
+fn force_ocr_fallback() -> bool {
+    std::env::var("MENREIKI_TEST_FORCE_OCR_FALLBACK").as_deref() == Ok("1")
+}
+
+#[cfg(not(debug_assertions))]
+fn force_ocr_fallback() -> bool {
+    false
 }
 
 fn default_font_path() -> PathBuf {
@@ -181,19 +211,109 @@ fn initial_project() -> Option<ProjectInfo> {
     project_info(&menreiki_project::resolve_project_dir(Path::new(&arg))).ok()
 }
 
+/// Why an import failed, typed so the UI can explain the common
+/// "project folder already exists" case in its own language and offer to
+/// open that project when it was made from the same bytes.
+#[derive(Debug, Serialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum ImportFailure {
+    ProjectExists {
+        path: String,
+        same_source: Option<bool>,
+        existing_file_name: Option<String>,
+    },
+    Other {
+        message: String,
+    },
+}
+
+/// Maps an import error to what the UI receives; `inspect` is only called
+/// for an existing project folder, with that folder.
+fn import_failure(
+    error: menreiki_project::ImportError,
+    inspect: impl FnOnce(&Path) -> menreiki_project::ExistingProject,
+) -> ImportFailure {
+    match error {
+        menreiki_project::ImportError::ProjectDirExists(dir) => {
+            let existing = inspect(&dir);
+            ImportFailure::ProjectExists {
+                path: dir.display().to_string(),
+                same_source: existing.same_source,
+                existing_file_name: existing.existing_file_name,
+            }
+        }
+        other => ImportFailure::Other {
+            message: other.to_string(),
+        },
+    }
+}
+
 #[tauri::command]
-fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo, String> {
+fn import_document(input: String, project: Option<String>) -> Result<ProjectInfo, ImportFailure> {
     let input = PathBuf::from(input);
     let project_dir = project
         .map(PathBuf::from)
         .unwrap_or_else(|| input.with_extension("menreiki"));
-    menreiki_project::import(&input, &project_dir).map_err(|error| error.to_string())?;
-    project_info(&project_dir)
+    menreiki_project::import(&input, &project_dir).map_err(|error| {
+        import_failure(error, |dir| {
+            menreiki_project::inspect_existing_project(&input, dir)
+        })
+    })?;
+    project_info(&project_dir).map_err(|message| ImportFailure::Other { message })
 }
 
 #[tauri::command]
 fn open_project(project: String) -> Result<ProjectInfo, String> {
     project_info(&menreiki_project::resolve_project_dir(Path::new(&project)))
+}
+
+/// Error returned by `reveal_project` on platforms without a supported file
+/// manager; the frontend maps it to a translated message.
+#[cfg_attr(windows, allow(dead_code))]
+const REVEAL_UNSUPPORTED: &str = "reveal-unsupported";
+
+/// Opens the OS file manager on the project's parent folder with the
+/// project folder itself selected, so the user can move or delete it.
+///
+/// Only paths that load as a Menreiki project are accepted, so this cannot
+/// be used to open arbitrary locations. Display-only: it changes no data.
+#[tauri::command]
+fn reveal_project(project: String) -> Result<(), String> {
+    let dir = menreiki_project::resolve_project_dir(Path::new(&project));
+    // A bare `x.mnrk` resolves to an empty parent; that means the cwd.
+    let dir = if dir.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        dir
+    };
+    menreiki_project::load_manifest(&dir).map_err(|error| error.to_string())?;
+    // `canonicalize` would yield a `\\?\` verbatim path that explorer's
+    // `/select,` does not understand; `absolute` keeps a plain path.
+    let dir = std::path::absolute(&dir).map_err(|error| error.to_string())?;
+    reveal_in_file_manager(&dir)
+}
+
+#[cfg(windows)]
+fn reveal_in_file_manager(dir: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    // `raw_arg`, not `arg`: the automatic quoting of `arg` breaks the
+    // `/select,"<path>"` form. The exit code is not checked because
+    // explorer reports non-zero even on success.
+    std::process::Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{}\"", dir.display()))
+        .spawn()
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(windows))]
+fn reveal_in_file_manager(_dir: &Path) -> Result<(), String> {
+    Err(REVEAL_UNSUPPORTED.to_string())
 }
 
 /// Materializes the embedded sample project into a writable location and
@@ -235,6 +355,21 @@ enum AnalysisScope {
 struct AnalyzeOutcome {
     cancelled: bool,
     project: ProjectInfo,
+    /// The OCR language status when this run created an OCR engine (it
+    /// reached the OCR stage); `None` for runs that never did.
+    ocr: Option<OcrLanguageStatus>,
+}
+
+/// The audit result; a cancelled audit carries no report (and no verdict).
+/// `report` keeps the report's own snake_case field names. The OCR status
+/// rides beside the core report (left unchanged) so the UI can qualify a
+/// pass read by a fallback engine.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditOutcome {
+    cancelled: bool,
+    report: Option<menreiki_audit::AuditReport>,
+    ocr: OcrLanguageStatus,
 }
 
 /// Builds the project's detection rules from its selected detectors and
@@ -390,12 +525,15 @@ async fn analyze_project(
                 serde_json::json!({ "stage": stage, "page": page, "total": total }),
             );
         };
-        let outcome = |cancelled: bool| -> Result<AnalyzeOutcome, String> {
-            Ok(AnalyzeOutcome {
-                cancelled,
-                project: project_info(&project_dir)?,
-            })
-        };
+        let outcome =
+            |cancelled: bool, ocr: Option<OcrLanguageStatus>| -> Result<AnalyzeOutcome, String> {
+                Ok(AnalyzeOutcome {
+                    cancelled,
+                    project: project_info(&project_dir)?,
+                    ocr,
+                })
+            };
+        let mut ocr_status: Option<OcrLanguageStatus> = None;
         let resume = matches!(scope, AnalysisScope::Resume);
         let render = matches!(
             scope,
@@ -427,14 +565,15 @@ async fn analyze_project(
             );
             match result {
                 Ok(_) => {}
-                Err(menreiki_project::AnalyzeError::Cancelled) => return outcome(true),
+                Err(menreiki_project::AnalyzeError::Cancelled) => return outcome(true, None),
                 Err(error) => return Err(error.to_string()),
             }
         }
 
         if ocr {
             emit("ocr", None, None);
-            let engine = ocr_engine(&ocr_language)?;
+            let (engine, status) = ocr_engine(&ocr_language)?;
+            ocr_status = Some(status);
             // Detect each page as its OCR lands, so candidates appear in the
             // UI mid-run; the full pass below adds cross-page layout findings.
             let stream_rules = build_detection_rules(&project_dir)?;
@@ -459,7 +598,9 @@ async fn analyze_project(
             );
             match result {
                 Ok(_) => {}
-                Err(menreiki_project::OcrPagesError::Cancelled) => return outcome(true),
+                Err(menreiki_project::OcrPagesError::Cancelled) => {
+                    return outcome(true, ocr_status)
+                }
                 Err(error) => return Err(error.to_string()),
             }
         }
@@ -468,7 +609,7 @@ async fn analyze_project(
         run_detection(&project_dir)?;
 
         emit("done", None, None);
-        outcome(false)
+        outcome(false, ocr_status)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -483,7 +624,7 @@ async fn llm_detect_project(
     state: tauri::State<'_, AnalysisCancel>,
     project: String,
     use_image: bool,
-) -> Result<u16, String> {
+) -> Result<u16, UiError> {
     let cancel = state.0.clone();
     cancel.store(false, Ordering::Relaxed);
     tauri::async_runtime::spawn_blocking(move || {
@@ -492,11 +633,7 @@ async fn llm_detect_project(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| UiError::inference(&error))?;
         let project_dir = PathBuf::from(&project);
         let stage = if use_image { "vlm" } else { "llm" };
         let mut progress = |page_index: u16, total: u16| {
@@ -518,7 +655,7 @@ async fn llm_detect_project(
         match result {
             Ok(pages) => Ok(pages),
             Err(menreiki_project::LlmDetectError::Cancelled) => Ok(0),
-            Err(error) => Err(error.to_string()),
+            Err(error) => Err(UiError::llm_detect(&error)),
         }
     })
     .await
@@ -544,20 +681,16 @@ async fn suggest_replacements(
     text: String,
     category: String,
     context: String,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let config = settings::load_config();
         let client = menreiki_inference::InferenceClient::new(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| UiError::inference(&error))?;
         menreiki_inference::suggest_replacements(&client, &text, &category, &context)
-            .map_err(|error| error.to_string())
+            .map_err(|error| UiError::inference(&error))
     })
     .await
     .map_err(|error| error.to_string())?
@@ -568,20 +701,16 @@ async fn suggest_replacements(
 /// rules, distinct from writing findings directly. Returns unique candidate
 /// strings from a bounded sample of the document's OCR text.
 #[tauri::command]
-async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
+async fn suggest_targets(project: String) -> Result<Vec<String>, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let config = settings::load_config();
         let client = menreiki_inference::InferenceClient::new(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
-        let pages =
-            menreiki_project::load_ocr_pages(Path::new(&project)).map_err(|error| error.to_string())?;
+        .map_err(|error| UiError::inference(&error))?;
+        let pages = menreiki_project::load_ocr_pages(Path::new(&project))
+            .map_err(|error| error.to_string())?;
         let mut sample = String::new();
         for page in &pages {
             sample.push_str(&page.text());
@@ -592,7 +721,7 @@ async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
         }
         let mut seen = std::collections::HashSet::new();
         let targets = menreiki_inference::detect_candidates(&client, &sample)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| UiError::inference(&error))?
             .into_iter()
             .map(|candidate| candidate.text)
             .filter(|text| !text.trim().is_empty() && seen.insert(text.clone()))
@@ -832,7 +961,7 @@ async fn read_region(
         crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
             .map_err(|error| error.to_string())?;
 
-        let engine = ocr_engine(&ocr_language)?;
+        let (engine, _) = ocr_engine(&ocr_language)?;
         let recognized = engine.recognize(&buffer).map_err(|error| error.to_string())?;
         let words: Vec<menreiki_core::Span> = recognized
             .lines
@@ -847,7 +976,8 @@ async fn read_region(
 
 /// Adds a reviewer-asserted candidate at the exact box they drew — the
 /// coordinates are ground truth, so the finding is pinned there even when
-/// page OCR misread the text and a literal search would miss it.
+/// page OCR misread the text and a literal search would miss it. Duplicate
+/// handling lives in [`menreiki_project::add_manual_finding`].
 #[tauri::command]
 fn add_manual_finding(
     project: String,
@@ -856,32 +986,8 @@ fn add_manual_finding(
     category: String,
     text: String,
 ) -> Result<(), String> {
-    let path = menreiki_project::page_findings_path(Path::new(&project), page);
-    let mut findings: Vec<menreiki_core::Finding> = if path.exists() {
-        serde_json::from_str(&std::fs::read_to_string(&path).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?
-    } else {
-        Vec::new()
-    };
-    let duplicate = findings
-        .iter()
-        .any(|known| known.category == category && known.text == text);
-    if !duplicate {
-        findings.push(menreiki_core::Finding {
-            category,
-            text,
-            rect,
-            detector: "manual".to_string(),
-            note: Some("手動指定（ここを検出）".to_string()),
-        });
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let json =
-            serde_json::to_string_pretty(&findings).expect("findings are always serializable");
-        std::fs::write(&path, json).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    menreiki_project::add_manual_finding(Path::new(&project), page, rect, &category, &text)
+        .map_err(|error| error.to_string())
 }
 
 /// Removes a reviewer-asserted candidate again — the counterpart to
@@ -923,11 +1029,7 @@ async fn vlm_in_region(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| error.to_string())?;
         let png = std::fs::read(menreiki_project::page_image_path(Path::new(&project), page))
             .map_err(|error| error.to_string())?;
         let image = image::load_from_memory(&png).map_err(|error| error.to_string())?;
@@ -937,16 +1039,26 @@ async fn vlm_in_region(
         if x >= iw || y >= ih {
             return Err("領域がページ外です".to_string());
         }
-        let crop = image.crop_imm(x, y, (rect.width.max(1.0) as u32).min(iw - x), (rect.height.max(1.0) as u32).min(ih - y));
+        let crop = image.crop_imm(
+            x,
+            y,
+            (rect.width.max(1.0) as u32).min(iw - x),
+            (rect.height.max(1.0) as u32).min(ih - y),
+        );
         let mut buffer = Vec::new();
-        crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
-            .map_err(|error| error.to_string())?;
-        Ok(menreiki_inference::detect_candidates_in_image(&client, &buffer)
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .map(|candidate| candidate.text)
-            .filter(|text| !text.trim().is_empty())
-            .collect())
+        crop.write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(
+            menreiki_inference::detect_candidates_in_image(&client, &buffer)
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .map(|candidate| candidate.text)
+                .filter(|text| !text.trim().is_empty())
+                .collect(),
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1025,7 +1137,7 @@ async fn export_markdown(
     ocr_language: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let engine = ocr_engine(&ocr_language)?;
+        let (engine, _) = ocr_engine(&ocr_language)?;
         menreiki_project::export_markdown(
             Path::new(&project),
             &engine,
@@ -1049,25 +1161,52 @@ async fn export_markdown(
 
 #[tauri::command]
 async fn audit_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AnalysisCancel>,
     project: String,
     policy: Option<serde_json::Value>,
     extra_terms: Vec<String>,
     ocr_language: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<AuditOutcome, UiError> {
+    let cancel = state.0.clone();
+    cancel.store(false, Ordering::Relaxed);
+
     tauri::async_runtime::spawn_blocking(move || {
         let policy: Option<menreiki_policy::Policy> = policy
             .map(serde_json::from_value)
             .transpose()
             .map_err(|error| error.to_string())?;
-        let engine = ocr_engine(&ocr_language)?;
-        let report = menreiki_project::audit_output(
+        let (engine, ocr) = ocr_engine(&ocr_language)?;
+        let result = menreiki_project::audit_output(
             Path::new(&project),
             policy.as_ref(),
             &extra_terms,
             &engine,
-        )
-        .map_err(|error| error.to_string())?;
-        serde_json::to_value(&report).map_err(|error| error.to_string())
+            &mut |page_index, total| {
+                let _ = app.emit(
+                    "analyze-progress",
+                    serde_json::json!({
+                        "stage": "audit",
+                        "page": page_index + 1,
+                        "total": total,
+                    }),
+                );
+                !cancel.load(Ordering::Relaxed)
+            },
+        );
+        match result {
+            Ok(report) => Ok(AuditOutcome {
+                cancelled: false,
+                report: Some(report),
+                ocr,
+            }),
+            Err(menreiki_project::AuditOutputError::Cancelled) => Ok(AuditOutcome {
+                cancelled: true,
+                report: None,
+                ocr,
+            }),
+            Err(error) => Err(UiError::audit(&error)),
+        }
     })
     .await
     .map_err(|error| error.to_string())?
@@ -1136,6 +1275,7 @@ pub fn run() {
             import_document,
             open_project,
             open_sample,
+            reveal_project,
             analyze_project,
             cancel_analysis,
             llm_detect_project,
@@ -1162,4 +1302,66 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use menreiki_project::{ExistingProject, ImportError};
+    use serde_json::json;
+
+    #[test]
+    fn existing_project_folder_serializes_with_its_comparison() {
+        let dir = PathBuf::from("docs").join("spec.menreiki");
+        let failure = import_failure(ImportError::ProjectDirExists(dir.clone()), |seen| {
+            assert_eq!(seen, dir.as_path());
+            ExistingProject {
+                same_source: Some(true),
+                existing_file_name: Some("spec.pdf".to_string()),
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({
+                "kind": "projectExists",
+                "path": dir.display().to_string(),
+                "sameSource": true,
+                "existingFileName": "spec.pdf",
+            })
+        );
+    }
+
+    #[test]
+    fn unreadable_existing_project_serializes_as_nulls() {
+        let dir = PathBuf::from("spec.menreiki");
+        let failure = import_failure(ImportError::ProjectDirExists(dir.clone()), |_| {
+            ExistingProject {
+                same_source: None,
+                existing_file_name: None,
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({
+                "kind": "projectExists",
+                "path": dir.display().to_string(),
+                "sameSource": null,
+                "existingFileName": null,
+            })
+        );
+    }
+
+    #[test]
+    fn other_errors_keep_their_message_and_skip_inspection() {
+        let error = ImportError::MissingFileName;
+        let message = error.to_string();
+        let failure = import_failure(error, |_| panic!("only existing folders are inspected"));
+
+        assert_eq!(
+            serde_json::to_value(&failure).unwrap(),
+            json!({ "kind": "other", "message": message })
+        );
+    }
 }

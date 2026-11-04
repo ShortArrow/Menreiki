@@ -101,6 +101,11 @@ impl ImageCandidateDetector for FakeImageDetector {
                 text: "社外秘".to_string(),
                 reason: "図中の透かしに見える".to_string(),
             },
+            LlmCandidate {
+                category: "organization".to_string(),
+                text: "株式会社サンプル精機".to_string(),
+                reason: String::new(),
+            },
         ])
     }
 }
@@ -155,5 +160,34 @@ fn vlm_candidates_missing_from_ocr_become_whole_page_findings() {
         .expect("image-only candidate should be kept");
     assert_eq!(unlocated.rect.width, 1000.0);
     assert_eq!(unlocated.rect.height, 800.0);
-    assert!(unlocated.note.as_deref().unwrap().starts_with("位置未特定"));
+    assert!(unlocated.unlocated);
+    assert_eq!(unlocated.note.as_deref(), Some("図中の透かしに見える"));
+
+    let without_reason = findings[0]
+        .findings
+        .iter()
+        .find(|finding| finding.text == "株式会社サンプル精機")
+        .expect("image-only candidate without a reason should be kept");
+    assert!(without_reason.unlocated);
+    assert_eq!(without_reason.note, None);
+    assert!(!located.unlocated);
+
+    // The flag is structural: no status text leaks into the advisory note,
+    // and a located finding does not carry the key at all.
+    let raw = fs::read_to_string(page_findings_path(&project_dir, 0)).unwrap();
+    assert!(
+        !raw.contains("位置未特定"),
+        "status leaked into note: {raw}"
+    );
+    let stored: Vec<serde_json::Value> = serde_json::from_str(&raw).unwrap();
+    let located_json = stored
+        .iter()
+        .find(|value| value["text"] == "ガンマ電子工業")
+        .unwrap();
+    assert!(located_json.get("unlocated").is_none());
+    let unlocated_json = stored
+        .iter()
+        .find(|value| value["text"] == "社外秘")
+        .unwrap();
+    assert_eq!(unlocated_json["unlocated"], true);
 }

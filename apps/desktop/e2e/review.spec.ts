@@ -1,5 +1,14 @@
 import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,11 +25,18 @@ const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
 const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
 let workDir: string;
+let packFile: string;
 let projectDir: string;
+let configPath: string;
 let vite: ChildProcess;
 let app: ChildProcess;
 let browser: Browser;
 let page: Page;
+// A rule-detected finding on page 1 and the LLM finding injected next to it,
+// for the source-chip test.
+let regexFinding: { category: string; text: string };
+const injectedLlmText = "架空太郎テスト";
+const injectedLlmNote = "E2E用の架空の理由";
 
 async function waitFor(
   check: () => Promise<boolean>,
@@ -33,6 +49,61 @@ async function waitFor(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`timed out waiting for ${label}`);
+}
+
+/// Drags a box over the page overlay, from (x1, y1) to (x2, y2) in screen
+/// pixels. Boxes 4px or smaller are ignored by the viewer.
+async function dragBox(x1: number, y1: number, x2: number, y2: number) {
+  await page.mouse.move(x1, y1);
+  await page.mouse.down();
+  await page.mouse.move(x2, y2, { steps: 8 });
+  await page.mouse.up();
+}
+
+/// Turns on the Detect here tool and boxes a blank margin near the page's top-left
+/// corner, where neither OCR pass finds any text.
+async function detectBlankMargin() {
+  await page.getByRole("button", { name: "ここを検出" }).click();
+  const overlay = page.locator("svg.overlay");
+  await overlay.scrollIntoViewIfNeeded();
+  const box = await overlay.boundingBox();
+  expect(box).not.toBeNull();
+  await dragBox(box!.x + 4, box!.y + 4, box!.x + 34, box!.y + 24);
+}
+
+/// Turns on the Detect here tool and boxes the first analyzed candidate on the page,
+/// with a little padding, so the region OCR reads a known word.
+async function detectKnownWord() {
+  await page.getByRole("button", { name: "ここを検出" }).click();
+  const word = page.locator("svg.overlay rect.finding-rect").first();
+  await word.scrollIntoViewIfNeeded();
+  const box = await word.boundingBox();
+  expect(box).not.toBeNull();
+  await dragBox(
+    box!.x - 3,
+    box!.y - 3,
+    box!.x + box!.width + 3,
+    box!.y + box!.height + 3,
+  );
+}
+
+/// Leaves detect mode, so later tests start with plain clicks.
+async function leaveDetectMode() {
+  await page
+    .locator(".viewer-toolbar")
+    .getByRole("button", { name: "なし", exact: true })
+    .click();
+}
+
+/// A localhost port nothing listens on: connecting is refused immediately,
+/// instead of hanging until the inference timeout.
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }
 
 function killTree(child: ChildProcess | undefined) {
@@ -60,11 +131,49 @@ test.beforeAll(async () => {
   });
   execFileSync(cliExe, ["analyze", projectDir], { env: cliEnv, timeout: 180_000 });
 
+  // Inject an LLM-sourced finding into page 1 so the review list shows an
+  // advisory row next to the rule-based ones. Opening the app does not
+  // re-analyze (ADR-005), so it survives until a detect-only rerun.
+  const pageFindingsPath = path.join(projectDir, "findings", "page-001.json");
+  const pageFindings = JSON.parse(readFileSync(pageFindingsPath, "utf-8")) as {
+    category: string;
+    text: string;
+    detector: string;
+  }[];
+  const regex = pageFindings.find((finding) => finding.detector === "regex");
+  if (!regex) throw new Error("page 1 has no regex finding to compare against");
+  regexFinding = { category: regex.category, text: regex.text };
+  pageFindings.push({
+    category: "person",
+    text: injectedLlmText,
+    rect: { x: 1, y: 1, width: 8, height: 8 },
+    detector: "llm",
+    note: injectedLlmNote,
+  } as (typeof pageFindings)[number]);
+  writeFileSync(pageFindingsPath, JSON.stringify(pageFindings, null, 2));
+
   // Pin the UI language: the app follows the OS otherwise, and every
   // assertion below reads Japanese labels.
   const configDir = path.join(workDir, "config");
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(path.join(configDir, "config.toml"), 'ui_language = "ja"\n');
+  configPath = path.join(configDir, "config.toml");
+  writeFileSync(configPath, 'ui_language = "ja"\n');
+  // An app-wide pack for the removal-confirmation test. Its file name must
+  // match its `name` (removal deletes `<name>.mnrkpack.json`), and its only
+  // word is fictional and absent from the dummy document, so deleting it and
+  // re-detecting leaves the other tests' findings unchanged.
+  mkdirSync(path.join(configDir, "packs"), { recursive: true });
+  packFile = path.join(configDir, "packs", "e2e-fixture.mnrkpack.json");
+  writeFileSync(
+    packFile,
+    JSON.stringify({
+      name: "e2e-fixture",
+      displayName: "E2E 架空パック",
+      version: "1.0.0",
+      rules: [],
+      words: [{ category: "organization", text: "蛙沼精機" }],
+    }),
+  );
   vite = spawn("npm", ["run", "dev"], {
     cwd: path.join(repoRoot, "apps", "desktop"),
     shell: true,
@@ -214,6 +323,507 @@ test("the LLM settings read as optional and stay quiet with no server", async ()
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
 });
 
+test("finding rows show their source and mark LLM guesses as advisory", async () => {
+  // Must run before any dictionary edit or re-analysis: a detect-only rerun
+  // rewrites the findings and drops the injected LLM row.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const llmRow = page.locator(".findings-list .finding-row", {
+    hasText: injectedLlmText,
+  });
+  await expect(llmRow).toHaveCount(1);
+
+  const llmChip = llmRow.locator(".source-tag", {
+    hasText: /^LLM$/,
+  });
+  await expect(llmChip).toHaveClass(/\bsource-advisory\b/);
+  await expect(llmChip).toHaveAttribute("title", "参考情報（確定ではありません）");
+  const note = llmRow.locator(".finding-note");
+  await expect(note).toBeVisible();
+  await expect(note).toHaveText(injectedLlmNote);
+
+  const exact = (text: string) =>
+    new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  const regexRow = page
+    .locator(".findings-list .finding-row", { hasText: regexFinding.text })
+    .filter({
+      has: page.locator(".finding-text", { hasText: exact(regexFinding.text) }),
+    })
+    .filter({
+      // The tag text is the translated label, so match the category by the
+      // `cat-<id>` class instead.
+      has: page.locator(`.category-tag.cat-${regexFinding.category}`),
+    });
+  await expect(regexRow).toHaveCount(1);
+  await expect(
+    regexRow.locator(".source-tag", { hasText: /^正規表現$/ }),
+  ).toHaveCount(1);
+  await expect(regexRow.locator(".source-tag.source-advisory")).toHaveCount(0);
+});
+
+test("detect-here on a blank margin hints at the optional VLM when it is off", async () => {
+  // The VLM is unconfigured by default, which is a normal state: the region
+  // must not be sent to it, and its "not configured" error must not leak
+  // (the same shape the Store rejected under 10.3.3).
+  await page.locator(".page-button").first().click();
+  try {
+    await detectBlankMargin();
+    await expect(page.locator(".statusbar .status").last()).toContainText(
+      "（任意）設定の「ローカルLLM」で VLM を設定すると、OCR で読めない領域も読み取れます。",
+      { timeout: 60_000 },
+    );
+    const statusText = await page.locator(".statusbar").innerText();
+    expect(statusText).not.toContain("config.toml");
+    expect(statusText).not.toContain("model name is not configured");
+    expect(statusText).not.toContain("[inference]");
+    expect(statusText).not.toContain("VLMで読み取り中");
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here reports a failing configured VLM on the status line", async () => {
+  // Settings are re-read on every call, so no restart is needed.
+  const port = await closedPort();
+  writeFileSync(
+    configPath,
+    `ui_language = "ja"\n\n[inference]\nbase_url = "http://127.0.0.1:${port}/v1"\nmodel = "e2e-dummy"\n`,
+  );
+  try {
+    await detectBlankMargin();
+    const status = page.locator(".statusbar .status").last();
+    await expect(status).toContainText(
+      "この領域の読み取り中にエラーが発生しました: ",
+      { timeout: 60_000 },
+    );
+    await expect(status).toContainText("VLM: ");
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    writeFileSync(configPath, 'ui_language = "ja"\n');
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here shows a failed save as an error and offers no target", async () => {
+  // A corrupt findings file makes add_manual_finding fail; the box must not
+  // look pinned.
+  const findingsPath = path.join(projectDir, "findings", "page-001.json");
+  const original = readFileSync(findingsPath);
+  writeFileSync(findingsPath, "{");
+  try {
+    await detectKnownWord();
+    await expect(page.locator(".statusbar .error")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.locator(".statusbar .error")).not.toBeEmpty();
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    // The final workflow test reads this page's findings.
+    writeFileSync(findingsPath, original);
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here on a readable word opens the target bar without errors", async () => {
+  try {
+    await detectKnownWord();
+    await expect(page.locator(".detected-target")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+  } finally {
+    await leaveDetectMode();
+  }
+});
+
+// Matches an element whose whole text is `text`, not just a substring.
+// Whitespace is normalized the way Playwright normalizes the element's text.
+const exactText = (text: string) =>
+  new RegExp(`^${text.trim().replace(/\s+/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+
+// The first candidate row, pinned by its category and exact text (a row's
+// identity) so the locator keeps pointing at that one row while decisions and
+// filters change around it, and never at a row whose text merely contains it.
+async function firstCandidateRow() {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const first = page.locator(".findings-list .finding-row").first();
+  const text = await first.locator(".finding-text").textContent();
+  const category = await first.locator(".category-tag").textContent();
+  expect(text).toBeTruthy();
+  expect(category).toBeTruthy();
+  return page
+    .locator(".findings-list .finding-row")
+    .filter({
+      has: page.locator(".finding-text", { hasText: exactText(text!) }),
+    })
+    .filter({
+      has: page.locator(".category-tag", { hasText: exactText(category!) }),
+    });
+}
+
+test("a replace decision takes its value right in the candidate row", async () => {
+  const row = await firstCandidateRow();
+  const replace = row.locator(".decision-btn", { hasText: "置換" });
+  const input = row.locator(".finding-replace-input");
+  await expect(input).toHaveCount(0);
+
+  // A1: choosing replace opens the value field in place and focuses it.
+  await replace.click();
+  await expect(input).toBeVisible();
+  await expect(input).toBeFocused();
+
+  // A2: the row and the pending rule edit the same value, both ways.
+  const ruleInput = page.locator(".section-rules .replace-input");
+  await expect(ruleInput).toHaveCount(1);
+  await input.fill("共同研究先A");
+  await expect(ruleInput).toHaveValue("共同研究先A");
+  await ruleInput.fill("共同研究先B");
+  await expect(input).toHaveValue("共同研究先B");
+
+  // A3: the row's alignment toggle drives the rule's alignment.
+  await row.getByRole("button", { name: "右揃え" }).click();
+  await expect(
+    page.locator(".section-rules .align-btn.current"),
+  ).toHaveAttribute("aria-label", "右揃え");
+
+  // A4: other actions hide the field; replace brings the value back.
+  await row.locator(".decision-btn", { hasText: "マスク" }).click();
+  await expect(input).toHaveCount(0);
+  await replace.click();
+  await expect(input).toHaveValue("共同研究先B");
+  await replace.click();
+  await expect(input).toHaveCount(0);
+});
+
+test("an empty replacement is previewed as ■■■ and flagged before export", async () => {
+  const row = await firstCandidateRow();
+  // Bring the candidate's page into view so its rule preview is drawn.
+  await row.locator(".finding-label").click();
+  const replace = row.locator(".decision-btn", { hasText: "置換" });
+  await replace.click();
+
+  // C1: the pre-export check counts the empty replacement and warns.
+  const precheck = page.locator(".precheck");
+  await expect(precheck).toHaveClass(/warn/);
+  await expect(precheck.getByText(/置換値が空の置換: 1 件/)).toBeVisible();
+
+  // B1: the preview draws what the export will contain, not a placeholder.
+  await expect(
+    page.locator(".rule-preview").filter({ hasText: "■■■" }).first(),
+  ).toBeVisible();
+  await expect(
+    page.locator(".rule-preview").filter({ hasText: "（仮称）" }),
+  ).toHaveCount(0);
+
+  // C2: entering a value clears the warning line.
+  await row.locator(".finding-replace-input").fill("共同研究先A");
+  await expect(precheck.getByText(/置換値が空の置換/)).toHaveCount(0);
+
+  // Leave no decision behind for the tests that follow.
+  await replace.click();
+  await expect(row.locator(".finding-replace-input")).toHaveCount(0);
+});
+
+test("the undecided-only filter keeps the row being edited", async () => {
+  const row = await firstCandidateRow();
+  const filter = page.getByLabel("未判断のみ");
+  await filter.check();
+  try {
+    // A6: deciding keeps the row while focus stays inside it.
+    await row.locator(".decision-btn", { hasText: "置換" }).click();
+    const input = row.locator(".finding-replace-input");
+    await expect(input).toBeFocused();
+    await row.getByRole("button", { name: "左揃え" }).click();
+    await expect(row.getByRole("button", { name: "左揃え" })).toHaveClass(
+      /current/,
+    );
+    // Focus leaving the row lets the filter drop it.
+    await page.getByPlaceholder("例: 株式会社アルファ技研").focus();
+    await expect(row).toHaveCount(0);
+  } finally {
+    await filter.uncheck();
+  }
+  // Clean up: undo the decision so later tests start undecided.
+  await row.locator(".decision-btn", { hasText: "置換" }).click();
+  await expect(row.locator(".finding-replace-input")).toHaveCount(0);
+});
+
+test("ignoring a finding can be undone from the status bar", async () => {
+  // Regression: "Ignore" ran without any feedback or way back, so a misclick
+  // silently dropped a candidate (and its decision) from the review.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const first = page.locator(".findings-list .finding-row").first();
+  const text = (await first.locator(".finding-text").innerText()).trim();
+  const category = (await first.locator(".category-tag").innerText()).trim();
+  // The same text can appear under another category, and another candidate
+  // can contain it as a substring; pin both exactly.
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ has: page.locator(".finding-text", { hasText: exactText(text) }) })
+    .filter({
+      has: page.locator(".category-tag", { hasText: exactText(category) }),
+    });
+  await expect(row).toHaveCount(1);
+
+  const erase = row.locator(".decision-btn", { hasText: "消去" });
+  await erase.click();
+  await expect(erase).toHaveClass(/current/);
+
+  await row.getByRole("button", { name: "無視", exact: true }).click();
+  await expect(row).toHaveCount(0, { timeout: 60_000 });
+  // The undo lives in the same side-pane bar as every other one-step undo.
+  const undoBar = page.locator(".undo-bar");
+  await expect(undoBar.getByText(text, { exact: false })).toBeVisible();
+  const undo = undoBar.getByRole("button", { name: "元に戻す", exact: true });
+  await expect(undo).toBeVisible();
+
+  await undo.click();
+  await expect(row).toHaveCount(1, { timeout: 60_000 });
+  await expect(undo).toHaveCount(0);
+  await expect(row.locator(".decision-btn", { hasText: "消去" })).toHaveClass(
+    /current/,
+  );
+
+  // Back to undecided so the decision does not leak into later tests.
+  await row.locator(".decision-btn", { hasText: "消去" }).click();
+  await expect(
+    row.locator(".decision-btn", { hasText: "消去" }),
+  ).not.toHaveClass(/current/);
+});
+
+test("removing a detector pack asks for confirmation in the row first", async () => {
+  // The pack row's X used to delete the file at once, looking just like the
+  // ignored-word X that only changes unsaved state. A stray click silently
+  // dropped an app-wide pack from every project with no way back.
+  const settings = page.getByRole("button", { name: "設定", exact: true });
+  const row = page.locator(".modal .rule-entry", { hasText: "E2E 架空パック" });
+  const removeButton = row.getByRole("button", {
+    name: "パックを削除",
+    exact: true,
+  });
+
+  await settings.click();
+  await expect(row).toHaveCount(1);
+
+  // Keep: back to the normal row, file untouched.
+  await removeButton.click();
+  await expect(row).toContainText("元に戻せません");
+  await expect(row).toContainText("全プロジェクト");
+  await row.getByRole("button", { name: "やめる", exact: true }).click();
+  await expect(removeButton).toBeVisible();
+  expect(existsSync(packFile)).toBe(true);
+
+  // Closing the dialog while confirming deletes nothing.
+  await removeButton.click();
+  await expect(
+    row.getByRole("button", { name: "削除する", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await settings.click();
+  await expect(row).toHaveCount(1);
+  await expect(removeButton).toBeVisible();
+  expect(existsSync(packFile)).toBe(true);
+
+  // Delete: the row and the file are gone.
+  await removeButton.click();
+  await row.getByRole("button", { name: "削除する", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  expect(existsSync(packFile)).toBe(false);
+
+  // Removal triggers a re-detect; wait until the app is idle again.
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(
+    page.getByRole("button", { name: "検索", exact: true }),
+  ).toBeEnabled({ timeout: 120_000 });
+});
+
+test("decision buttons expose their pressed state and row name", async () => {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // Every group carries a name built from its own row's category and text,
+  // so a screen reader (or a role query) can tell the rows apart.
+  const rows = page.locator(".findings-list .finding-row");
+  const rowCount = await rows.count();
+  expect(rowCount).toBeGreaterThan(0);
+  for (let i = 0; i < rowCount; i++) {
+    const row = rows.nth(i);
+    const group = row.locator(".decision-buttons");
+    await expect(group).toHaveAttribute("role", "group");
+    const label = (await group.getAttribute("aria-label")) ?? "";
+    expect(label).not.toBe("");
+    const category = (await row.locator(".category-tag").textContent()) ?? "";
+    const text = (await row.locator(".finding-text").textContent()) ?? "";
+    expect(label).toContain(category);
+    expect(label).toContain(text);
+  }
+
+  // The toolbar has its own "マスク"/"消去" buttons, so scope to the row group.
+  const row = rows.first();
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+  const group = row.getByRole("group");
+  const buttons = group.getByRole("button");
+  await expect(buttons).toHaveCount(4);
+
+  // Targets are at least 24px tall so adjacent choices are hard to mis-hit.
+  for (let i = 0; i < 4; i++) {
+    const box = await buttons.nth(i).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(24);
+  }
+
+  await group.getByRole("button", { name: "マスク", exact: true }).click();
+  await expect(
+    group.getByRole("button", { name: "マスク", pressed: true }),
+  ).toHaveCount(1);
+  await expect(group.locator('button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(group.locator('button[aria-pressed="false"]')).toHaveCount(3);
+
+  // Pressing the active choice again clears the decision; the run must end
+  // undecided because decisions autosave and later tests share the project.
+  await group.getByRole("button", { name: "マスク", exact: true }).click();
+  await expect(group.locator('button[aria-pressed="false"]')).toHaveCount(4);
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+});
+
+test("rectangle draw mode and scope expose their pressed state", async () => {
+  const toolbar = page.locator(".viewer-toolbar");
+  await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+  await toolbar.getByRole("button", { name: "このページ", exact: true }).click();
+
+  const modes = toolbar.locator("button.mode");
+  // Four draw modes plus the two scope buttons shown for erase.
+  await expect(modes).toHaveCount(6);
+  await expect(toolbar.locator('button.mode[aria-pressed="true"]')).toHaveCount(2);
+  await expect(
+    toolbar.getByRole("button", { name: "消去", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    toolbar.getByRole("button", { name: "このページ", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    toolbar.getByRole("button", { name: "全ページ", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  for (const name of ["なし", "マスク"]) {
+    await expect(
+      toolbar.getByRole("button", { name, exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
+  }
+
+  // Restore the defaults for the tests that follow.
+  await toolbar.getByRole("button", { name: "全ページ", exact: true }).click();
+  await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+  await expect(
+    toolbar.getByRole("button", { name: "なし", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("only the current page button carries aria-current", async () => {
+  const pages = page.locator(".page-button");
+  await pages.nth(1).click();
+  await expect(pages.nth(1)).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".page-button[aria-current]")).toHaveCount(1);
+
+  await pages.first().click();
+  await expect(pages.first()).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".page-button[aria-current]")).toHaveCount(1);
+});
+
+/// Whether keyboard focus is currently inside the element `locator` names.
+async function holdsFocus(locator: ReturnType<Page["locator"]>) {
+  return locator.evaluate((element) =>
+    element.contains(document.activeElement),
+  );
+}
+
+async function rootIsInert() {
+  return page.evaluate(() =>
+    document.getElementById("root")!.hasAttribute("inert"),
+  );
+}
+
+test("settings keeps keyboard focus inside and Escape peels one layer at a time", async () => {
+  const opener = page.getByRole("button", { name: "設定", exact: true });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveCount(1);
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toHaveAccessibleName("設定");
+  expect(await holdsFocus(dialog)).toBe(true);
+  expect(await rootIsInert()).toBe(true);
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Tab");
+    expect(await holdsFocus(dialog)).toBe(true);
+  }
+
+  // The model list opens even with no LLM server (zero candidates). Escape
+  // closes only the list and hands focus back to its toggle.
+  const listToggle = page.getByRole("button", { name: "モデル一覧を開く" });
+  await listToggle.click();
+  await expect(page.locator(".combo-popover")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".combo-popover")).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(listToggle).toBeFocused();
+
+  // The next Escape closes the dialog and returns focus to its opener.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  expect(await rootIsInert()).toBe(false);
+});
+
+test("a search during re-analysis keeps progress, cancel, and the locks", async () => {
+  // Regression: short operations shared the analysis busy slot, so a search
+  // or jump started mid-run hid the cancel button and, on finishing, cleared
+  // the progress line and re-enabled apply/export while pages were still
+  // unanalyzed. The run must keep owning the status bar until it ends.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.getByRole("button", { name: /再解析…/ }).click();
+  await page.getByRole("button", { name: "すべて（最初から）" }).click();
+  const cancel = page.locator(".statusbar").getByRole("button", {
+    name: "キャンセル",
+  });
+  await expect(cancel).toBeVisible();
+
+  const search = page.getByPlaceholder("例: 株式会社アルファ技研");
+  await search.fill("株式会社アルファ技研");
+  await search.press("Enter");
+  await expect(page.getByText(/\d+ 件見つかりました/)).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await expect(cancel).toBeVisible();
+  await expect(page.locator(".statusbar .status").first()).not.toBeEmpty();
+  await expect(page.getByRole("button", { name: /適用（\d+ルール）/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "設定", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /再解析…/ })).toBeDisabled();
+  const ignore = page.getByRole("button", { name: "無視", exact: true });
+  if ((await ignore.count()) > 0) {
+    await expect(ignore.first()).toBeDisabled();
+  }
+
+  // Let the run finish (no cancel) so the next test sees a complete project.
+  await expect(cancel).toHaveCount(0, { timeout: 180_000 });
+  await expect(page.getByRole("button", { name: /再解析…/ })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "設定", exact: true })).toBeEnabled();
+  // Clear the search so the next test starts from an empty field.
+  await search.fill("");
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
@@ -225,8 +835,32 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await expect(
     page.locator(".detector-grid").getByText("date", { exact: true }),
   ).toBeVisible();
+  // Each toggle is named by its localized display name and described by a
+  // one-line explanation; the bare id stays visible as auxiliary text.
+  const aliased = page.getByRole("checkbox", {
+    name: "略称定義（〜と称する）",
+    exact: true,
+  });
+  await expect(aliased).toBeVisible();
+  await expect(aliased).toHaveAccessibleDescription(/と称する/);
+  // A group added on the Rust side without dictionary text falls back to a
+  // bare id with no description and no id element; catch that drift without
+  // hard-coding the group count.
+  const detectorBoxes = page.locator(".detector-grid").getByRole("checkbox");
+  const boxCount = await detectorBoxes.count();
+  expect(boxCount).toBeGreaterThan(0);
+  for (let index = 0; index < boxCount; index++) {
+    await expect(detectorBoxes.nth(index)).toHaveAccessibleDescription(/\S/);
+  }
+  await expect(page.locator(".detector-grid .detector-id")).toHaveCount(
+    boxCount,
+  );
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
+  // Saving starts a re-detection, which disables "Settings" in the same
+  // update that closes the dialog; focus falls back to Home, not <body>.
+  await expect(page.getByRole("button", { name: "← ホーム" })).toBeFocused();
+  expect(await rootIsInert()).toBe(false);
 
   await page.getByPlaceholder("例: 株式会社アルファ技研").fill("株式会社アルファ技研");
   await page.getByRole("button", { name: "検索", exact: true }).click();
@@ -252,17 +886,973 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 60_000,
   });
 
+  // No candidate was decided above, so every export must stop at the
+  // pre-export confirmation first. Make sure that premise holds.
+  await expect(page.getByText(/未判断の候補: [1-9]/)).toBeVisible();
+
+  // PDF: going back to the review writes nothing.
   await page.getByRole("button", { name: "PDF出力" }).click();
   await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  const confirm = page.getByRole("dialog");
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText(/未判断の候補が \d+ 種類あります/)).toBeVisible();
+  await expect(
+    confirm.getByRole("button", { name: "レビューに戻る" }),
+  ).toBeFocused();
+  await expect(page.getByRole("button", { name: "すべてのページを出力" })).toHaveCount(0);
+  await confirm.getByRole("button", { name: "レビューに戻る" }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+  // The menu item that opened the dialog is gone, so focus returns to the
+  // menu toggle rather than to Home (one Enter away from leaving).
+  await expect(page.getByRole("button", { name: "PDF出力" })).toBeFocused();
+
+  // Escape behaves the same way.
+  await page.getByRole("button", { name: "PDF出力" }).click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden();
+  await expect(page.getByRole("button", { name: "PDF出力" })).toBeFocused();
+
+  // PDF again: proceeding exports as before.
+  await page.getByRole("button", { name: "PDF出力" }).click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });
+  // Exporting before auditing nudges toward the audit and highlights it.
+  const auditButton = page.getByRole("button", { name: "監査", exact: true });
+  await expect(page.locator(".statusbar .status")).toContainText(
+    "共有する前に「監査」を実行してください。",
+  );
+  await expect(auditButton).toHaveClass(/\bprimary\b/);
 
+  // Markdown: Esc cancels, then proceeding exports.
   await page.getByRole("button", { name: "Markdown出力" }).click();
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden();
+  await expect(page.getByText(/出力: .+sanitized\.md/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Markdown出力" }).click();
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
     timeout: 120_000,
   });
 
-  await page.getByRole("button", { name: "監査", exact: true }).click();
+  await auditButton.click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+  // The pass is qualified: undecided candidates were not checked.
+  await expect(
+    page.getByText(/未判断の候補 \d+ 種類は、監査の検査語の作成元に含まれていません/),
+  ).toBeVisible();
+  await expect(auditButton).not.toHaveClass(/\bprimary\b/);
+
+  // Changing a decision after Apply must mark the renders as stale: the old
+  // Pass, summary and output paths are hidden and every output/audit button
+  // is disabled until Apply runs again. A replacement-value change leaves the
+  // deny terms untouched, so only the applied-input key can catch it.
+  const unapplied = page.getByText("未適用の変更があります");
+  const exportPdf = page.getByRole("button", { name: "PDF出力" });
+  const exportMarkdown = page.getByRole("button", { name: "Markdown出力" });
+  const exportImages = page.getByRole("button", { name: "画像出力" });
+  const replacement = page.getByPlaceholder("置換後").last();
+  await expect(replacement).toHaveValue("開発会社A");
+  await expect(unapplied).toHaveCount(0);
+
+  await replacement.fill("開発会社B");
+  await expect(unapplied).toBeVisible();
+  await expect(page.getByText(/監査: Pass/)).toHaveCount(0);
+  await expect(page.getByText(/適用済み:/)).toHaveCount(0);
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+  for (const button of [exportPdf, exportMarkdown, exportImages, auditButton]) {
+    await expect(button).toBeDisabled();
+  }
+
+  // Reverting to the applied inputs clears the stale state again.
+  await replacement.fill("開発会社A");
+  await expect(unapplied).toHaveCount(0);
+  await expect(page.getByText(/監査: Pass/)).toBeVisible();
+  await expect(auditButton).toBeEnabled();
+
+  // Re-applying clears the stale state and the now-outdated output paths.
+  await replacement.fill("開発会社B");
+  await expect(unapplied).toBeVisible();
+  await applyButton.click();
+  await expect(unapplied).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+
+  await exportPdf.click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
+    timeout: 60_000,
+  });
+  // Re-exporting after Apply cleared the audit result highlights it again.
+  await expect(auditButton).toHaveClass(/\bprimary\b/);
+  await auditButton.click();
+  await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+  await expect(auditButton).not.toHaveClass(/\bprimary\b/);
+});
+
+test("clearing decisions and rules asks first and keeps entities", async () => {
+  // Regression: the bulk clear button wiped every decision (hidden "keep"
+  // ones too), text rule and region rule on a single click, and autosave
+  // made it permanent 0.4s later. It must confirm in an in-app dialog first.
+  // Runs last: the main flow leaves one text rule and one entity behind.
+  const decisionsPath = path.join(projectDir, "decisions", "decisions.json");
+  const readDecisions = () =>
+    JSON.parse(readFileSync(decisionsPath, "utf8")) as {
+      findings: { action: string }[];
+      texts: unknown[];
+      regions: unknown[];
+      align_overrides: unknown[];
+    };
+  const rulesList = page.locator(".section-rules .rule-list");
+  const clearButton = page.getByRole("button", {
+    name: "判断・文字列・矩形ルールを一括解除…",
+  });
+  const dialog = page.getByRole("dialog");
+
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // One "keep" (which the rule list never shows) and one other decision.
+  const undecided = page.locator(".findings-list .finding-row:not(.decided)");
+  await undecided
+    .first()
+    .locator(".decision-btn", { hasText: "保持" })
+    .click();
+  await undecided
+    .first()
+    .locator(".decision-btn", { hasText: "マスク" })
+    .click();
+
+  // One region rule drawn in erase mode.
+  const toolbar = page.locator(".viewer-toolbar");
+  await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+  const overlay = page.locator(".page-stage svg.overlay");
+  await expect(overlay).toBeVisible();
+  // The page is taller than the scrolling viewer, so drag inside the part of
+  // the page that is actually on screen.
+  const pageBox = await overlay.boundingBox();
+  const wrapBox = await page.locator(".page-stage-wrap").boundingBox();
+  expect(pageBox).not.toBeNull();
+  expect(wrapBox).not.toBeNull();
+  const left = Math.max(pageBox!.x, wrapBox!.x);
+  const top = Math.max(pageBox!.y, wrapBox!.y);
+  const right = Math.min(pageBox!.x + pageBox!.width, wrapBox!.x + wrapBox!.width);
+  const bottom = Math.min(
+    pageBox!.y + pageBox!.height,
+    wrapBox!.y + wrapBox!.height,
+  );
+  expect(right - left).toBeGreaterThan(40);
+  expect(bottom - top).toBeGreaterThan(40);
+  await page.mouse.move(
+    left + (right - left) * 0.2,
+    top + (bottom - top) * 0.2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    left + (right - left) * 0.6,
+    top + (bottom - top) * 0.4,
+    { steps: 5 },
+  );
+  await page.mouse.up();
+  await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+
+  await waitFor(async () => {
+    const saved = readDecisions();
+    return (
+      saved.regions.length >= 1 &&
+      saved.texts.length >= 1 &&
+      saved.findings.some((finding) => finding.action === "keep") &&
+      saved.findings.some((finding) => finding.action !== "keep")
+    );
+  }, "decisions.json with a keep, a decision, a text and a region rule");
+  const before = readDecisions();
+  const keepCount = before.findings.filter((f) => f.action === "keep").length;
+  const rulesBefore = await rulesList.innerText();
+
+  // AC1/AC2: a modal dialog with the real counts and the caveats.
+  await clearButton.click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toContainText(
+    `判断 ${before.findings.length} 種類（うち保持 ${keepCount} 種類）`,
+  );
+  await expect(dialog).toContainText(`文字列ルール ${before.texts.length} 件`);
+  await expect(dialog).toContainText(`矩形ルール ${before.regions.length} 件`);
+  await expect(dialog).toContainText("Entity と配置の例外は残ります");
+  await expect(dialog).toContainText("元に戻せません");
+  expect(await rulesList.innerText()).toBe(rulesBefore);
+
+  // AC3/AC6: cancel, backdrop, Escape and an immediate Enter change nothing.
+  const dismissals: [string, () => Promise<void>][] = [
+    ["cancel", () => dialog.getByRole("button", { name: "キャンセル" }).click()],
+    ["backdrop", () => page.mouse.click(5, 5)],
+    ["escape", () => page.keyboard.press("Escape")],
+    ["enter", () => page.keyboard.press("Enter")],
+  ];
+  for (const [label, dismiss] of dismissals) {
+    if (label !== "cancel") {
+      await clearButton.click();
+      await expect(dialog).toBeVisible();
+    }
+    await dismiss();
+    await expect(dialog, label).toHaveCount(0);
+    await page.waitForTimeout(1000);
+    expect(await rulesList.innerText(), label).toBe(rulesBefore);
+    expect(readDecisions(), label).toEqual(before);
+  }
+
+  // AC4/AC5: confirming clears decisions and rules but keeps the entity.
+  await clearButton.click();
+  await dialog.getByRole("button", { name: "一括解除する" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.waitForTimeout(1000);
+  await waitFor(async () => {
+    const saved = readDecisions();
+    return (
+      saved.findings.length === 0 &&
+      saved.texts.length === 0 &&
+      saved.regions.length === 0
+    );
+  }, "decisions.json cleared");
+  expect(readDecisions().align_overrides).toEqual(before.align_overrides);
+  await expect(page.getByText("Entity（1件）")).toBeVisible();
+  await expect(rulesList.locator(".rule-block")).toHaveCount(1);
+
+  // AC7: with only entity rules left, the bulk clear button is gone.
+  await expect(clearButton).toHaveCount(0);
+});
+
+// Category tags read as the UI language's label, not the internal ID. These
+// run after the pipeline test because registering to the dictionary re-runs
+// detection.
+test("candidate category tags show the translated label", async () => {
+  const tags = page.locator(".findings-list .category-tag");
+  await expect(tags.getByText("組織名", { exact: true }).first()).toBeVisible();
+  await expect(tags.getByText("organization", { exact: true })).toHaveCount(0);
+});
+
+test("category filter labels options but keeps the ID as the value", async () => {
+  const select = page.locator(".finding-filter select");
+  await expect(
+    select.locator("option", { hasText: "組織名" }),
+  ).toHaveAttribute("value", "organization");
+  await select.selectOption("organization");
+  const tags = page.locator(".findings-list .category-tag");
+  await expect(tags.first()).toBeVisible();
+  await expect(tags.filter({ hasNotText: "組織名" })).toHaveCount(0);
+  await select.selectOption("all");
+});
+
+test("free-text filter matches both the label and the ID", async () => {
+  const filter = page.getByPlaceholder("絞り込み（語・分類・p.3）");
+  const rows = page.locator(".findings-list .finding-row");
+  await filter.fill("組織名");
+  await expect(rows.first()).toBeVisible();
+  await filter.fill("organization");
+  await expect(rows.first()).toBeVisible();
+  await filter.fill("");
+});
+
+test("exclude tooltip names the translated category", async () => {
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ has: page.getByText("組織名", { exact: true }) })
+    .first();
+  // The row holds two `.mini` buttons (entity menu and exclude); pick the
+  // exclude one by its label.
+  const title = await row
+    .getByRole("button", { name: "無視", exact: true })
+    .getAttribute("title");
+  expect(title).toContain("を組織名の検出から除外");
+  expect(title).not.toContain("organization");
+});
+
+test("a dictionary entry registered as Other is listed as その他", async () => {
+  const word = "架空語ゼータ九九";
+  await page.getByPlaceholder("例: 株式会社アルファ技研").fill(word);
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await page.locator(".dictionary-register select").selectOption("custom");
+  await page
+    .getByRole("button", { name: "辞書に登録（以後の解析で自動検出）" })
+    .click();
+  await expect(page.getByText("登録し、検出候補へ反映しました。")).toBeVisible({
+    timeout: 120_000,
+  });
+  const entry = page
+    .locator(".section-dictionary .rule-entry")
+    .filter({ hasText: word });
+  await expect(entry.locator(".category-tag")).toHaveText("その他");
+});
+
+// The LLM features stay off until a model is configured (settings.rs). The
+// re-analyze menu used to offer them anyway and answer a click with an
+// English backend error plus a fixed Japanese hint to hand-edit config.toml;
+// it must lead to the settings dialog instead.
+// The export menu shares the `.reanalyze-menu` class, so pin the label.
+const reanalyzeButton = () =>
+  page.locator(".reanalyze-menu > button", { hasText: "再解析…" });
+const reanalyzeItem = (label: string | RegExp) =>
+  page.locator(".reanalyze-menu .menu button", { hasText: label });
+
+test("LLM and VLM detection without a model lead to the settings dialog", async () => {
+  for (const label of ["LLM検出 — 設定で構成…", "VLM検出 — 設定で構成…"]) {
+    await expect(reanalyzeButton()).toBeEnabled({ timeout: 120_000 });
+    await reanalyzeButton().click();
+    const item = reanalyzeItem(label);
+    await expect(item).toBeVisible();
+    await item.click();
+
+    await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeVisible();
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await page.getByRole("button", { name: "閉じる" }).click();
+    await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeHidden();
+  }
+});
+
+test("saving a model restores the regular LLM menu items without reopening", async () => {
+  await reanalyzeButton().click();
+  await reanalyzeItem("LLM検出 — 設定で構成…").click();
+  await page.getByPlaceholder("qwen3（VLM検出は vision モデル）").fill("dummy-model");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeHidden();
+
+  // Saving re-runs detection; wait for it before reading the menu again.
+  await expect(page.locator(".statusbar .status")).toHaveCount(0, {
+    timeout: 120_000,
+  });
+  await expect(reanalyzeButton()).toBeEnabled({ timeout: 120_000 });
+  await reanalyzeButton().click();
+  // Only read the labels: clicking would reach out to localhost:11434.
+  await expect(reanalyzeItem("LLM検出（テキスト・実験的）")).toBeVisible();
+  await expect(reanalyzeItem("VLM検出（ページ画像・実験的）")).toBeVisible();
+  await expect(reanalyzeItem(/設定で構成/)).toHaveCount(0);
+  await page.locator(".menu-backdrop").click();
+});
+
+test("a remote endpoint is explained in Japanese without the backend text", async () => {
+  // NotLocal is raised before any connection, so no server is needed.
+  writeFileSync(
+    path.join(workDir, "config", "config.toml"),
+    'ui_language = "ja"\n\n[inference]\nbase_url = "http://example.com/v1"\nmodel = "dummy-model"\n',
+  );
+  // The review screen reads the config on mount and when settings close.
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
+
+  await reanalyzeButton().click();
+  await reanalyzeItem("LLM検出（テキスト・実験的）").click();
+  const error = page.locator(".statusbar .error");
+  await expect(error).toContainText("このマシン上", { timeout: 30_000 });
+  const text = await error.innerText();
+  expect(text).toContain("設定 → ローカルLLM（任意・アプリ全体）");
+  expect(text).not.toContain("inference endpoint must be");
+  expect(text).not.toContain("model name is not configured");
+  expect(text).not.toContain("config.toml");
+});
+
+// Depends on undecided candidates being left over: the bulk clear test above
+// resets every decision and the tests after it leave the decision buttons
+// alone. Keep decision-dependent tests out of the rest of this file, after
+// this one.
+test("bulk apply decides only the shown undecided candidates", async () => {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const filterSelect = page.locator(".finding-filter select");
+  const rows = page.locator(".findings-list .finding-row");
+  const bulk = page.locator(".bulk-apply");
+  const modal = page.locator(".bulk-apply-modal");
+  const undecidedCount = async () => {
+    const text = await page.getByText(/未判断の候補: \d+ 種類/).textContent();
+    return Number(/(\d+)/.exec(text ?? "")![1]);
+  };
+
+  // 1. The first category with at least two shown rows and no entity member
+  // (the pipeline test leaves one, which counts as decided and is skipped by
+  // bulk apply); no hard-coded name.
+  const categories = (
+    await filterSelect.locator("option").evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    )
+  ).filter((value) => value !== "all");
+  let category: string | undefined;
+  for (const candidate of categories) {
+    await filterSelect.selectOption(candidate);
+    if (
+      (await rows.count()) >= 2 &&
+      (await rows.locator(".entity-alias-chip").count()) === 0
+    ) {
+      category = candidate;
+      break;
+    }
+  }
+  expect(category, "a category with two or more rows").toBeDefined();
+  const rowCount = await rows.count();
+
+  // 2. Erase the first row, so bulk Mask must leave it alone (AC3).
+  const firstRow = rows.first();
+  const firstText = await firstRow.locator(".finding-text").textContent();
+  await firstRow.getByRole("button", { name: "消去", exact: true }).click();
+  await expect(firstRow).toHaveClass(/decided/);
+
+  // 3. Decided rows across every category before the bulk action.
+  await filterSelect.selectOption("all");
+  const decidedBefore = await page
+    .locator(".findings-list .finding-row.decided")
+    .count();
+  const otherDecidedBefore = decidedBefore - 1;
+  await filterSelect.selectOption(category!);
+  const before = await undecidedCount();
+
+  const maskButton = bulk.getByRole("button", { name: "マスク", exact: true });
+  await expect(bulk).toContainText(`表示中の未判断 ${rowCount - 1} 種類`);
+
+  // 4. Cancel changes nothing (AC4); so does a backdrop click.
+  await maskButton.click();
+  await expect(modal).toBeVisible();
+  await expect(modal.locator(".bulk-apply-target")).toHaveCount(rowCount - 1);
+  await modal.getByRole("button", { name: "キャンセル" }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    1,
+  );
+  expect(await undecidedCount()).toBe(before);
+  await maskButton.click();
+  await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(modal).toHaveCount(0);
+  expect(await undecidedCount()).toBe(before);
+
+  // 5. Confirm: every shown row is decided, the erased row keeps Erase, and
+  // the undecided count drops by the number applied (AC2, AC3, AC9).
+  await maskButton.click();
+  await modal
+    .getByRole("button", { name: `マスクを ${rowCount - 1} 種類に適用` })
+    .click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    rowCount,
+  );
+  await expect(
+    firstRow.locator(".decision-btn.current", { hasText: "消去" }),
+  ).toHaveCount(1);
+  for (let i = 1; i < rowCount; i++) {
+    await expect(
+      rows.nth(i).locator(".decision-btn.current", { hasText: "マスク" }),
+    ).toHaveCount(1);
+  }
+  expect(await undecidedCount()).toBe(before - (rowCount - 1));
+  await expect(bulk.getByRole("button", { name: "マスク", exact: true })).toBeDisabled();
+
+  // Other categories keep their prior state.
+  await filterSelect.selectOption("all");
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    otherDecidedBefore + rowCount,
+  );
+
+  // Saved after the debounce, keyed by category + text.
+  const decisionsPath = path.join(projectDir, "decisions", "decisions.json");
+  await waitFor(async () => {
+    const saved = JSON.parse(readFileSync(decisionsPath, "utf8")) as {
+      findings: { category: string; text: string; action: string }[];
+    };
+    const ofCategory = saved.findings.filter(
+      (entry) => entry.category === category,
+    );
+    return (
+      ofCategory.length === rowCount &&
+      ofCategory.filter((entry) => entry.action === "mask").length ===
+        rowCount - 1 &&
+      ofCategory.some(
+        (entry) => entry.text === firstText && entry.action === "erase",
+      )
+    );
+  }, "bulk decisions saved to decisions.json");
+});
+
+test("deleting a merged entity asks first and can be undone", async () => {
+  // Regression guard for one-click loss of hand-made merges: an entity with
+  // two or more spellings asks before it goes, and the deletion can be undone
+  // back to the same id, alias and spelling order. Counts are relative
+  // because the previous test leaves an entity behind.
+  const cards = page.locator(".section-entity .entity-card");
+  const before = await cards.count();
+
+  await page
+    .getByPlaceholder("例: 株式会社アルファ技研")
+    .fill("株式会社アルファ技研");
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await expect(page.getByText(/\d+ 件見つかりました/)).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: "Entityとして登録" }).click();
+  await expect(cards).toHaveCount(before + 1);
+  const card = cards.nth(before);
+  const alias = await card.getByPlaceholder("仮称").inputValue();
+  expect(alias).not.toBe("");
+
+  // Merge a second spelling through a candidate row's entity menu.
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ hasNotText: /株式会社(アルファ技研|ベータ電機)/ })
+    .first();
+  await row.scrollIntoViewIfNeeded();
+  const second = (await row.locator(".finding-text").innerText()).trim();
+  await row.locator(".entity-menu > button").click();
+  await page
+    .locator(".entity-popover")
+    .getByRole("button", { name: `→ ${alias}`, exact: true })
+    .click();
+  const chips = card.locator(".variant-chip .chip-text");
+  await expect(chips).toHaveText(["株式会社アルファ技研", second]);
+
+  // First attempt: the in-app confirmation appears; cancelling keeps it all.
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  const confirm = card.locator(".entity-delete-confirm");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText(alias);
+  await expect(confirm).toContainText("2件");
+  await card.getByRole("button", { name: "キャンセル", exact: true }).click();
+  await expect(confirm).toHaveCount(0);
+  await expect(cards).toHaveCount(before + 1);
+  await expect(page.locator(".undo-bar")).toHaveCount(0);
+
+  // Reads the persisted entity with this alias (or null) from entities.json.
+  const entitiesFile = path.join(projectDir, "entities", "entities.json");
+  const savedEntity = () => {
+    const saved: { id: string; alias: string; variants: string[] }[] =
+      JSON.parse(readFileSync(entitiesFile, "utf8"));
+    const match = saved.find((entity) => entity.alias === alias);
+    return match ? { id: match.id, variants: match.variants } : null;
+  };
+  await expect
+    .poll(() => savedEntity()?.variants ?? null, { timeout: 10_000 })
+    .toEqual(["株式会社アルファ技研", second]);
+  const savedId = savedEntity()!.id;
+
+  // Second attempt: confirm, and the card is gone.
+  await card.getByRole("button", { name: "削除", exact: true }).click();
+  await card.getByRole("button", { name: "削除を確定", exact: true }).click();
+  await expect(cards).toHaveCount(before);
+  await expect(page.locator(".undo-bar")).toBeVisible();
+  // The deletion itself is autosaved, so the restore below is observable on
+  // disk rather than a debounce that never wrote the removal.
+  await expect.poll(savedEntity, { timeout: 10_000 }).toBeNull();
+
+  // Undo restores the same entity, in place, with the same spelling order.
+  await page.getByRole("button", { name: "元に戻す", exact: true }).click();
+  await expect(cards).toHaveCount(before + 1);
+  await expect(page.locator(".undo-bar")).toHaveCount(0);
+  const restored = cards.nth(before);
+  await expect(restored.getByPlaceholder("仮称")).toHaveValue(alias);
+  await expect(restored.locator(".variant-chip .chip-text")).toHaveText([
+    "株式会社アルファ技研",
+    second,
+  ]);
+
+  // The autosave writes the restored entity back under the same id.
+  await expect
+    .poll(savedEntity, { timeout: 10_000 })
+    .toEqual({ id: savedId, variants: ["株式会社アルファ技研", second] });
+});
+
+test("clicking a region rect reveals its rule; deletion is undoable from the pane", async () => {
+  // Regression: in "none" mode one click on a region rect deleted the rule —
+  // all-pages rules included — with no notice or undo, and because regions
+  // painted over findings, it also swallowed clicks on candidates inside it.
+  const savedRegions = () => {
+    try {
+      const saved = JSON.parse(
+        readFileSync(
+          path.join(projectDir, "decisions", "decisions.json"),
+          "utf8",
+        ),
+      ) as { regions: unknown[] };
+      return saved.regions;
+    } catch {
+      return null;
+    }
+  };
+  const regionEntries = page.locator(".rule-entry.region");
+  const before = await regionEntries.count();
+
+  // Focus an analyzer candidate so its rect is on screen and identifiable.
+  await page.locator(".finding-label").first().click();
+  const target = page.locator(".finding-rect.highlight").first();
+  await expect(target).toBeVisible();
+  const box = (await target.boundingBox())!;
+  const margin = 16;
+
+  async function drawAllPagesErase(x: number, y: number, w: number, h: number) {
+    const toolbar = page.locator(".viewer-toolbar");
+    await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+    await toolbar.getByRole("button", { name: "全ページ", exact: true }).click();
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + w / 2, y + h / 2);
+    await page.mouse.move(x + w, y + h);
+    await page.mouse.up();
+    await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+  }
+
+  // An all-pages erase rule covering the candidate with some room around it.
+  await drawAllPagesErase(
+    box.x - margin,
+    box.y - margin,
+    box.width + margin * 2,
+    box.height + margin * 2,
+  );
+  await expect(regionEntries).toHaveCount(before + 1);
+  const added = regionEntries.nth(before);
+
+  // AC1/AC2: clicking the region away from the candidate keeps the rule and
+  // reveals its entry in the right pane.
+  await page.mouse.click(box.x - margin + 4, box.y - margin + 4);
+  await expect(added).toHaveClass(/reveal-flash/);
+  await expect(added).toBeInViewport();
+  await expect(regionEntries).toHaveCount(before + 1);
+  await waitFor(
+    async () => savedRegions()?.length === before + 1,
+    "autosaved region rule",
+    10_000,
+  );
+
+  // AC3: the candidate inside the region still receives its click.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator(".finding-row.reveal-flash")).toHaveCount(1);
+  await expect(regionEntries).toHaveCount(before + 1);
+
+  // AC4: a second rule; delete it from the pane, then undo.
+  await drawAllPagesErase(
+    box.x - margin * 2,
+    box.y + box.height + margin * 2,
+    60,
+    30,
+  );
+  await expect(regionEntries).toHaveCount(before + 2);
+  const second = regionEntries.nth(before + 1);
+  const savedSecond = await waitFor(
+    async () => savedRegions()?.length === before + 2,
+    "autosaved second rule",
+    10_000,
+  ).then(() => savedRegions()![before + 1]);
+  await second.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(regionEntries).toHaveCount(before + 1);
+  const undoBar = page.locator(".undo-bar");
+  await expect(undoBar).toContainText("領域ルールを1件削除しました");
+  const undo = undoBar.getByRole("button", { name: "元に戻す" });
+  await undo.click();
+  await expect(undo).toHaveCount(0);
+  await expect(regionEntries).toHaveCount(before + 2);
+  await waitFor(
+    async () =>
+      JSON.stringify(savedRegions()?.[before + 1]) ===
+      JSON.stringify(savedSecond),
+    "autosaved restored rule",
+    10_000,
+  );
+});
+
+test("entity members count as decided and show conflicting decisions", async () => {
+  // Regression for #36: consolidating a candidate into an entity replaced it
+  // on output, yet its row showed no alias, it still counted as undecided,
+  // and a contradicting row decision was shown as if it applied. Kept last:
+  // the test above asserts the first entity is 組織A, so ours is 組織B+.
+  const precheck = page.locator(".section-precheck .precheck");
+  const readCount = async (pattern: RegExp) => {
+    const text = (await precheck.textContent()) ?? "";
+    const match = text.match(pattern);
+    expect(match, `${pattern} in "${text}"`).not.toBeNull();
+    return Number(match![1]);
+  };
+  const undecidedPattern = /未判断の候補: (\d+) 種類/;
+  const decidedPattern = /判断済み: (\d+) 種類/;
+  const coveredPattern = /うち Entity による置換: (\d+) 種類/;
+  const conflictPattern = /競合する置換: (\d+) 件/;
+  const counts = async () => ({
+    undecided: await readCount(undecidedPattern),
+    decided: await readCount(decidedPattern),
+    covered: await readCount(coveredPattern),
+    conflict: await readCount(conflictPattern),
+  });
+
+  // Pick the first undecided row whose text is untrimmed-safe and unique in
+  // the list, so exactly one candidate group joins the new entity.
+  const targetText = await page.evaluate(() => {
+    const texts = [
+      ...document.querySelectorAll(".findings-list .finding-row .finding-text"),
+    ].map((element) => element.textContent ?? "");
+    const undecided = [
+      ...document.querySelectorAll(
+        ".findings-list .finding-row:not(.decided) .finding-text",
+      ),
+    ].map((element) => element.textContent ?? "");
+    return (
+      undecided.find(
+        (text) =>
+          text !== "" &&
+          text === text.trim() &&
+          texts.filter((other) => other === text).length === 1,
+      ) ?? null
+    );
+  });
+  expect(targetText).not.toBeNull();
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({
+      has: page.locator(".finding-text").getByText(targetText!, { exact: true }),
+    });
+  await expect(row).toHaveCount(1);
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+  const before = await counts();
+
+  // AC1/AC2: a new entity from the row shows its alias and counts as decided.
+  const entityButton = row.locator(".entity-menu > button");
+  await expect(entityButton).toHaveText("E");
+  await entityButton.click();
+  await page.locator(".entity-popover").getByText("＋ 新規Entity").click();
+  await expect(row.locator(".entity-alias-chip")).toHaveText(/→ .+/);
+  await expect(entityButton).not.toHaveText("E");
+  await expect(row).toHaveClass(/\bdecided\b/);
+  await expect(precheck).toContainText(
+    `未判断の候補: ${before.undecided - 1} 種類`,
+  );
+  expect(await counts()).toEqual({
+    ...before,
+    undecided: before.undecided - 1,
+    decided: before.decided + 1,
+    covered: before.covered + 1,
+  });
+
+  // AC3: the undecided-only filter hides the covered row.
+  const undecidedOnly = page.getByLabel("未判断のみ");
+  await undecidedOnly.check();
+  await expect(row).toHaveCount(0);
+  await undecidedOnly.uncheck();
+  await expect(row).toHaveCount(1);
+
+  // AC6: a contradicting row decision is flagged as a conflict.
+  const alias = ((await entityButton.textContent()) ?? "").trim();
+  const maskButton = row.locator(".decision-btn", { hasText: "マスク" });
+  await maskButton.click();
+  const badge = row.locator(".conflict-badge");
+  await expect(badge).toHaveText("競合");
+  await expect(badge).toHaveAttribute("title", new RegExp(alias));
+  await expect(row).toHaveClass(/\bconflict\b/);
+  await expect(precheck).toHaveClass(/\bwarn\b/);
+  await expect(precheck).toContainText(
+    `競合する置換: ${before.conflict + 1} 件`,
+  );
+
+  // AC8: releasing the decision clears the conflict; the row stays decided.
+  await maskButton.click();
+  await expect(badge).toHaveCount(0);
+  await expect(row).not.toHaveClass(/\bconflict\b/);
+  await expect(row).toHaveClass(/\bdecided\b/);
+  await expect(precheck).toContainText(`競合する置換: ${before.conflict} 件`);
+  expect(await counts()).toEqual({
+    ...before,
+    undecided: before.undecided - 1,
+    decided: before.decided + 1,
+    covered: before.covered + 1,
+  });
+});
+
+// A location-unknown VLM candidate: a decision on it alone edits nothing, so
+// it must be badged, counted apart from decided, and warned about on export.
+// Runs on its own project (the shared one above stays untouched) and swaps
+// the running app over to it.
+test.describe("location-unknown candidates", () => {
+  const NAME = "株式会社サンプル精機";
+  const RESOLVED = "架空工業株式会社";
+  const OTHER_PAGE = "試作電機株式会社";
+  let unlocatedWorkDir: string;
+
+  test.beforeAll(async () => {
+    unlocatedWorkDir = mkdtempSync(path.join(tmpdir(), "menreiki-e2e-unlocated-"));
+    const unlocatedProject = path.join(unlocatedWorkDir, "spec.menreiki");
+    const cliEnv = { ...process.env, MENREIKI_PDFIUM_PATH: pdfiumDir };
+    execFileSync(cliExe, ["import", dummyPdf, "--project", unlocatedProject], {
+      env: cliEnv,
+    });
+    execFileSync(cliExe, ["analyze", unlocatedProject], {
+      env: cliEnv,
+      timeout: 180_000,
+    });
+
+    // Replace every page's findings so the fixture is the only data: page 1
+    // holds the unresolved candidate, one resolved by a located finding of
+    // the same text (other category) on the same page, and one whose located
+    // twin sits on page 2 only — which must not resolve it.
+    const findingsDir = path.join(unlocatedProject, "findings");
+    for (const file of readdirSync(findingsDir)) {
+      writeFileSync(path.join(findingsDir, file), "[]");
+    }
+    const ocr = JSON.parse(
+      readFileSync(path.join(unlocatedProject, "ocr", "page-001.json"), "utf8"),
+    ) as { width: number; height: number };
+    const wholePage = { x: 0, y: 0, width: ocr.width, height: ocr.height };
+    const located = { x: 40, y: 40, width: 200, height: 24 };
+    const unlocated = (text: string, category: string) => ({
+      category,
+      text,
+      rect: wholePage,
+      detector: "vlm",
+      note: "図中の社名に見える",
+      unlocated: true,
+    });
+    writeFileSync(
+      path.join(findingsDir, "page-001.json"),
+      JSON.stringify([
+        unlocated(NAME, "organization"),
+        unlocated(RESOLVED, "other"),
+        {
+          category: "organization",
+          text: RESOLVED,
+          rect: located,
+          detector: "manual",
+        },
+        unlocated(OTHER_PAGE, "organization"),
+      ]),
+    );
+    writeFileSync(
+      path.join(findingsDir, "page-002.json"),
+      JSON.stringify([
+        {
+          category: "organization",
+          text: OTHER_PAGE,
+          rect: located,
+          detector: "manual",
+        },
+      ]),
+    );
+
+    await browser?.close().catch(() => {});
+    killTree(app);
+    app = spawn(appExe, [unlocatedProject], {
+      env: {
+        ...process.env,
+        MENREIKI_PDFIUM_PATH: pdfiumDir,
+        MENREIKI_CONFIG_DIR: path.join(workDir, "config"),
+        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      },
+      stdio: "ignore",
+    });
+    await waitFor(
+      async () => (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).ok,
+      "WebView2 CDP endpoint",
+    );
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    await waitFor(async () => {
+      const candidate = browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidatePage) => candidatePage.url().includes("localhost:1420"));
+      if (!candidate) return false;
+      page = candidate;
+      return true;
+    }, "app page over CDP");
+    await page.locator(".side-pane").waitFor({ timeout: 60_000 });
+    const ack = page.getByRole("button", { name: "理解しました" });
+    if (await ack.isVisible().catch(() => false)) {
+      await ack.click();
+    }
+  });
+
+  test.afterAll(() => {
+    if (unlocatedWorkDir)
+      rmSync(unlocatedWorkDir, { recursive: true, force: true });
+  });
+
+  const rowFor = (text: string, category: string) =>
+    page
+      .locator(".finding-row")
+      .filter({ has: page.locator(".finding-text", { hasText: text }) })
+      .filter({ has: page.locator(".category-tag", { hasText: category }) });
+
+  test("an unresolved candidate is badged with a localized hint", async () => {
+    const row = rowFor(NAME, "organization");
+    await expect(row).toHaveCount(1, { timeout: 120_000 });
+    await expect(row).toHaveClass(/\bunlocated\b/);
+    await expect(row.locator(".badge.lost")).toHaveText("位置未特定");
+    const title = await row.locator(".finding-label").getAttribute("title");
+    expect(title).toContain("ここを検出");
+    expect(title).toContain("図中の社名に見える");
+    expect(title).not.toMatch(/保持/);
+
+    // A located finding of the same text on the same page resolves it, in
+    // any category; one on another page does not.
+    await expect(rowFor(RESOLVED, "other")).not.toHaveClass(/\bunlocated\b/);
+    await expect(rowFor(RESOLVED, "other").locator(".badge.lost")).toHaveCount(0);
+    await expect(rowFor(OTHER_PAGE, "organization").first()).toHaveClass(
+      /\bunlocated\b/,
+    );
+  });
+
+  test("a mask on it stays out of decided and warns on every export", async () => {
+    // Settle every other group with keep so only the unlocated one is left.
+    const rows = page.locator(".finding-row");
+    const total = await rows.count();
+    for (let index = 0; index < total; index++) {
+      const row = rows.nth(index);
+      const isTarget =
+        (await row.locator(".finding-text").innerText()) === NAME;
+      await row
+        .getByRole("button", { name: isTarget ? "マスク" : "保持", exact: true })
+        .click();
+    }
+    // OTHER_PAGE is unresolved too but kept, which still counts as decided.
+    const precheck = page.locator(".section-precheck .precheck");
+    await expect(precheck).toHaveClass(/\bwarn\b/);
+    await expect(precheck).toContainText("未判断の候補: 0 種類");
+    await expect(precheck).toContainText("位置未特定（適用されません）: 1 種類");
+
+    const warning = /位置未特定のため判断が適用されていない候補が 1 種類/;
+    const applyButton = page.getByRole("button", { name: /適用（\d+ルール）/ });
+    await applyButton.click();
+    await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+      timeout: 60_000,
+    });
+
+    await page.getByRole("button", { name: "PDF出力" }).click();
+    await page.getByRole("button", { name: "すべてのページを出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/未判断の候補が \d+ 種類残っています/)).toHaveCount(0);
+
+    await page.getByRole("button", { name: "画像出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 60_000 });
+
+    await page.getByRole("button", { name: "Markdown出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 120_000 });
+
+    // Keep is a decision that does not depend on a position.
+    await rowFor(NAME, "organization")
+      .getByRole("button", { name: "保持", exact: true })
+      .click();
+    await expect(precheck).toHaveClass(/\bok\b/);
+    await expect(precheck).not.toContainText("位置未特定");
+    // The changed decision makes the renders stale, which disables export
+    // until the policy is applied again.
+    await applyButton.click();
+    await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.getByRole("button", { name: "Markdown出力" }).click();
+    await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
+      timeout: 120_000,
+    });
+    await expect(page.getByText(warning)).toHaveCount(0);
+  });
 });

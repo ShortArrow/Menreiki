@@ -127,4 +127,16 @@ test("the embedded sample opens into review with detections", async () => {
   await expect(page.locator(".finding-label").first()).toBeVisible();
   // It is a 3-page document, so page navigation is exercisable.
   expect(await page.locator(".page-button").count()).toBeGreaterThanOrEqual(3);
+
+  // The project folder's location is always shown in full, so the user can
+  // find and delete it. "Show in Explorer" is not clicked: this drives the
+  // real app and would open a real Explorer window.
+  await expect(page.getByTestId("project-path")).toHaveText(
+    path.join(workDir, "config", "sample.menreiki"),
+  );
+  await expect(
+    page.getByRole("button", { name: "エクスプローラーで表示" }),
+  ).toBeVisible();
+  // Opening the sample is not an import, so no post-import banner.
+  await expect(page.getByTestId("imported-notice")).toHaveCount(0);
 });

@@ -8,7 +8,8 @@ use menreiki_core::{OcrLine, PageOcr, Rect, Span};
 use menreiki_ocr::{OcrEngine, OcrError};
 use menreiki_policy::parse_policy;
 use menreiki_project::{
-    audit_output, audit_report_path, export_pdf, import, page_render_path, RENDERS_DIR,
+    audit_output, audit_report_path, export_pdf, import, page_render_path, AuditOutputError,
+    AUDIT_DIR, RENDERS_DIR,
 };
 
 fn red_png(width: u32, height: u32) -> Vec<u8> {
@@ -122,6 +123,7 @@ fn audit_fails_when_a_denied_term_is_still_readable() {
         None,
         &["株式会社アルファ".to_string()],
         &engine,
+        &mut |_, _| true,
     )
     .unwrap();
 
@@ -144,8 +146,204 @@ fn audit_passes_when_terms_are_gone_and_uses_policy_terms() {
         calls: std::cell::Cell::new(0),
     };
 
-    let report = audit_output(&project_dir, Some(&policy), &[], &engine).unwrap();
+    let report = audit_output(&project_dir, Some(&policy), &[], &engine, &mut |_, _| true).unwrap();
 
     assert_eq!(report.verdict, Verdict::Pass);
     assert_eq!(report.checked_terms, 1);
+}
+
+fn fixed_ocr(page_count: usize) -> FixedTextOcr {
+    FixedTextOcr {
+        per_page: vec!["clean page".to_string(); page_count],
+        calls: std::cell::Cell::new(0),
+    }
+}
+
+#[test]
+fn audit_with_only_region_rules_reports_they_are_not_checked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        r#"
+rules:
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: remove }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: mask }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: replace, value: X }
+"#,
+    )
+    .unwrap();
+    let engine = fixed_ocr(1);
+
+    let result = audit_output(&project_dir, Some(&policy), &[], &engine, &mut |_, _| true);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTextTerms(3))));
+    assert!(!audit_report_path(&project_dir).exists());
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_with_only_a_kept_region_has_no_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        "rules:\n  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }\n    action: { type: keep }\n",
+    )
+    .unwrap();
+    let engine = fixed_ocr(1);
+
+    let result = audit_output(&project_dir, Some(&policy), &[], &engine, &mut |_, _| true);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTerms)));
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_without_policy_or_words_has_no_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let engine = fixed_ocr(1);
+
+    let result = audit_output(&project_dir, None, &[], &engine, &mut |_, _| true);
+
+    assert!(matches!(result, Err(AuditOutputError::NoTerms)));
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_with_mixed_rules_checks_only_the_text_terms() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 1);
+    let policy = parse_policy(
+        r#"
+rules:
+  - match: { text: 株式会社アルファ }
+    action: { type: replace, value: 開発会社A }
+  - match: { region: { x: 0, y: 900, width: 1000, height: 100 }, pages: all }
+    action: { type: mask }
+"#,
+    )
+    .unwrap();
+    let engine = fixed_ocr(1);
+
+    let report = audit_output(&project_dir, Some(&policy), &[], &engine, &mut |_, _| true).unwrap();
+
+    assert_eq!(report.verdict, Verdict::Pass);
+    assert_eq!(report.checked_terms, 1);
+}
+
+#[test]
+fn no_text_terms_message_names_the_count_and_visual_check() {
+    let message = AuditOutputError::NoTextTerms(2).to_string();
+    assert!(message.contains('2'));
+    assert!(message.contains("visual"));
+}
+
+#[test]
+fn audit_reports_each_page_after_it_is_recognized() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 3);
+    let engine = fixed_ocr(3);
+    let mut calls = Vec::new();
+
+    let report = audit_output(
+        &project_dir,
+        None,
+        &["株式会社アルファ".to_string()],
+        &engine,
+        &mut |page_index, total| {
+            assert_eq!(engine.calls.get(), page_index as usize + 1);
+            calls.push((page_index, total));
+            true
+        },
+    )
+    .unwrap();
+
+    assert_eq!(calls, vec![(0, 3), (1, 3), (2, 3)]);
+    assert_eq!(report.verdict, Verdict::Pass);
+    assert!(audit_report_path(&project_dir).exists());
+}
+
+#[test]
+fn audit_cancelled_on_the_first_page_writes_no_report() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 3);
+    let engine = fixed_ocr(3);
+
+    let result = audit_output(
+        &project_dir,
+        None,
+        &["株式会社アルファ".to_string()],
+        &engine,
+        &mut |_, _| false,
+    );
+
+    assert!(matches!(result, Err(AuditOutputError::Cancelled)));
+    assert_eq!(engine.calls.get(), 1);
+    assert!(!audit_report_path(&project_dir).exists());
+}
+
+#[test]
+fn audit_cancelled_on_the_last_page_keeps_the_previous_report() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 2);
+    fs::create_dir_all(project_dir.join(AUDIT_DIR)).unwrap();
+    fs::write(audit_report_path(&project_dir), b"previous").unwrap();
+    let engine = fixed_ocr(2);
+
+    let result = audit_output(
+        &project_dir,
+        None,
+        &["株式会社アルファ".to_string()],
+        &engine,
+        &mut |page_index, total| (page_index, total) != (1, 2),
+    );
+
+    assert!(matches!(result, Err(AuditOutputError::Cancelled)));
+    assert_eq!(
+        fs::read(audit_report_path(&project_dir)).unwrap(),
+        b"previous"
+    );
+}
+
+#[test]
+fn audit_without_terms_fails_before_any_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 2);
+    let engine = fixed_ocr(2);
+    let mut called = false;
+
+    let result = audit_output(&project_dir, None, &[], &engine, &mut |_, _| {
+        called = true;
+        true
+    });
+
+    assert!(matches!(result, Err(AuditOutputError::NoTerms)));
+    assert!(!called);
+    assert_eq!(engine.calls.get(), 0);
+}
+
+#[test]
+fn audit_without_renders_fails_before_any_page() {
+    let tmp = tempfile::tempdir().unwrap();
+    let project_dir = project_with_renders(&tmp, 0);
+    let engine = fixed_ocr(0);
+    let mut called = false;
+
+    let result = audit_output(
+        &project_dir,
+        None,
+        &["株式会社アルファ".to_string()],
+        &engine,
+        &mut |_, _| {
+            called = true;
+            true
+        },
+    );
+
+    assert!(matches!(result, Err(AuditOutputError::NoRenders)));
+    assert!(!called);
+    assert_eq!(engine.calls.get(), 0);
 }

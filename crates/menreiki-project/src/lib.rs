@@ -18,6 +18,7 @@ mod layout;
 mod llm_detect;
 mod maintenance;
 mod manifest;
+mod manual;
 mod markdown;
 mod ocr;
 mod search;
@@ -39,7 +40,7 @@ pub use dictionary::{
 };
 pub use entities::{load_entities, save_entities, EntitiesError};
 pub use export::{export_images, export_pdf, ExportError};
-pub use import::{import, ImportError};
+pub use import::{import, inspect_existing_project, ExistingProject, ImportError};
 pub use layout::{
     audit_report_path, decisions_path, dictionary_path, entities_path, page_findings_path,
     page_image_path, resolve_project_dir,
@@ -53,6 +54,7 @@ pub use manifest::{
     load_manifest, load_project_settings, save_project_settings, IgnoreEntry, LoadError,
     ProjectManifest, ProjectSettings, SettingsError, SCHEMA_VERSION,
 };
+pub use manual::{add_manual_finding, ManualFindingError};
 pub use markdown::{export_markdown, render_markdown, MarkdownError};
 pub use ocr::{load_ocr_pages, ocr_pages, LoadOcrError, OcrPagesError};
 pub use search::search_text;

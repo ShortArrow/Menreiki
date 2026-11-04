@@ -4,7 +4,7 @@ use std::path::Path;
 use menreiki_core::SourceDocument;
 
 use crate::layout::{MANIFEST_FILE_NAME, SOURCE_DIR};
-use crate::manifest::ProjectManifest;
+use crate::manifest::{load_manifest, ProjectManifest};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
@@ -45,4 +45,38 @@ pub fn import(input: &Path, project_dir: &Path) -> Result<ProjectManifest, Impor
     fs::write(project_dir.join(MANIFEST_FILE_NAME), manifest_json).map_err(ImportError::Project)?;
 
     Ok(manifest)
+}
+
+/// What can be said about a project directory that blocked an import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExistingProject {
+    /// Whether the input has the same SHA-256 as the existing project's
+    /// source; `None` when either side could not be read.
+    pub same_source: Option<bool>,
+    /// The source file name recorded in the existing project; `None` when
+    /// the directory is not a readable Menreiki project.
+    pub existing_file_name: Option<String>,
+}
+
+/// Compares `input` with the project already at `project_dir`, read-only.
+///
+/// Lets a caller offer to open the existing project only when it was made
+/// from exactly the same bytes, so results of a different document are
+/// never presented as belonging to this one. Never fails: anything that
+/// cannot be read is reported as unknown.
+pub fn inspect_existing_project(input: &Path, project_dir: &Path) -> ExistingProject {
+    let Ok(manifest) = load_manifest(project_dir) else {
+        return ExistingProject {
+            same_source: None,
+            existing_file_name: None,
+        };
+    };
+    let existing = manifest.source();
+    let same_source = fs::read(input)
+        .ok()
+        .map(|bytes| SourceDocument::from_bytes("", &bytes).sha256_hex() == existing.sha256_hex());
+    ExistingProject {
+        same_source,
+        existing_file_name: Some(existing.file_name().to_string()),
+    }
 }

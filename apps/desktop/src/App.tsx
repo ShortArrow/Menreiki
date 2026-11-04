@@ -30,6 +30,9 @@ export default function App() {
 function AppShell(props: { onLanguageChange: (language: Language) => void }) {
   const { t } = useI18n();
   const [project, setProject] = useState<ProjectInfo | null>(null);
+  // Set only by a GUI import; cleared on dismiss or when leaving review, and
+  // never persisted (ADR-014), so the banner shows once per import.
+  const [justImported, setJustImported] = useState(false);
   const [theme, setTheme] = useState<ThemeName>("light");
   const [showNotice, setShowNotice] = useState(needsAcknowledgement);
 
@@ -67,14 +70,25 @@ function AppShell(props: { onLanguageChange: (language: Language) => void }) {
         <ReviewView
           project={project}
           onProjectChange={setProject}
-          onClose={() => setProject(null)}
+          onClose={() => {
+            setProject(null);
+            setJustImported(false);
+          }}
+          justImported={justImported}
+          onDismissImported={() => setJustImported(false)}
           theme={theme}
           onToggleTheme={toggleTheme}
           onLanguageChange={props.onLanguageChange}
         />
       ) : (
         <>
-          <HomeView onOpened={setProject} />
+          <HomeView
+            onOpened={(opened, opts) => {
+              setProject(opened);
+              setJustImported(opts.justImported);
+            }}
+            onLanguageChange={props.onLanguageChange}
+          />
           {/* Review view carries its own toggle in the toolbar so this
               floating one never overlaps the side pane's content. */}
           <button

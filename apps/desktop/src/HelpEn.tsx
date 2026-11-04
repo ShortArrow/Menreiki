@@ -108,6 +108,8 @@ export default function HelpEn() {
         <li>
           <b>Press "Apply"</b> — your decisions are painted onto the pages.
           "Show the result" in the toolbar previews the outcome.
+          After changing a decision or a candidate, press "Apply" again;
+          until you do, exporting and auditing are unavailable.
         </li>
         <li>
           <b>Press "Export PDF"</b> — a new PDF is written (Markdown and
@@ -115,7 +117,9 @@ export default function HelpEn() {
         </li>
         <li>
           <b>Press "Audit"</b> — the app reads the result back and checks that
-          nothing you removed is still there.
+          none of the text you transformed is still readable. It is a text
+          re-reading check, so erase/mask rectangles are not checked: inspect
+          their position yourself with "Show the result".
         </li>
       </ol>
 
@@ -281,12 +285,32 @@ export default function HelpEn() {
           <b>The project folder (.menreiki) is itself confidential.</b> It
           holds a copy of the original and the full recognized text, so keep it
           separate from the exported PDF and delete it deliberately when you no
-          longer need it.
+          longer need it. It is created next to the original file, named after
+          it with the extension replaced by .menreiki (for example, spec.pdf →
+          spec.menreiki). Its location is shown at the top of the review
+          screen.
+        </li>
+        <li>
+          <b>The Japanese OCR language pack is required.</b> Without it the app
+          reads pages with the OCR of your Windows display language (English,
+          for example) and shows a warning above the candidate list and in the
+          audit result. Japanese names and organizations are then mostly not
+          recognized, so neither the detection nor the audit can be trusted.
+          Install it from Settings → Time &amp; language → Language &amp;
+          region → Japanese → Language options → Optical character
+          recognition (add Japanese with "Add a language" first if it is not
+          listed), then run the analysis again.
         </li>
         <li>
           Whether the output is safe to publish is always a human decision. A
           passing audit confirms that the checks you configured found nothing —
           it is not proof of safety.
+        </li>
+        <li>
+          The audit does not check areas you erased or masked with a rectangle
+          (also when they are mixed with text rules). Use "Show the result" to
+          confirm each rectangle sits in the right place and covers the right
+          area on every page.
         </li>
       </ul>
 
@@ -347,7 +371,7 @@ export default function HelpEn() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">Candidate group</span>
-            category × text (organization × "Alpha Giken Inc.")
+            category × text (Organization name × "Alpha Giken Inc.")
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">Occurrence</span> p.1 — one
@@ -358,7 +382,7 @@ export default function HelpEn() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">Candidate group</span>
-            organization × "Alpha Giken"
+            Organization name × "Alpha Giken"
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">Occurrence</span> p.2
@@ -398,6 +422,11 @@ export default function HelpEn() {
         <p>
           When several instructions cover the same text they collapse into one
           (priority: <b>entity &gt; candidate decision &gt; search rule</b>).
+          A candidate whose text exactly matches an entity variant shows the
+          alias as a chip and counts as decided (the export check lists these
+          separately as replaced by an entity). If that candidate also has a
+          decision that differs from the entity, its row is marked
+          "Conflict" and counted under conflicting replacements.
         </p>
       </details>
 
@@ -483,6 +512,17 @@ export default function HelpEn() {
           applied — draw around them with "Detect here", or cover them with a
           mask region.
         </p>
+        <p>
+          In the candidate list, rows that correspond to "VLM, position
+          unresolved" in the diagram above carry a <b>"Location unknown"</b>
+          badge. Draw around the text with "Detect here" on the same page and
+          assign it to that group, and the badge goes away. A mask, erase, or replace
+          decision chosen before that is not counted as decided: "Before you
+          export" counts it separately as "Location unknown (not applied)", and
+          exporting warns about it (the export is not blocked). Covering the
+          text with a mask region does not clear this count, so check the
+          output visually.
+        </p>
       </details>
 
       <details className="help-details">
@@ -502,7 +542,12 @@ export default function HelpEn() {
                 <span className="from">Candidates</span> ⟶{" "}
                 <span className="to">Pending rules</span>
               </td>
-              <td>Click again, or "Undo", to send it back</td>
+              <td>
+                Click again, or "Undo", to send it back. Choosing replace lets
+                you type the replacement right in that row (the same value as
+                in the pending rules). A replacement left empty is exported as
+                ■■■, and "Before you export" warns about it
+              </td>
             </tr>
             <tr>
               <th>Candidate row: E</th>
@@ -518,7 +563,7 @@ export default function HelpEn() {
                 <span className="from">Candidates</span> ⟶{" "}
                 <span className="to">Ignore list</span>
               </td>
-              <td>Excludes that word × category only; undo it in Settings</td>
+              <td>Excludes that word × category only; undo it right away with Undo at the top of the right pane, or later in Settings</td>
             </tr>
             <tr>
               <th>Search: add a … rule</th>
@@ -597,6 +642,10 @@ export default function HelpEn() {
               <th>None</th>
               <td>
                 Drawing off. Clicking a candidate rectangle navigates instead.
+                Clicking a region rectangle shows its rule in the right pane (it
+                does not delete it). Delete region rules with the right pane's
+                Delete button; right after a deletion, Undo at the top of the
+                right pane restores it.
               </td>
             </tr>
             <tr>
@@ -629,7 +678,10 @@ export default function HelpEn() {
               <td>
                 Optional candidates from the local AI. The VLM looks at page
                 images, so it can pick up text inside figures, but a word it
-                cannot place ends up with an unresolved position.
+                cannot place ends up with an unresolved position. In the
+                candidate list, each row's source chip (Regex, Dictionary, LLM,
+                and so on) tells them apart, and an LLM/VLM chip marks the row
+                as advisory only, not a verdict (its reason is shown inline).
               </td>
             </tr>
           </tbody>
@@ -638,6 +690,19 @@ export default function HelpEn() {
           <li>Ctrl+wheel: zoom / Shift+wheel: scroll sideways</li>
           <li>Pane borders can be dragged to resize (the width is saved)</li>
           <li>Clicking an active decision button clears the decision</li>
+          <li>
+            Bulk apply above the candidate list only touches the undecided
+            candidates currently shown by the filter (decided ones are never
+            overwritten)
+          </li>
+          <li>
+            Bulk Keep does not change the output; it only lowers the undecided
+            count in the pre-export check
+          </li>
+          <li>
+            Candidates with an unresolved position are left out of bulk apply;
+            decide them one by one
+          </li>
         </ul>
       </details>
     </>

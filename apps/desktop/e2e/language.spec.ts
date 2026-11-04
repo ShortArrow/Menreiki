@@ -1,5 +1,12 @@
-import { spawn, execSync, ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,11 +22,23 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repoRoot, "target");
 const appExe = path.join(targetDir, "debug", "menreiki-desktop.exe");
+const cliExe = path.join(targetDir, "debug", "menreiki.exe");
 const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
+const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
 // Full-width punctuation counts too: a hard-coded 「）」 or 「・」 in JSX
 // survives translation and shows up mid-sentence in the English UI.
 const JAPANESE = /[ぁ-んァ-ヶ一-龠（）、。・「」]/;
+
+// The language picker's own labels are bilingual on purpose, so a user stuck
+// in a UI they cannot read can still find it. Remove every occurrence of
+// them before looking for stray Japanese.
+function stripPicker(text: string): string {
+  return text
+    .replaceAll("Language / 言語", "")
+    .replaceAll("Auto / 自動", "")
+    .replaceAll("日本語", "");
+}
 
 let workDir: string;
 let vite: ChildProcess;
@@ -122,7 +141,41 @@ test("the first-run notice and home screen render in English", async () => {
   const ack = page.getByRole("button", { name: "I understand" });
   await expect(ack).toBeVisible();
   await expect(page.getByText("Before you start")).toBeVisible();
+
+  // The notice is a modal the keyboard cannot slip past: focus starts in it,
+  // Tab and Shift+Tab never leave it, and the app behind is inert.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveCount(1);
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toHaveAccessibleName("Before you start");
+  const notice = page.locator(".modal.first-run");
+  const focusInNotice = () =>
+    notice.evaluate((element) => element.contains(document.activeElement));
+  const rootIsInert = () =>
+    page.evaluate(() => document.getElementById("root")!.hasAttribute("inert"));
+  expect(await focusInNotice()).toBe(true);
+  for (const key of ["Tab", "Shift+Tab"]) {
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press(key);
+      expect(await focusInNotice()).toBe(true);
+      expect(await rootIsInert()).toBe(true);
+    }
+  }
+
+  // Only the button dismisses it: Escape and a backdrop click do not.
+  await page.keyboard.press("Escape");
+  await expect(ack).toBeVisible();
+  await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(ack).toBeVisible();
+
   await ack.click();
+  await expect(ack).toHaveCount(0);
+  expect(await rootIsInert()).toBe(false);
+  expect(
+    await page.evaluate(() =>
+      document.getElementById("root")!.contains(document.activeElement),
+    ),
+  ).toBe(true);
 
   await expect(
     page.getByRole("button", { name: /Import a document/ }),
@@ -131,8 +184,13 @@ test("the first-run notice and home screen render in English", async () => {
     page.getByText("Everything runs on this device.", { exact: false }),
   ).toBeVisible();
 
+  // The home screen carries the same bilingual language picker as the
+  // settings dialog. A <select>'s innerText includes every <option>, and the
+  // label repeats the picker's name, so strip all occurrences before the
+  // check; anything Japanese left over is a real translation gap.
   const homeText = (await page.locator(".home").innerText()) ?? "";
-  expect(homeText).not.toMatch(JAPANESE);
+  expect(homeText).toContain("Language / 言語");
+  expect(stripPicker(homeText)).not.toMatch(JAPANESE);
 });
 
 test("the review screen and settings dialog render in English", async () => {
@@ -151,15 +209,192 @@ test("the review screen and settings dialog render in English", async () => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText("Detectors used in this project")).toBeVisible();
   await expect(page.getByText("Local LLM (optional, app-wide)")).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Defined abbreviation (Japanese contracts)",
+      exact: true,
+    }),
+  ).toBeVisible();
 
   // The language picker keeps its own labels bilingual on purpose; the rest
   // of the dialog must not fall back to Japanese.
   const dialogText = await page.locator(".modal-body").innerText();
-  const withoutPicker = dialogText
-    .replace("Language / 言語", "")
-    .replace("Auto / 自動", "")
-    .replace("日本語", "");
-  expect(withoutPicker).not.toMatch(JAPANESE);
+  expect(stripPicker(dialogText)).not.toMatch(JAPANESE);
 
   await page.getByRole("button", { name: "Close" }).click();
+});
+
+test("an inference setup error with no model explains the fix in English", async () => {
+  // The config holds only ui_language, so the model name is empty. The error
+  // used to be the backend's English text followed by a Japanese hint to
+  // hand-edit config.toml; it must read in English and point to the dialog.
+  // The re-analyze menu now leads to the settings dialog instead of failing,
+  // so reach the error through the target suggestion, which still asks the
+  // backend.
+  await page.getByRole("button", { name: "Ask AI what to detect" }).click();
+
+  const error = page.locator(".statusbar .error");
+  await expect(error).toHaveText(
+    "No local LLM model name is set. Set the model name in Settings → Local LLM (optional, app-wide).",
+    { timeout: 30_000 },
+  );
+  const text = await error.innerText();
+  expect(text).not.toContain("config.toml");
+  expect(text).not.toMatch(JAPANESE);
+});
+
+test("a remote inference endpoint is explained in English", async () => {
+  // A remote endpoint is refused (NotLocal) before any connection, so no
+  // server is needed. This used to show the backend's English text followed
+  // by a fixed Japanese hint to hand-edit config.toml.
+  const configFile = path.join(workDir, "config", "config.toml");
+  writeFileSync(
+    configFile,
+    'ui_language = "en"\n\n[inference]\nbase_url = "http://example.com/v1"\nmodel = "dummy-model"\n',
+  );
+  try {
+    // The review screen reads the config on mount and when settings close.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByText("Local LLM (optional, app-wide)")).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+
+    // The export menu shares the `.reanalyze-menu` class, so pin the label.
+    await page.getByRole("button", { name: /^Re-analyze/ }).click();
+    await page
+      .getByRole("button", { name: "LLM detection (text, experimental)" })
+      .click();
+    const error = page.locator(".statusbar .error");
+    await expect(error).toContainText("valid URL on this machine", {
+      timeout: 30_000,
+    });
+    const text = await error.innerText();
+    expect(text).toContain("Settings → Local LLM (optional, app-wide)");
+    expect(text).not.toMatch(JAPANESE);
+    expect(text).not.toContain("inference endpoint must be");
+  } finally {
+    writeFileSync(configFile, 'ui_language = "en"\n');
+  }
+});
+
+test("detect-here hints at the optional VLM in English when it is off", async () => {
+  // The earlier tests left the sample open on the review screen and restored
+  // a config without [inference]. With the default (unconfigured) VLM, boxing a blank margin must point at the
+  // setting in English, never at the backend's Japanese config.toml note.
+  await page.getByRole("button", { name: "Detect here" }).click();
+  try {
+    const overlay = page.locator("svg.overlay");
+    await overlay.scrollIntoViewIfNeeded();
+    const box = await overlay.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + 4, box!.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + 34, box!.y + 24, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator(".statusbar .status").last()).toContainText(
+      '(Optional) Set up a VLM under "Local LLM" in Settings to read regions that OCR cannot.',
+      { timeout: 60_000 },
+    );
+    const statusText = await page.locator(".statusbar").innerText();
+    expect(statusText).not.toContain("config.toml");
+    expect(statusText).not.toMatch(JAPANESE);
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+  } finally {
+    await page
+      .locator(".viewer-toolbar")
+      .getByRole("button", { name: "None", exact: true })
+      .click();
+  }
+});
+
+// Projects written by older builds marked a location-unknown VLM candidate
+// only with a Japanese prefix in its note. Opened in the English UI, neither
+// the row nor its tooltip may show that prefix; the badge must be English.
+test.describe("legacy location-unknown candidates", () => {
+  const NAME = "株式会社サンプル精機";
+  let legacyWorkDir: string;
+
+  test.beforeAll(async () => {
+    legacyWorkDir = mkdtempSync(path.join(tmpdir(), "menreiki-lang-legacy-"));
+    const legacyProject = path.join(legacyWorkDir, "spec.menreiki");
+    const cliEnv = { ...process.env, MENREIKI_PDFIUM_PATH: pdfiumDir };
+    execFileSync(cliExe, ["import", dummyPdf, "--project", legacyProject], {
+      env: cliEnv,
+    });
+    execFileSync(cliExe, ["analyze", legacyProject], {
+      env: cliEnv,
+      timeout: 180_000,
+    });
+
+    const findingsDir = path.join(legacyProject, "findings");
+    for (const file of readdirSync(findingsDir)) {
+      writeFileSync(path.join(findingsDir, file), "[]");
+    }
+    const ocr = JSON.parse(
+      readFileSync(path.join(legacyProject, "ocr", "page-001.json"), "utf8"),
+    ) as { width: number; height: number };
+    // The old on-disk shape: no `unlocated` key, status in the note.
+    writeFileSync(
+      path.join(findingsDir, "page-001.json"),
+      JSON.stringify([
+        {
+          category: "organization",
+          text: NAME,
+          rect: { x: 0, y: 0, width: ocr.width, height: ocr.height },
+          detector: "vlm",
+          note: "位置未特定（画像内で検出）",
+        },
+      ]),
+    );
+
+    await browser?.close().catch(() => {});
+    killTree(app);
+    app = spawn(appExe, [legacyProject], {
+      env: {
+        ...process.env,
+        MENREIKI_PDFIUM_PATH: pdfiumDir,
+        MENREIKI_CONFIG_DIR: path.join(workDir, "config"),
+        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      },
+      stdio: "ignore",
+    });
+    await waitFor(
+      async () => (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).ok,
+      "WebView2 CDP endpoint",
+    );
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    await waitFor(async () => {
+      const candidate = browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidatePage) => candidatePage.url().includes("localhost:1420"));
+      if (!candidate) return false;
+      page = candidate;
+      return true;
+    }, "app page over CDP");
+    await page.locator(".side-pane").waitFor({ timeout: 60_000 });
+    const ack = page.getByRole("button", { name: "I understand" });
+    if (await ack.isVisible().catch(() => false)) {
+      await ack.click();
+    }
+  });
+
+  test.afterAll(() => {
+    if (legacyWorkDir) rmSync(legacyWorkDir, { recursive: true, force: true });
+  });
+
+  test("the row, badge, and tooltip are English", async () => {
+    const row = page
+      .locator(".finding-row")
+      .filter({ has: page.locator(".finding-text", { hasText: NAME }) });
+    await expect(row).toHaveCount(1, { timeout: 120_000 });
+    await expect(row).toHaveClass(/\bunlocated\b/);
+    await expect(row.locator(".badge.lost")).toHaveText("Location unknown");
+
+    const rowText = await row.innerText();
+    expect(rowText).not.toContain("位置未特定");
+    const title = (await row.locator(".finding-label").getAttribute("title")) ?? "";
+    expect(title).not.toContain("位置未特定");
+    expect(title).toContain("Location unknown");
+    expect(title).toContain("Detect here");
+  });
 });
