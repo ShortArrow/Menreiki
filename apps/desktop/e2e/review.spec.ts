@@ -421,21 +421,31 @@ test("detect-here on a readable word opens the target bar without errors", async
   }
 });
 
-// The first candidate row, pinned by its text so the locator keeps pointing at
-// the same row while decisions change around it.
+// Matches an element whose whole text is `text`, not just a substring.
+// Whitespace is normalized the way Playwright normalizes the element's text.
+const exactText = (text: string) =>
+  new RegExp(`^${text.trim().replace(/\s+/g, " ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+
+// The first candidate row, pinned by its category and exact text (a row's
+// identity) so the locator keeps pointing at that one row while decisions and
+// filters change around it, and never at a row whose text merely contains it.
 async function firstCandidateRow() {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
   });
-  const text = await page
-    .locator(".findings-list .finding-row .finding-text")
-    .first()
-    .textContent();
+  const first = page.locator(".findings-list .finding-row").first();
+  const text = await first.locator(".finding-text").textContent();
+  const category = await first.locator(".category-tag").textContent();
   expect(text).toBeTruthy();
+  expect(category).toBeTruthy();
   return page
     .locator(".findings-list .finding-row")
-    .filter({ has: page.locator(".finding-text", { hasText: text! }) })
-    .first();
+    .filter({
+      has: page.locator(".finding-text", { hasText: exactText(text!) }),
+    })
+    .filter({
+      has: page.locator(".category-tag", { hasText: exactText(category!) }),
+    });
 }
 
 test("a replace decision takes its value right in the candidate row", async () => {
