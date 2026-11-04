@@ -109,6 +109,9 @@ export default function SettingsView(props: {
   const [error, setError] = useState<string | null>(null);
   const [packs, setPacks] = useState<PackInfo[]>([]);
   const [packError, setPackError] = useState<string | null>(null);
+  // The pack row awaiting delete confirmation. A single slot keeps at most one
+  // row in the confirm state; removal is immediate and cannot be undone.
+  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
 
   useEffect(() => {
     void listDetectorPacks()
@@ -137,6 +140,7 @@ export default function SettingsView(props: {
   }
 
   async function removePack(name: string) {
+    setPackError(null);
     try {
       await removeDetectorPack(name);
       setPacks(await listDetectorPacks());
@@ -455,26 +459,58 @@ export default function SettingsView(props: {
             {packs.map((pack) => (
               <div key={pack.name} className="rule-entry">
                 <span className="category-tag">{pack.version}</span>
-                <span className="rule-target" title={pack.description}>
-                  <span className="finding-text">
-                    {pack.displayName}
-                    {t("settings.packSummary", {
-                      rules: pack.ruleCount,
-                      words: pack.wordCount,
-                      publisher: pack.publisher
-                        ? t("settings.packPublisher", {
-                            name: pack.publisher,
-                          })
-                        : "",
-                    })}
-                  </span>
-                </span>
-                <button
-                  aria-label={t("settings.packRemove")}
-                  onClick={() => void removePack(pack.name)}
-                >
-                  <X size={12} />
-                </button>
+                {pendingRemove === pack.name ? (
+                  <>
+                    <span className="rule-target">
+                      <span className="finding-text">
+                        {t("settings.packRemoveConfirm", {
+                          name: pack.displayName,
+                          rules: pack.ruleCount,
+                          words: pack.wordCount,
+                        })}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingRemove(null);
+                        void removePack(pack.name);
+                      }}
+                    >
+                      {t("settings.packRemoveYes")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingRemove(null)}
+                    >
+                      {t("settings.packRemoveNo")}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="rule-target" title={pack.description}>
+                      <span className="finding-text">
+                        {pack.displayName}
+                        {t("settings.packSummary", {
+                          rules: pack.ruleCount,
+                          words: pack.wordCount,
+                          publisher: pack.publisher
+                            ? t("settings.packPublisher", {
+                                name: pack.publisher,
+                              })
+                            : "",
+                        })}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t("settings.packRemove")}
+                      onClick={() => setPendingRemove(pack.name)}
+                    >
+                      <X size={12} />
+                    </button>
+                  </>
+                )}
               </div>
             ))}
             <div className="field-row">

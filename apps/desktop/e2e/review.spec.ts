@@ -1,5 +1,6 @@
 import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -23,6 +24,7 @@ const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
 const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
 let workDir: string;
+let packFile: string;
 let projectDir: string;
 let configPath: string;
 let vite: ChildProcess;
@@ -155,6 +157,22 @@ test.beforeAll(async () => {
   mkdirSync(configDir, { recursive: true });
   configPath = path.join(configDir, "config.toml");
   writeFileSync(configPath, 'ui_language = "ja"\n');
+  // An app-wide pack for the removal-confirmation test. Its file name must
+  // match its `name` (removal deletes `<name>.mnrkpack.json`), and its only
+  // word is fictional and absent from the dummy document, so deleting it and
+  // re-detecting leaves the other tests' findings unchanged.
+  mkdirSync(path.join(configDir, "packs"), { recursive: true });
+  packFile = path.join(configDir, "packs", "e2e-fixture.mnrkpack.json");
+  writeFileSync(
+    packFile,
+    JSON.stringify({
+      name: "e2e-fixture",
+      displayName: "E2E 架空パック",
+      version: "1.0.0",
+      rules: [],
+      words: [{ category: "organization", text: "蛙沼精機" }],
+    }),
+  );
   vite = spawn("npm", ["run", "dev"], {
     cwd: path.join(repoRoot, "apps", "desktop"),
     shell: true,
@@ -578,6 +596,52 @@ test("ignoring a finding can be undone from the status bar", async () => {
   await expect(
     row.locator(".decision-btn", { hasText: "消去" }),
   ).not.toHaveClass(/current/);
+});
+
+test("removing a detector pack asks for confirmation in the row first", async () => {
+  // The pack row's X used to delete the file at once, looking just like the
+  // ignored-word X that only changes unsaved state. A stray click silently
+  // dropped an app-wide pack from every project with no way back.
+  const settings = page.getByRole("button", { name: "設定", exact: true });
+  const row = page.locator(".modal .rule-entry", { hasText: "E2E 架空パック" });
+  const removeButton = row.getByRole("button", {
+    name: "パックを削除",
+    exact: true,
+  });
+
+  await settings.click();
+  await expect(row).toHaveCount(1);
+
+  // Keep: back to the normal row, file untouched.
+  await removeButton.click();
+  await expect(row).toContainText("元に戻せません");
+  await expect(row).toContainText("全プロジェクト");
+  await row.getByRole("button", { name: "やめる", exact: true }).click();
+  await expect(removeButton).toBeVisible();
+  expect(existsSync(packFile)).toBe(true);
+
+  // Closing the dialog while confirming deletes nothing.
+  await removeButton.click();
+  await expect(
+    row.getByRole("button", { name: "削除する", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await settings.click();
+  await expect(row).toHaveCount(1);
+  await expect(removeButton).toBeVisible();
+  expect(existsSync(packFile)).toBe(true);
+
+  // Delete: the row and the file are gone.
+  await removeButton.click();
+  await row.getByRole("button", { name: "削除する", exact: true }).click();
+  await expect(row).toHaveCount(0);
+  expect(existsSync(packFile)).toBe(false);
+
+  // Removal triggers a re-detect; wait until the app is idle again.
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(
+    page.getByRole("button", { name: "検索", exact: true }),
+  ).toBeEnabled({ timeout: 120_000 });
 });
 
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {

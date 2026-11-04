@@ -124,6 +124,10 @@ export const ja = {
   "settings.packSummary": "（ルール{rules}・語{words}{publisher}）",
   "settings.packPublisher": "・{name}",
   "settings.packRemove": "パックを削除",
+  "settings.packRemoveConfirm":
+    "{name}（ルール{rules}・語{words}）を以後の全プロジェクトの解析から外します。保存を待たず即時に削除され、元に戻せません。",
+  "settings.packRemoveYes": "削除する",
+  "settings.packRemoveNo": "やめる",
   "settings.packImport": "パックを取り込む…",
   "settings.packFilter": "検出パック",
 
@@ -535,6 +539,10 @@ export const en: Record<MessageKey, string> = {
   "settings.packSummary": " ({rules} rules, {words} words{publisher})",
   "settings.packPublisher": ", {name}",
   "settings.packRemove": "Remove the pack",
+  "settings.packRemoveConfirm":
+    "Remove {name} ({rules} rules, {words} words) from every project's analysis? It is deleted immediately, without waiting for Save, and cannot be undone.",
+  "settings.packRemoveYes": "Delete",
+  "settings.packRemoveNo": "Keep",
   "settings.packImport": "Import a pack…",
   "settings.packFilter": "Detector packs",
 
