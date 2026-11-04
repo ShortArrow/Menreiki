@@ -132,7 +132,41 @@ test("the first-run notice and home screen render in English", async () => {
   const ack = page.getByRole("button", { name: "I understand" });
   await expect(ack).toBeVisible();
   await expect(page.getByText("Before you start")).toBeVisible();
+
+  // The notice is a modal the keyboard cannot slip past: focus starts in it,
+  // Tab and Shift+Tab never leave it, and the app behind is inert.
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveCount(1);
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toHaveAccessibleName("Before you start");
+  const notice = page.locator(".modal.first-run");
+  const focusInNotice = () =>
+    notice.evaluate((element) => element.contains(document.activeElement));
+  const rootIsInert = () =>
+    page.evaluate(() => document.getElementById("root")!.hasAttribute("inert"));
+  expect(await focusInNotice()).toBe(true);
+  for (const key of ["Tab", "Shift+Tab"]) {
+    for (let i = 0; i < 10; i++) {
+      await page.keyboard.press(key);
+      expect(await focusInNotice()).toBe(true);
+      expect(await rootIsInert()).toBe(true);
+    }
+  }
+
+  // Only the button dismisses it: Escape and a backdrop click do not.
+  await page.keyboard.press("Escape");
+  await expect(ack).toBeVisible();
+  await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(ack).toBeVisible();
+
   await ack.click();
+  await expect(ack).toHaveCount(0);
+  expect(await rootIsInert()).toBe(false);
+  expect(
+    await page.evaluate(() =>
+      document.getElementById("root")!.contains(document.activeElement),
+    ),
+  ).toBe(true);
 
   await expect(
     page.getByRole("button", { name: /Import a document/ }),

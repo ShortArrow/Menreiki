@@ -737,6 +737,52 @@ test("only the current page button carries aria-current", async () => {
   await expect(page.locator(".page-button[aria-current]")).toHaveCount(1);
 });
 
+/// Whether keyboard focus is currently inside the element `locator` names.
+async function holdsFocus(locator: ReturnType<Page["locator"]>) {
+  return locator.evaluate((element) =>
+    element.contains(document.activeElement),
+  );
+}
+
+async function rootIsInert() {
+  return page.evaluate(() =>
+    document.getElementById("root")!.hasAttribute("inert"),
+  );
+}
+
+test("settings keeps keyboard focus inside and Escape peels one layer at a time", async () => {
+  const opener = page.getByRole("button", { name: "設定", exact: true });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveCount(1);
+  await expect(dialog).toHaveAttribute("aria-modal", "true");
+  await expect(dialog).toHaveAccessibleName("設定");
+  expect(await holdsFocus(dialog)).toBe(true);
+  expect(await rootIsInert()).toBe(true);
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("Tab");
+    expect(await holdsFocus(dialog)).toBe(true);
+  }
+
+  // The model list opens even with no LLM server (zero candidates). Escape
+  // closes only the list and hands focus back to its toggle.
+  const listToggle = page.getByRole("button", { name: "モデル一覧を開く" });
+  await listToggle.click();
+  await expect(page.locator(".combo-popover")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".combo-popover")).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(listToggle).toBeFocused();
+
+  // The next Escape closes the dialog and returns focus to its opener.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(opener).toBeFocused();
+  expect(await rootIsInert()).toBe(false);
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
@@ -770,6 +816,10 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   );
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
+  // Saving starts a re-detection, which disables "Settings" in the same
+  // update that closes the dialog; focus falls back to Home, not <body>.
+  await expect(page.getByRole("button", { name: "← ホーム" })).toBeFocused();
+  expect(await rootIsInert()).toBe(false);
 
   await page.getByPlaceholder("例: 株式会社アルファ技研").fill("株式会社アルファ技研");
   await page.getByRole("button", { name: "検索", exact: true }).click();
