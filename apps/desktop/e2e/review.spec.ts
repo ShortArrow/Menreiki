@@ -489,9 +489,7 @@ test("category filter labels options but keeps the ID as the value", async () =>
   await select.selectOption("organization");
   const tags = page.locator(".findings-list .category-tag");
   await expect(tags.first()).toBeVisible();
-  for (const text of await tags.allTextContents()) {
-    expect(text).toBe("組織名");
-  }
+  await expect(tags.filter({ hasNotText: "組織名" })).toHaveCount(0);
   await select.selectOption("all");
 });
 
@@ -510,7 +508,11 @@ test("exclude tooltip names the translated category", async () => {
     .locator(".findings-list .finding-row")
     .filter({ has: page.getByText("組織名", { exact: true }) })
     .first();
-  const title = await row.locator(".mini").getAttribute("title");
+  // The row holds two `.mini` buttons (entity menu and exclude); pick the
+  // exclude one by its label.
+  const title = await row
+    .getByRole("button", { name: "無視", exact: true })
+    .getAttribute("title");
   expect(title).toContain("を組織名の検出から除外");
   expect(title).not.toContain("organization");
 });
