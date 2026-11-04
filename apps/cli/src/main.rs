@@ -429,9 +429,14 @@ fn run(cli: Cli) -> Result<(), String> {
                 .unwrap_or_default();
             let engine = ocr_engine(&ocr_language)?;
 
-            let report =
-                menreiki_project::audit_output(&project, policy.as_ref(), &extra_terms, &engine)
-                    .map_err(|error| error.to_string())?;
+            let report = menreiki_project::audit_output(
+                &project,
+                policy.as_ref(),
+                &extra_terms,
+                &engine,
+                &mut |_, _| true,
+            )
+            .map_err(|error| error.to_string())?;
             for residual in &report.residuals {
                 println!(
                     "page {:>3}  residual [{}]  {}",

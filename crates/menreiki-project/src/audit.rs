@@ -27,6 +27,8 @@ pub enum AuditOutputError {
     Findings(#[from] LoadFindingsError),
     #[error("audit report could not be written: {0}")]
     Write(std::io::Error),
+    #[error("audit was cancelled")]
+    Cancelled,
 }
 
 /// Re-runs OCR over the transformed pages and checks that no deny term is
@@ -38,11 +40,17 @@ pub enum AuditOutputError {
 /// Region rules (`match.region`, i.e. erase/mask rectangles) are not checked:
 /// the audit only looks for deny terms. When a policy has region rules but
 /// yields no text term, `NoTextTerms` reports how many went unchecked.
+///
+/// `on_page` receives each re-recognized 0-based page index with the total
+/// page count; returning `false` stops with [`AuditOutputError::Cancelled`]
+/// (also after the last page). A cancelled audit has no verdict, so
+/// `audit/report.json` is neither written nor removed.
 pub fn audit_output(
     project_dir: &Path,
     policy: Option<&Policy>,
     extra_terms: &[String],
     engine: &dyn OcrEngine,
+    on_page: &mut dyn FnMut(u16, u16) -> bool,
 ) -> Result<AuditReport, AuditOutputError> {
     let mut terms: Vec<String> = extra_terms
         .iter()
@@ -63,16 +71,22 @@ pub fn audit_output(
         });
     }
 
+    let mut total: u16 = 0;
+    while page_render_path(project_dir, total).exists() {
+        total += 1;
+    }
+    if total == 0 {
+        return Err(AuditOutputError::NoRenders);
+    }
+
     let mut pages = Vec::new();
-    let mut page_index: u16 = 0;
-    while page_render_path(project_dir, page_index).exists() {
+    for page_index in 0..total {
         let png = fs::read(page_render_path(project_dir, page_index))
             .map_err(AuditOutputError::Read)?;
         pages.push(engine.recognize(&png)?);
-        page_index += 1;
-    }
-    if pages.is_empty() {
-        return Err(AuditOutputError::NoRenders);
+        if !on_page(page_index, total) {
+            return Err(AuditOutputError::Cancelled);
+        }
     }
 
     let report = audit_pages(&pages, &terms);
