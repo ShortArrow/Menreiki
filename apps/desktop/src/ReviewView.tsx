@@ -493,9 +493,6 @@ function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
   };
 }
 
-/// In-place entity assignment: a small popover right on the row offering a
-/// new entity or any existing one, so consolidating a spelling never requires
-/// jumping to a distant bar.
 /// The one deletion the review pane can still take back (transient UI state).
 type LastDeletion =
   | { kind: "entity"; entity: Entity; index: number }
@@ -503,6 +500,9 @@ type LastDeletion =
   | { kind: "dictionary"; entry: DictionaryEntry }
   | null;
 
+/// In-place entity assignment: a small popover right on the row offering a
+/// new entity or any existing one, so consolidating a spelling never requires
+/// jumping to a distant bar.
 function EntityMenu(props: {
   entities: Entity[];
   label?: string;

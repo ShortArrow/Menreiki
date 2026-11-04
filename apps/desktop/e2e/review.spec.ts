@@ -1288,11 +1288,27 @@ test("deleting a merged entity asks first and can be undone", async () => {
   await expect(cards).toHaveCount(before + 1);
   await expect(page.locator(".undo-bar")).toHaveCount(0);
 
+  // Reads the persisted entity with this alias (or null) from entities.json.
+  const entitiesFile = path.join(projectDir, "entities", "entities.json");
+  const savedEntity = () => {
+    const saved: { id: string; alias: string; variants: string[] }[] =
+      JSON.parse(readFileSync(entitiesFile, "utf8"));
+    const match = saved.find((entity) => entity.alias === alias);
+    return match ? { id: match.id, variants: match.variants } : null;
+  };
+  await expect
+    .poll(() => savedEntity()?.variants ?? null, { timeout: 10_000 })
+    .toEqual(["株式会社アルファ技研", second]);
+  const savedId = savedEntity()!.id;
+
   // Second attempt: confirm, and the card is gone.
   await card.getByRole("button", { name: "削除", exact: true }).click();
   await card.getByRole("button", { name: "削除を確定", exact: true }).click();
   await expect(cards).toHaveCount(before);
   await expect(page.locator(".undo-bar")).toBeVisible();
+  // The deletion itself is autosaved, so the restore below is observable on
+  // disk rather than a debounce that never wrote the removal.
+  await expect.poll(savedEntity, { timeout: 10_000 }).toBeNull();
 
   // Undo restores the same entity, in place, with the same spelling order.
   await page.getByRole("button", { name: "元に戻す", exact: true }).click();
@@ -1305,18 +1321,8 @@ test("deleting a merged entity asks first and can be undone", async () => {
     second,
   ]);
 
-  // The autosave writes the restored entity back to entities.json.
-  const entitiesFile = path.join(projectDir, "entities", "entities.json");
+  // The autosave writes the restored entity back under the same id.
   await expect
-    .poll(
-      () => {
-        const saved: { alias: string; variants: string[] }[] = JSON.parse(
-          readFileSync(entitiesFile, "utf8"),
-        );
-        const match = saved.find((entity) => entity.alias === alias);
-        return match?.variants ?? null;
-      },
-      { timeout: 10_000 },
-    )
-    .toEqual(["株式会社アルファ技研", second]);
+    .poll(savedEntity, { timeout: 10_000 })
+    .toEqual({ id: savedId, variants: ["株式会社アルファ技研", second] });
 });
