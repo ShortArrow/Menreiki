@@ -1106,6 +1106,8 @@ export default function ReviewView(props: {
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
   const previewTitleId = useId();
+  const clearAllTitleId = useId();
+  const bulkApplyTitleId = useId();
   const homeButton = useRef<HTMLButtonElement>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
   const [scrollPageFlip, setScrollPageFlip] = useState(
@@ -2596,15 +2598,6 @@ export default function ReviewView(props: {
   ).length;
   const clearableCount =
     clearableDecisionCount + textRules.length + regionRules.length;
-
-  useEffect(() => {
-    if (!confirmClearAll) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setConfirmClearAll(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [confirmClearAll]);
 
   return (
     <div className="review">
@@ -4294,95 +4287,87 @@ export default function ReviewView(props: {
       )}
 
       {confirmClearAll && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setConfirmClearAll(false)}
+        <Modal
+          titleId={clearAllTitleId}
+          className="confirm-modal"
+          onDismiss={() => setConfirmClearAll(false)}
+          fallbackFocus={() => homeButton.current}
         >
-          <div
-            className="modal confirm-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="clear-all-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 id="clear-all-title">{t("review.clearAllTitle")}</h2>
-            <p>
-              {t("review.clearAllBody", {
-                decisions: clearableDecisionCount,
-                keep: clearableKeepCount,
-                texts: textRules.length,
-                regions: regionRules.length,
-              })}
-            </p>
-            <div className="modal-actions">
-              <button autoFocus onClick={() => setConfirmClearAll(false)}>
-                {t("review.cancel")}
-              </button>
-              <button
-                className="danger"
-                onClick={() => {
-                  clearAllRules();
-                  setConfirmClearAll(false);
-                }}
-              >
-                {t("review.clearAllConfirm")}
-              </button>
-            </div>
+          <h2 id={clearAllTitleId}>{t("review.clearAllTitle")}</h2>
+          <p>
+            {t("review.clearAllBody", {
+              decisions: clearableDecisionCount,
+              keep: clearableKeepCount,
+              texts: textRules.length,
+              regions: regionRules.length,
+            })}
+          </p>
+          <div className="modal-actions">
+            <button autoFocus onClick={() => setConfirmClearAll(false)}>
+              {t("review.cancel")}
+            </button>
+            <button
+              className="danger"
+              onClick={() => {
+                clearAllRules();
+                setConfirmClearAll(false);
+              }}
+            >
+              {t("review.clearAllConfirm")}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {bulkPending && (
-        <div className="modal-backdrop" onClick={() => setBulkPending(null)}>
-          <div
-            className="modal bulk-apply-modal"
-            role="dialog"
-            aria-modal="true"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="modal-header">
-              <h2>
-                {t("review.bulkApplyTitle", {
-                  action: t(`action.${bulkPending.action}`),
-                  count: bulkPending.targets.length,
-                })}
-              </h2>
-            </div>
-            <p className="status">{t("review.bulkApplyScope")}</p>
-            <p className="status">{t("review.bulkApplyTextWide")}</p>
-            {bulkPending.action === "keep" && (
-              <>
-                <p className="bulk-apply-warning">
-                  {t("review.bulkApplyKeepOutput")}
-                </p>
-                <p className="bulk-apply-warning">
-                  {t("review.bulkApplyKeepCount")}
-                </p>
-              </>
-            )}
-            <div className="modal-body bulk-apply-targets">
-              {bulkPending.targets.map(({ key, finding }) => (
-                <div key={key} className="bulk-apply-target">
-                  <span className={`category-tag cat-${finding.category}`}>
-                    {categoryLabel(t, finding.category)}
-                  </span>
-                  <span className="finding-text">{finding.text}</span>
-                </div>
-              ))}
-            </div>
-            <div className="modal-actions">
-              <button onClick={() => setBulkPending(null)}>
-                {t("review.cancel")}
-              </button>
-              <button className="primary" onClick={confirmBulkApply}>
-                {t("review.bulkApplyConfirm", {
-                  action: t(`action.${bulkPending.action}`),
-                  count: bulkPending.targets.length,
-                })}
-              </button>
-            </div>
+        <Modal
+          titleId={bulkApplyTitleId}
+          className="bulk-apply-modal"
+          onDismiss={() => setBulkPending(null)}
+          fallbackFocus={() => homeButton.current}
+        >
+          <div className="modal-header">
+            <h2 id={bulkApplyTitleId}>
+              {t("review.bulkApplyTitle", {
+                action: t(`action.${bulkPending.action}`),
+                count: bulkPending.targets.length,
+              })}
+            </h2>
           </div>
-        </div>
+          <p className="status">{t("review.bulkApplyScope")}</p>
+          <p className="status">{t("review.bulkApplyTextWide")}</p>
+          {bulkPending.action === "keep" && (
+            <>
+              <p className="bulk-apply-warning">
+                {t("review.bulkApplyKeepOutput")}
+              </p>
+              <p className="bulk-apply-warning">
+                {t("review.bulkApplyKeepCount")}
+              </p>
+            </>
+          )}
+          <div className="modal-body bulk-apply-targets">
+            {bulkPending.targets.map(({ key, finding }) => (
+              <div key={key} className="bulk-apply-target">
+                <span className={`category-tag cat-${finding.category}`}>
+                  {categoryLabel(t, finding.category)}
+                </span>
+                <span className="finding-text">{finding.text}</span>
+              </div>
+            ))}
+          </div>
+          <div className="modal-actions">
+            <button onClick={() => setBulkPending(null)}>
+              {t("review.cancel")}
+            </button>
+            <button className="primary" onClick={confirmBulkApply}>
+              {t("review.bulkApplyConfirm", {
+                action: t(`action.${bulkPending.action}`),
+                count: bulkPending.targets.length,
+              })}
+            </button>
+          </div>
+        </Modal>
       )}
 
       {previewRegion !== null && regionRules[previewRegion] && (
