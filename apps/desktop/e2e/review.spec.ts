@@ -271,6 +271,52 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
 
   await page.getByRole("button", { name: "監査", exact: true }).click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+
+  // Changing a decision after Apply must mark the renders as stale: the old
+  // Pass, summary and output paths are hidden and every output/audit button
+  // is disabled until Apply runs again. A replacement-value change leaves the
+  // deny terms untouched, so only the applied-input key can catch it.
+  const unapplied = page.getByText("未適用の変更があります");
+  const exportPdf = page.getByRole("button", { name: "PDF出力" });
+  const exportMarkdown = page.getByRole("button", { name: "Markdown出力" });
+  const exportImages = page.getByRole("button", { name: "画像出力" });
+  const auditButton = page.getByRole("button", { name: "監査", exact: true });
+  const replacement = page.getByPlaceholder("置換後").last();
+  await expect(replacement).toHaveValue("開発会社A");
+  await expect(unapplied).toHaveCount(0);
+
+  await replacement.fill("開発会社B");
+  await expect(unapplied).toBeVisible();
+  await expect(page.getByText(/監査: Pass/)).toHaveCount(0);
+  await expect(page.getByText(/適用済み:/)).toHaveCount(0);
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+  for (const button of [exportPdf, exportMarkdown, exportImages, auditButton]) {
+    await expect(button).toBeDisabled();
+  }
+
+  // Reverting to the applied inputs clears the stale state again.
+  await replacement.fill("開発会社A");
+  await expect(unapplied).toHaveCount(0);
+  await expect(page.getByText(/監査: Pass/)).toBeVisible();
+  await expect(auditButton).toBeEnabled();
+
+  // Re-applying clears the stale state and the now-outdated output paths.
+  await replacement.fill("開発会社B");
+  await expect(unapplied).toBeVisible();
+  await applyButton.click();
+  await expect(unapplied).toHaveCount(0, { timeout: 60_000 });
+  await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+
+  await exportPdf.click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
+    timeout: 60_000,
+  });
+  await auditButton.click();
+  await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
 });
 
 test("clearing decisions and rules asks first and keeps entities", async () => {
