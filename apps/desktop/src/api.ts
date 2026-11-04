@@ -60,6 +60,14 @@ export function openSample() {
   return invoke<ProjectInfo>("open_sample");
 }
 
+/// Error string `reveal_project` returns where no file manager is supported.
+export const REVEAL_UNSUPPORTED = "reveal-unsupported";
+
+/// Opens the OS file manager with the project folder selected.
+export function revealProject(project: string) {
+  return invoke<void>("reveal_project", { project });
+}
+
 export function analyzeProject(
   project: string,
   scope: AnalysisScope,

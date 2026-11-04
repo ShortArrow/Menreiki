@@ -196,6 +196,51 @@ fn open_project(project: String) -> Result<ProjectInfo, String> {
     project_info(&menreiki_project::resolve_project_dir(Path::new(&project)))
 }
 
+/// Error returned by `reveal_project` on platforms without a supported file
+/// manager; the frontend maps it to a translated message.
+#[cfg_attr(windows, allow(dead_code))]
+const REVEAL_UNSUPPORTED: &str = "reveal-unsupported";
+
+/// Opens the OS file manager on the project's parent folder with the
+/// project folder itself selected, so the user can move or delete it.
+///
+/// Only paths that load as a Menreiki project are accepted, so this cannot
+/// be used to open arbitrary locations. Display-only: it changes no data.
+#[tauri::command]
+fn reveal_project(project: String) -> Result<(), String> {
+    let dir = menreiki_project::resolve_project_dir(Path::new(&project));
+    // A bare `x.mnrk` resolves to an empty parent; that means the cwd.
+    let dir = if dir.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        dir
+    };
+    menreiki_project::load_manifest(&dir).map_err(|error| error.to_string())?;
+    // `canonicalize` would yield a `\\?\` verbatim path that explorer's
+    // `/select,` does not understand; `absolute` keeps a plain path.
+    let dir = std::path::absolute(&dir).map_err(|error| error.to_string())?;
+    reveal_in_file_manager(&dir)
+}
+
+#[cfg(windows)]
+fn reveal_in_file_manager(dir: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    // `raw_arg`, not `arg`: the automatic quoting of `arg` breaks the
+    // `/select,"<path>"` form. The exit code is not checked because
+    // explorer reports non-zero even on success.
+    std::process::Command::new("explorer.exe")
+        .raw_arg(format!("/select,\"{}\"", dir.display()))
+        .spawn()
+        .map(drop)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(windows))]
+fn reveal_in_file_manager(_dir: &Path) -> Result<(), String> {
+    Err(REVEAL_UNSUPPORTED.to_string())
+}
+
 /// Materializes the embedded sample project into a writable location and
 /// opens it. Written fresh on every call so the sample always starts from a
 /// known, clean state — the app is fully explorable with no file to import
@@ -1136,6 +1181,7 @@ pub fn run() {
             import_document,
             open_project,
             open_sample,
+            reveal_project,
             analyze_project,
             cancel_analysis,
             llm_detect_project,
