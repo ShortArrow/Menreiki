@@ -35,6 +35,8 @@ import {
   loadReviewDecisions,
   pageImageUrl,
   removeDictionaryEntry,
+  revealProject,
+  REVEAL_UNSUPPORTED,
   saveEntities,
   saveReviewDecisions,
   addManualFinding,
@@ -521,26 +523,129 @@ interface DetectedTarget {
 
 const stripWs = (value: string) => value.replace(/[\s　]/g, "");
 
+/// Clipboard copy with a short-lived "copied" flag for a ✓ on the button.
+function useCopyFeedback(): [boolean, (text: string) => void] {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  function copy(text: string) {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 1200);
+    });
+  }
+  return [copied, copy];
+}
+
+/// Copy-to-clipboard button showing ✓ for a moment after a copy.
+function CopyPathButton(props: { path: string }) {
+  const { t } = useI18n();
+  const [copied, copy] = useCopyFeedback();
+  return (
+    <button
+      className="mini"
+      title={t("review.copyPath")}
+      aria-label={t("review.copyPath")}
+      onClick={() => copy(props.path)}
+    >
+      {copied ? "✓" : t("review.copy")}
+    </button>
+  );
+}
+
 /// An exported path with a copy-to-clipboard button.
 function ExportPathLine(props: { path: string }) {
   const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
   return (
     <p className="export-path" title={props.path}>
-      <button
-        className="mini"
-        title={t("review.copyPath")}
-        onClick={() => {
-          void navigator.clipboard.writeText(props.path).then(() => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1200);
-          });
-        }}
-      >
-        {copied ? "✓" : t("review.copy")}
-      </button>{" "}
+      <CopyPathButton path={props.path} />{" "}
       {t("review.output", { path: props.path })}
     </p>
+  );
+}
+
+/// Button that opens the OS file manager with the project folder selected.
+function RevealButton(props: {
+  project: string;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      className="mini"
+      onClick={() => {
+        revealProject(props.project).catch((failure) =>
+          props.onError(
+            String(failure) === REVEAL_UNSUPPORTED
+              ? t("review.revealUnsupported")
+              : String(failure),
+          ),
+        );
+      }}
+    >
+      {t("review.reveal")}
+    </button>
+  );
+}
+
+/// The project folder's full path in the toolbar, with copy and reveal, so
+/// the user always knows where the confidential working copy lives.
+function ProjectPathLine(props: {
+  path: string;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <span className="project-path-line">
+      <span
+        className="project-path"
+        data-testid="project-path"
+        title={t("review.projectPath", { path: props.path })}
+      >
+        {props.path}
+      </span>
+      <CopyPathButton path={props.path} />
+      <RevealButton project={props.path} onError={props.onError} />
+    </span>
+  );
+}
+
+/// One-time banner after a GUI import: where the project folder was made
+/// and that it holds sensitive copies. Dismissal is not persisted (ADR-014).
+function ImportedNotice(props: {
+  path: string;
+  onDismiss: () => void;
+  onError: (message: string) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      className="imported-notice"
+      data-testid="imported-notice"
+      role="status"
+    >
+      <div className="imported-notice-body">
+        <p className="imported-notice-path">
+          {t("review.importedNotice", { path: props.path })}
+        </p>
+        <p>{t("review.importedCaution")}</p>
+      </div>
+      <RevealButton project={props.path} onError={props.onError} />
+      <button
+        className="mini"
+        title={t("review.dismissNotice")}
+        aria-label={t("review.dismissNotice")}
+        onClick={props.onDismiss}
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }
 
@@ -820,6 +925,8 @@ export default function ReviewView(props: {
   project: ProjectInfo;
   onProjectChange: (project: ProjectInfo) => void;
   onClose: () => void;
+  justImported: boolean;
+  onDismissImported: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   onLanguageChange: (language: Language) => void;
@@ -1949,6 +2056,7 @@ export default function ReviewView(props: {
         <span className="file-name" title={project.projectDir}>
           {project.fileName}
         </span>
+        <ProjectPathLine path={project.projectDir} onError={setError} />
         <span
           className={`save-state ${saveStatus.state}`}
           data-save-state={saveStatus.state}
@@ -2182,6 +2290,14 @@ export default function ReviewView(props: {
           {props.theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
       </header>
+
+      {props.justImported && (
+        <ImportedNotice
+          path={project.projectDir}
+          onDismiss={props.onDismissImported}
+          onError={setError}
+        />
+      )}
 
       {(busy ||
         progress ||

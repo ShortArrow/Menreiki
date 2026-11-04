@@ -122,6 +122,14 @@ export const ja = {
   "review.copyPath": "パスをコピー",
   "review.copy": "コピー",
   "review.output": "出力: {path}",
+  "review.projectPath": "プロジェクトフォルダ: {path}",
+  "review.reveal": "エクスプローラーで表示",
+  "review.revealUnsupported":
+    "この OS ではフォルダを開けません（Windows のみ対応）。",
+  "review.importedNotice": "プロジェクトフォルダを作成しました: {path}",
+  "review.importedCaution":
+    "原本のコピーと OCR 全文を含みます。保管場所に注意し、不要になったら削除してください。",
+  "review.dismissNotice": "この通知を閉じる",
   "review.searchingOccurrences": "出現箇所を検索中…",
   "review.noOccurrences": "本文中に出現箇所が見つかりません（位置未特定の可能性）",
   "review.alignAll": "全体の揃え（個別指定はリセット）:",
@@ -410,6 +418,14 @@ export const en: Record<MessageKey, string> = {
   "review.copyPath": "Copy the path",
   "review.copy": "Copy",
   "review.output": "Output: {path}",
+  "review.projectPath": "Project folder: {path}",
+  "review.reveal": "Show in Explorer",
+  "review.revealUnsupported":
+    "Opening the folder is not supported on this OS (Windows only).",
+  "review.importedNotice": "Created the project folder: {path}",
+  "review.importedCaution":
+    "It contains a copy of the original and the full OCR text. Keep it somewhere safe and delete it when you no longer need it.",
+  "review.dismissNotice": "Dismiss this notice",
   "review.searchingOccurrences": "Searching for occurrences…",
   "review.noOccurrences":
     "No occurrence found in the text (the position may be unresolved)",

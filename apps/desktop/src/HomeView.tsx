@@ -18,7 +18,9 @@ import {
 import type { ProjectInfo } from "./types";
 
 export default function HomeView(props: {
-  onOpened: (project: ProjectInfo) => void;
+  /// `justImported` is true only for a fresh "import a document", so the
+  /// review view can say once where the project folder was created.
+  onOpened: (project: ProjectInfo, opts: { justImported: boolean }) => void;
   onLanguageChange: (language: Language) => void;
 }) {
   const { t } = useI18n();
@@ -58,12 +60,16 @@ export default function HomeView(props: {
       .catch((failure) => setError(String(failure)));
   }
 
-  async function run(label: string, action: () => Promise<ProjectInfo | null>) {
+  async function run(
+    label: string,
+    action: () => Promise<ProjectInfo | null>,
+    justImported = false,
+  ) {
     setBusy(label);
     setError(null);
     try {
       const project = await action();
-      if (project) props.onOpened(project);
+      if (project) props.onOpened(project, { justImported });
     } catch (failure) {
       setError(String(failure));
     } finally {
@@ -72,19 +78,23 @@ export default function HomeView(props: {
   }
 
   function pickDocument() {
-    void run(t("home.importing"), async () => {
-      const file = await open({
-        multiple: false,
-        filters: [
-          {
-            name: t("home.documentFilter"),
-            extensions: ["pdf", "png", "jpg", "jpeg"],
-          },
-        ],
-      });
-      if (typeof file !== "string") return null;
-      return importDocument(file);
-    });
+    void run(
+      t("home.importing"),
+      async () => {
+        const file = await open({
+          multiple: false,
+          filters: [
+            {
+              name: t("home.documentFilter"),
+              extensions: ["pdf", "png", "jpg", "jpeg"],
+            },
+          ],
+        });
+        if (typeof file !== "string") return null;
+        return importDocument(file);
+      },
+      true,
+    );
   }
 
   function pickProject() {

@@ -267,6 +267,25 @@ svg.lucide {
   font-weight: 600;
 }
 
+/* Full project-folder path, shrinking with an ellipsis like .file-name. */
+.toolbar .project-path-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.toolbar .project-path {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+  min-width: 0;
+}
+
 .toolbar .spacer {
   flex: 1;
 }
@@ -357,6 +376,30 @@ svg.lucide {
   padding: 6px 12px;
   background: var(--warn-bg);
   border-bottom: 1px solid var(--warn-border);
+}
+
+.imported-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--warn-bg);
+  border-bottom: 1px solid var(--warn-border);
+  font-size: 13px;
+}
+
+.imported-notice-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.imported-notice-body p {
+  margin: 0;
+}
+
+.imported-notice-path {
+  word-break: break-all;
+  font-weight: 600;
 }
 
 .panes {
