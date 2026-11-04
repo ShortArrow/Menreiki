@@ -274,9 +274,9 @@ test("finding rows show their source and mark LLM guesses as advisory", async ()
       has: page.locator(".finding-text", { hasText: exact(regexFinding.text) }),
     })
     .filter({
-      has: page.locator(".category-tag", {
-        hasText: exact(regexFinding.category),
-      }),
+      // The tag text is the translated label, so match the category by the
+      // `cat-<id>` class instead.
+      has: page.locator(`.category-tag.cat-${regexFinding.category}`),
     });
   await expect(regexRow).toHaveCount(1);
   await expect(
