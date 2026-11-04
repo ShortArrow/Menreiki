@@ -14,8 +14,41 @@ import {
   useI18n,
   type Language,
   type LanguagePreference,
+  type Translate,
 } from "./i18n";
-import type { ProjectInfo } from "./types";
+import type { ImportFailure, ProjectInfo } from "./types";
+
+/// An error to show, plus the project to offer opening when the failure
+/// was an import blocked by a project made from the same bytes.
+type HomeError = { text: string; openPath?: string };
+
+function isImportFailure(value: unknown): value is ImportFailure {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "kind" in value &&
+    (value.kind === "projectExists" || value.kind === "other")
+  );
+}
+
+function describeFailure(failure: unknown, t: Translate): HomeError {
+  if (typeof failure === "string") return { text: failure };
+  if (!isImportFailure(failure)) return { text: String(failure) };
+  if (failure.kind === "other") return { text: failure.message };
+  const path = failure.path;
+  if (failure.sameSource === true) {
+    return { text: t("home.projectExistsSame", { path }), openPath: path };
+  }
+  if (failure.sameSource === false && failure.existingFileName !== null) {
+    return {
+      text: t("home.projectExistsDifferent", {
+        path,
+        fileName: failure.existingFileName,
+      }),
+    };
+  }
+  return { text: t("home.projectExistsUnknown", { path }) };
+}
 
 export default function HomeView(props: {
   /// `justImported` is true only for a fresh "import a document", so the
@@ -25,7 +58,7 @@ export default function HomeView(props: {
 }) {
   const { t } = useI18n();
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<HomeError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   // The stored preference, not the resolved language, so "auto" stays
@@ -40,7 +73,7 @@ export default function HomeView(props: {
         if (!cancelled) setUiLanguage(config.ui_language);
       })
       .catch((failure) => {
-        if (!cancelled) setError(String(failure));
+        if (!cancelled) setError({ text: String(failure) });
       });
     return () => {
       cancelled = true;
@@ -57,7 +90,7 @@ export default function HomeView(props: {
     // Re-read so the rest of the config (theme, inference) is kept as is.
     getConfig()
       .then((config) => setConfig({ ...config, ui_language: next }))
-      .catch((failure) => setError(String(failure)));
+      .catch((failure) => setError({ text: String(failure) }));
   }
 
   async function run(
@@ -71,7 +104,7 @@ export default function HomeView(props: {
       const project = await action();
       if (project) props.onOpened(project, { justImported });
     } catch (failure) {
-      setError(String(failure));
+      setError(describeFailure(failure, t));
     } finally {
       setBusy(null);
     }
@@ -141,7 +174,18 @@ export default function HomeView(props: {
           <p className="hint">{t("home.sampleHint")}</p>
         </div>
         {busy && <p className="status">{busy}</p>}
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error">{error.text}</p>}
+        {error?.openPath && (
+          <button
+            onClick={() => {
+              const path = error.openPath;
+              if (path) void run(t("home.opening"), () => openProject(path));
+            }}
+            disabled={busy !== null}
+          >
+            {t("home.openExistingProject")}
+          </button>
+        )}
         <p className="note">{t("home.localOnly")}</p>
         <button
           className="link-button"
@@ -150,7 +194,7 @@ export default function HomeView(props: {
             setNotice(null);
             registerFileAssociation()
               .then(() => setNotice(t("home.associated")))
-              .catch((failure) => setError(String(failure)));
+              .catch((failure) => setError({ text: String(failure) }));
           }}
         >
           {t("home.associate")}

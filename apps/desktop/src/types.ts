@@ -19,6 +19,17 @@ export interface ProjectInfo {
   analyzed: boolean;
 }
 
+/// What `import_document` rejects with. `sameSource` is null when either
+/// the existing project or the input could not be read.
+export type ImportFailure =
+  | {
+      kind: "projectExists";
+      path: string;
+      sameSource: boolean | null;
+      existingFileName: string | null;
+    }
+  | { kind: "other"; message: string };
+
 export type AnalysisScope =
   | "all"
   | "resume"

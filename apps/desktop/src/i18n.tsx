@@ -27,6 +27,13 @@ export const ja = {
   "home.associate": ".mnrk をこのアプリに関連付ける（ポータブル利用時）",
   "home.associated": ".mnrk をこのアプリに関連付けました。",
   "home.help": "ヘルプ",
+  "home.projectExistsSame":
+    "この文書のプロジェクトは既にあります（{path}）。続きからレビューできます。",
+  "home.projectExistsDifferent":
+    "同じ場所に、内容の異なる文書（{fileName}）のプロジェクトがあるため取り込めません（{path}）。入力ファイルの名前を変えてから取り込み直してください。",
+  "home.projectExistsUnknown":
+    "同じ場所にフォルダが既にあるため取り込めません（{path}）。",
+  "home.openExistingProject": "このプロジェクトを開く",
 
   "viewer.zoomOut": "縮小",
   "viewer.fitWidth": "幅に合わせる",
@@ -323,6 +330,13 @@ export const en: Record<MessageKey, string> = {
   "home.associate": "Associate .mnrk with this app (for portable use)",
   "home.associated": ".mnrk is now associated with this app.",
   "home.help": "Help",
+  "home.projectExistsSame":
+    "A project for this document already exists ({path}). You can continue reviewing it.",
+  "home.projectExistsDifferent":
+    "Cannot import: a project for a different document ({fileName}) already exists at the same location ({path}). Rename the input file and import it again.",
+  "home.projectExistsUnknown":
+    "Cannot import: a folder already exists at the same location ({path}).",
+  "home.openExistingProject": "Open this project",
 
   "viewer.zoomOut": "Zoom out",
   "viewer.fitWidth": "Fit width",
