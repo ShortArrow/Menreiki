@@ -1738,6 +1738,28 @@ export default function ReviewView(props: {
     return byKey;
   }, [flatFindings]);
 
+  // Keys holding a location-unknown candidate that no located finding with
+  // the same text (any category) on the same page resolves, mapped to the
+  // detector's reason. Mirrors the policy's rect path, which edits any stored
+  // finding of the rule text except whole-page placeholders, so the warning
+  // clears exactly when an edit will happen. Built from every finding, not
+  // the filtered list.
+  const unresolvedUnlocated = useMemo(() => {
+    const located = new Set<string>();
+    for (const { pageIndex, finding } of flatFindings) {
+      if (!finding.unlocated)
+        located.add(`${pageIndex}|${stripWs(finding.text)}`);
+    }
+    const unresolved = new Map<string, string | null>();
+    for (const { pageIndex, finding } of flatFindings) {
+      if (!finding.unlocated) continue;
+      if (located.has(`${pageIndex}|${stripWs(finding.text)}`)) continue;
+      const key = findingKey(finding);
+      if (!unresolved.get(key)) unresolved.set(key, finding.note ?? null);
+    }
+    return unresolved;
+  }, [flatFindings]);
+
   const findingCategories = useMemo(
     () =>
       [...new Set(flatFindings.map(({ finding }) => finding.category))].sort(),
@@ -1835,7 +1857,7 @@ export default function ReviewView(props: {
   const unlocatedKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const { finding } of flatFindings) {
-      if (finding.note?.startsWith("位置未特定")) keys.add(findingKey(finding));
+      if (finding.unlocated) keys.add(findingKey(finding));
     }
     return keys;
   }, [flatFindings]);
@@ -2106,10 +2128,11 @@ export default function ReviewView(props: {
 
   // Builds the status notice shown after a successful export: the page-scope
   // note, then what the reviewer may not have meant to ship (undecided
-  // candidates, empty replacements), then the audit nudge while no audit
-  // result exists. Warnings never block the export. The scope note is embedded
-  // through `{scope}` so it is not repeated; joining whitespace lives in the
-  // dictionary strings, so the result is only trimmed.
+  // candidates, decisions that are not applied because the candidate's
+  // location is unknown, empty replacements), then the audit nudge while no
+  // audit result exists. Warnings never block the export. The scope note is
+  // embedded through `{scope}` so it is not repeated; joining whitespace lives
+  // in the dictionary strings, so the result is only trimmed.
   function composeExportNotice(scopeNote: string): string | null {
     let text =
       undecidedCount > 0
@@ -2118,6 +2141,12 @@ export default function ReviewView(props: {
             count: undecidedCount,
           })
         : scopeNote;
+    if (unlocatedUnresolvedCount > 0) {
+      text = t("review.unlocatedWarning", {
+        scope: text,
+        count: unlocatedUnresolvedCount,
+      });
+    }
     if (emptyReplaceCount > 0) {
       text += t("review.emptyReplaceWarning", { count: emptyReplaceCount });
     }
@@ -2353,8 +2382,7 @@ export default function ReviewView(props: {
     return flatFindings
       .filter(
         ({ finding }) =>
-          needles.includes(stripWs(finding.text)) &&
-          !finding.note?.startsWith("位置未特定"),
+          needles.includes(stripWs(finding.text)) && !finding.unlocated,
       )
       .map(({ pageIndex, finding }) => ({ page: pageIndex, rect: finding.rect }));
   }
@@ -2614,10 +2642,22 @@ export default function ReviewView(props: {
     }
     return [...unique.entries()];
   }, [flatFindings]);
-  const decidedCount = uniqueFindings.filter(([key, text]) =>
-    isDecided(key, text),
+  // Three disjoint sets: a mask/erase/replace outcome (the row's own decision,
+  // or the covering entity's replacement, which takes precedence) on a key
+  // whose location-unknown candidate is still unresolved edits nothing, so it
+  // is counted apart instead of as decided. Keep still counts as decided.
+  const isUnappliedDecision = (key: string, text: string) =>
+    unresolvedUnlocated.has(key) &&
+    (variantToEntity.has(text) ||
+      (!!decisions[key] && decisions[key].action !== "keep"));
+  const undecidedCount = uniqueFindings.filter(
+    ([key, text]) => !isDecided(key, text),
   ).length;
-  const undecidedCount = uniqueFindings.length - decidedCount;
+  const unlocatedUnresolvedCount = uniqueFindings.filter(([key, text]) =>
+    isUnappliedDecision(key, text),
+  ).length;
+  const decidedCount =
+    uniqueFindings.length - undecidedCount - unlocatedUnresolvedCount;
   const entityCoveredCount = uniqueFindings.filter(([, text]) =>
     variantToEntity.has(text),
   ).length;
@@ -3289,7 +3329,10 @@ export default function ReviewView(props: {
             <h2>{t("review.preflight")}</h2>
             <div
               className={
-                undecidedCount > 0 || emptyReplaceCount > 0 || conflictCount > 0
+                undecidedCount > 0 ||
+                unlocatedUnresolvedCount > 0 ||
+                emptyReplaceCount > 0 ||
+                conflictCount > 0
                   ? "precheck warn"
                   : "precheck ok"
               }
@@ -3297,6 +3340,13 @@ export default function ReviewView(props: {
               <span>
                 {t("review.undecidedCount", { count: undecidedCount })}
               </span>
+              {unlocatedUnresolvedCount > 0 && (
+                <span className="precheck-unlocated">
+                  {t("review.unlocatedCount", {
+                    count: unlocatedUnresolvedCount,
+                  })}
+                </span>
+              )}
               {emptyReplaceCount > 0 && (
                 <span>
                   {t("review.emptyReplaceCount", { count: emptyReplaceCount })}
@@ -4168,6 +4218,17 @@ export default function ReviewView(props: {
                 const entity = variantToEntity.get(finding.text);
                 const entityAlias = entity ? entity.alias || "■■■" : undefined;
                 const conflict = conflictOf(key, finding.text);
+                const unlocated = unresolvedUnlocated.has(key);
+                const note = unlocated
+                  ? unresolvedUnlocated.get(key)
+                  : finding.note;
+                const title = [
+                  finding.text,
+                  unlocated ? t("review.unlocatedHint") : null,
+                  note,
+                ]
+                  .filter(Boolean)
+                  .join("\n");
                 return (
                   <div
                     key={key}
@@ -4197,7 +4258,11 @@ export default function ReviewView(props: {
                     className={[
                       "finding-row",
                       highlightKey === key ? "highlight" : "",
-                      decision || entity ? "decided" : "",
+                      (decision || entity) &&
+                      !isUnappliedDecision(key, finding.text)
+                        ? "decided"
+                        : "",
+                      unlocated ? "unlocated" : "",
                       conflict ? "conflict" : "",
                       flashKey === key ? "reveal-flash" : "",
                     ]
@@ -4206,11 +4271,7 @@ export default function ReviewView(props: {
                   >
                     <button
                       className="finding-label"
-                      title={
-                        finding.note
-                          ? `${finding.text}\n${finding.note}`
-                          : finding.text
-                      }
+                      title={title}
                       onClick={() => jumpTo(pageIndex, finding)}
                     >
                       <span className="page-tag">
@@ -4248,6 +4309,11 @@ export default function ReviewView(props: {
                           <span className="finding-note">{sources.note}</span>
                         )}
                       </span>
+                      {unlocated && (
+                        <span className="badge lost">
+                          {t("review.unlocatedBadge")}
+                        </span>
+                      )}
                     </button>
                     {entityAlias !== undefined && (
                       <span className="entity-alias-chip" title={entityAlias}>

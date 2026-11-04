@@ -204,6 +204,8 @@ export const ja = {
     "置換値が空の置換が {count} 件あり、■■■ で出力されました。",
   "review.auditNudge":
     "共有する前に「監査」を実行してください。変換後のページを再OCRし、ポリシーの対象語が残っていないかを照合します。",
+  "review.unlocatedWarning":
+    "{scope}位置未特定のため判断が適用されていない候補が {count} 種類あります。同じページで「ここを検出」で囲んで割り当てるか、出力を目視で確認してください。",
   "review.exportingImages": "画像を出力中…",
   "review.generatingMarkdown": "Markdownを生成中…",
   "review.auditing": "再検査中…",
@@ -299,6 +301,10 @@ export const ja = {
   "review.conflictCount": "競合する置換: {count} 件",
   "review.conflictBadge": "競合",
   "review.conflictTooltip": "Entity『{alias}』の置換が優先されます",
+  "review.unlocatedCount": "位置未特定（適用されません）: {count} 種類",
+  "review.unlocatedBadge": "位置未特定",
+  "review.unlocatedHint":
+    "位置未特定: 画像内で検出されましたが、ページ上の位置が分からないため、この判断は適用されません。同じページで「ここを検出」で囲み、このグループに割り当ててください。マスク領域で覆った場合もこの件数は残るので、出力を目視で確認してください。",
   "review.pendingRules": "適用予定ルール: {count} 件",
   "review.detected": "検出",
   "review.jumpTo": "{text}（クリックで該当箇所へ）",
@@ -636,6 +642,8 @@ export const en: Record<MessageKey, string> = {
     "{count} replacements have no value and were exported as ■■■. ",
   "review.auditNudge":
     "Run Audit before sharing: it re-OCRs the transformed pages and checks that the policy's terms no longer appear.",
+  "review.unlocatedWarning":
+    "{scope}{count} candidate kinds have a decision that is not applied because their location is unknown. Box them with \"Detect here\" on the same page and assign them, or check the output visually. ",
   "review.exportingImages": "Exporting images…",
   "review.generatingMarkdown": "Generating Markdown…",
   "review.auditing": "Re-checking…",
@@ -734,6 +742,10 @@ export const en: Record<MessageKey, string> = {
   "review.conflictCount": "Conflicting replacements: {count}",
   "review.conflictBadge": "Conflict",
   "review.conflictTooltip": "The replacement from entity \"{alias}\" takes precedence",
+  "review.unlocatedCount": "Location unknown (not applied): {count} kinds",
+  "review.unlocatedBadge": "Location unknown",
+  "review.unlocatedHint":
+    "Location unknown: found in the page image, but its position on the page is unknown, so this decision is not applied. Box it with \"Detect here\" on the same page and assign it to this group. Covering it with a mask region does not clear this count, so check the output visually.",
   "review.pendingRules": "Pending rules: {count}",
   "review.detected": "Detected",
   "review.jumpTo": "{text} (click to jump to it)",

@@ -66,6 +66,9 @@ export interface Finding {
   rect: Rect;
   detector: string;
   note?: string | null;
+  /** The detector saw the text but could not place it: `rect` is the whole
+   *  page, and no decision on this finding alone edits anything. */
+  unlocated?: boolean;
 }
 
 export interface PageFindings {

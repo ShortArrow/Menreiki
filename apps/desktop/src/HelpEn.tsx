@@ -512,6 +512,17 @@ export default function HelpEn() {
           applied — draw around them with "Detect here", or cover them with a
           mask region.
         </p>
+        <p>
+          In the candidate list, rows that correspond to "VLM, position
+          unresolved" in the diagram above carry a <b>"Location unknown"</b>
+          badge. Draw around the text with "Detect here" on the same page and
+          assign it to that group, and the badge goes away. A mask, erase, or replace
+          decision chosen before that is not counted as decided: "Before you
+          export" counts it separately as "Location unknown (not applied)", and
+          exporting warns about it (the export is not blocked). Covering the
+          text with a mask region does not clear this count, so check the
+          output visually.
+        </p>
       </details>
 
       <details className="help-details">
