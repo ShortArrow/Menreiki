@@ -356,6 +356,19 @@ export const ja = {
   "review.candidateFilter": "絞り込み（語・分類・p.3）",
   "review.allCategories": "すべての分類",
   "review.undecidedOnly": "未判断のみ",
+  "review.bulkApplyLabel": "表示中の未判断 {count} 種類に適用:",
+  "review.bulkApplyExcluded":
+    "位置未特定を含む {count} 種類は対象外。個別に判断してください",
+  "review.bulkApplyTitle": "{action}を {count} 種類に一括適用",
+  "review.bulkApplyScope":
+    "判断は「分類＋文字列」単位で文書全体に効きます。p.1 などで絞り込んでいても、他のページの同じ候補にも及びます。",
+  "review.bulkApplyTextWide":
+    "マスク／消去は、同じ文字列が別の分類で検出された箇所にも効きます。Entity の置換や別の判断が優先される場合があります。",
+  "review.bulkApplyKeepOutput":
+    "「保持」した候補は未マスクのまま出力されます。出力は未判断のときと変わりません。",
+  "review.bulkApplyKeepCount":
+    "これらの候補は、出力前確認の未判断件数から外れます。",
+  "review.bulkApplyConfirm": "{action}を {count} 種類に適用",
   "review.excludeFromDetection": "「{text}」を{category}の検出から除外",
   "review.ignore": "無視",
   "review.noCandidates": "検出候補はありません",
@@ -754,6 +767,19 @@ export const en: Record<MessageKey, string> = {
   "review.candidateFilter": "Filter (word, category, p.3)",
   "review.allCategories": "All categories",
   "review.undecidedOnly": "Undecided only",
+  "review.bulkApplyLabel": "Apply to the {count} undecided kinds shown:",
+  "review.bulkApplyExcluded":
+    "{count} kinds with an unresolved position are excluded; decide them one by one",
+  "review.bulkApplyTitle": "{action} {count} kinds at once",
+  "review.bulkApplyScope":
+    "A decision applies per category and text across the whole document. Even when filtered to p.1, it reaches the same candidate on every other page.",
+  "review.bulkApplyTextWide":
+    "Mask and Erase also reach the same text detected under another category. An entity replacement or another decision may take precedence.",
+  "review.bulkApplyKeepOutput":
+    "Candidates marked Keep are exported unmasked. The output is the same as when they are undecided.",
+  "review.bulkApplyKeepCount":
+    "These candidates no longer count as undecided in the pre-export check.",
+  "review.bulkApplyConfirm": "Apply {action} to {count} kinds",
   "review.excludeFromDetection": "Exclude \"{text}\" from {category} detection",
   "review.ignore": "Ignore",
   "review.noCandidates": "No candidates",

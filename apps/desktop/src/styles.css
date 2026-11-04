@@ -1757,6 +1757,35 @@ button.rule-target:hover {
   flex: none;
 }
 
+.bulk-apply {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.bulk-apply-excluded {
+  color: var(--muted);
+  flex-basis: 100%;
+}
+
+.bulk-apply-warning {
+  margin: 0;
+  font-weight: 600;
+}
+
+.bulk-apply-targets {
+  gap: 4px;
+}
+
+.bulk-apply-target {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
 .findings-list {
   display: flex;
   flex-direction: column;

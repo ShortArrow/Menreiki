@@ -670,6 +670,19 @@ export default function HelpEn() {
           <li>Ctrl+wheel: zoom / Shift+wheel: scroll sideways</li>
           <li>Pane borders can be dragged to resize (the width is saved)</li>
           <li>Clicking an active decision button clears the decision</li>
+          <li>
+            Bulk apply above the candidate list only touches the undecided
+            candidates currently shown by the filter (decided ones are never
+            overwritten)
+          </li>
+          <li>
+            Bulk Keep does not change the output; it only lowers the undecided
+            count in the pre-export check
+          </li>
+          <li>
+            Candidates with an unresolved position are left out of bulk apply;
+            decide them one by one
+          </li>
         </ul>
       </details>
     </>

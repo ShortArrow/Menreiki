@@ -90,6 +90,13 @@ interface Decision {
   align?: TextAlign;
 }
 
+type BulkAction = "keep" | "mask" | "erase";
+
+interface BulkTarget {
+  key: string;
+  finding: Finding;
+}
+
 interface TextRule {
   text: string;
   action: Exclude<DecisionAction, "keep">;
@@ -1121,6 +1128,12 @@ export default function ReviewView(props: {
     if (pointerHeld.current) deferredEditingUpdates.current.push(update);
     else update();
   };
+  // Snapshot of the keys a bulk decision will touch, frozen when the
+  // confirmation opens so later findings or decisions cannot widen it.
+  const [bulkPending, setBulkPending] = useState<{
+    action: BulkAction;
+    targets: BulkTarget[];
+  } | null>(null);
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
@@ -1548,6 +1561,32 @@ export default function ReviewView(props: {
     }
     return [...byKey.values()];
   }, [filteredFindings]);
+
+  // Keys with at least one location-unknown (whole-page VLM) occurrence
+  // anywhere in the document. Their mask may not be drawn, so a bulk decision
+  // must never settle them unseen; checked against every occurrence, not just
+  // the representative row.
+  const unlocatedKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const { finding } of flatFindings) {
+      if (finding.note?.startsWith("位置未特定")) keys.add(findingKey(finding));
+    }
+    return keys;
+  }, [flatFindings]);
+
+  // Bulk-apply targets: shown rows that are still undecided and fully located.
+  // Decided keys are never overwritten.
+  const bulkCandidates = useMemo(() => {
+    const targets: BulkTarget[] = [];
+    let excluded = 0;
+    for (const { finding } of dedupedFindings) {
+      const key = findingKey(finding);
+      if (decisions[key]) continue;
+      if (unlocatedKeys.has(key)) excluded += 1;
+      else targets.push({ key, finding });
+    }
+    return { targets, excluded };
+  }, [dedupedFindings, decisions, unlocatedKeys]);
 
   // Every candidate group (category + text) in the document, for assigning a
   // boxed detection to an existing group as a missed occurrence.
@@ -2248,6 +2287,26 @@ export default function ReviewView(props: {
       }
       return next;
     });
+  }
+
+  function openBulkApply(action: BulkAction) {
+    if (bulkCandidates.targets.length === 0) return;
+    setBulkPending({ action, targets: [...bulkCandidates.targets] });
+  }
+
+  function confirmBulkApply() {
+    if (!bulkPending) return;
+    const { action, targets } = bulkPending;
+    setDecisions((current) => {
+      const next = { ...current };
+      for (const { key } of targets) {
+        // A key decided individually while the dialog was open keeps that
+        // decision.
+        if (!next[key]) next[key] = { action, value: "" };
+      }
+      return next;
+    });
+    setBulkPending(null);
   }
 
   function setDecisionValue(key: string, value: string) {
@@ -3674,6 +3733,30 @@ export default function ReviewView(props: {
                 {t("review.undecidedOnly")}
               </label>
             </div>
+            <div className="bulk-apply">
+              <span>
+                {t("review.bulkApplyLabel", {
+                  count: bulkCandidates.targets.length,
+                })}
+              </span>
+              {(["mask", "erase", "keep"] as const).map((action) => (
+                <button
+                  key={action}
+                  className="mini"
+                  disabled={bulkCandidates.targets.length === 0}
+                  onClick={() => openBulkApply(action)}
+                >
+                  {t(`action.${action}`)}
+                </button>
+              ))}
+              {bulkCandidates.excluded > 0 && (
+                <span className="bulk-apply-excluded">
+                  {t("review.bulkApplyExcluded", {
+                    count: bulkCandidates.excluded,
+                  })}
+                </span>
+              )}
+            </div>
             <div className="findings-list">
               {dedupedFindings.map(({ pageIndex, finding, count }) => {
                 const key = findingKey(finding);
@@ -4001,6 +4084,59 @@ export default function ReviewView(props: {
                 }}
               >
                 {t("review.clearAllConfirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {bulkPending && (
+        <div className="modal-backdrop" onClick={() => setBulkPending(null)}>
+          <div
+            className="modal bulk-apply-modal"
+            role="dialog"
+            aria-modal="true"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-header">
+              <h2>
+                {t("review.bulkApplyTitle", {
+                  action: t(`action.${bulkPending.action}`),
+                  count: bulkPending.targets.length,
+                })}
+              </h2>
+            </div>
+            <p className="status">{t("review.bulkApplyScope")}</p>
+            <p className="status">{t("review.bulkApplyTextWide")}</p>
+            {bulkPending.action === "keep" && (
+              <>
+                <p className="bulk-apply-warning">
+                  {t("review.bulkApplyKeepOutput")}
+                </p>
+                <p className="bulk-apply-warning">
+                  {t("review.bulkApplyKeepCount")}
+                </p>
+              </>
+            )}
+            <div className="modal-body bulk-apply-targets">
+              {bulkPending.targets.map(({ key, finding }) => (
+                <div key={key} className="bulk-apply-target">
+                  <span className={`category-tag cat-${finding.category}`}>
+                    {categoryLabel(t, finding.category)}
+                  </span>
+                  <span className="finding-text">{finding.text}</span>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setBulkPending(null)}>
+                {t("review.cancel")}
+              </button>
+              <button className="primary" onClick={confirmBulkApply}>
+                {t("review.bulkApplyConfirm", {
+                  action: t(`action.${bulkPending.action}`),
+                  count: bulkPending.targets.length,
+                })}
               </button>
             </div>
           </div>
