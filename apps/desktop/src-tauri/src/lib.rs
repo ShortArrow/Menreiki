@@ -4,6 +4,7 @@
 //! operations run on a blocking thread and report progress through the
 //! `analyze-progress` event.
 
+mod ocr_language;
 mod settings;
 
 use std::path::{Path, PathBuf};
@@ -12,6 +13,8 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{Emitter, Manager};
+
+use ocr_language::OcrLanguageStatus;
 
 /// Set to true by `cancel_analysis`; analysis loops stop between pages.
 struct AnalysisCancel(Arc<AtomicBool>);
@@ -78,14 +81,35 @@ fn rasterizer_for(
 }
 
 /// The requested OCR language, or the profile languages when that language
-/// pack is not installed.
+/// pack is not installed, together with which language was actually used.
 fn ocr_engine(
     language: &str,
-) -> Result<menreiki_adapter_windows_ocr::WindowsOcrEngine, String> {
-    menreiki_adapter_windows_ocr::WindowsOcrEngine::from_language(language).or_else(|_| {
-        menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages()
-            .map_err(|error| error.to_string())
-    })
+) -> Result<(menreiki_adapter_windows_ocr::WindowsOcrEngine, OcrLanguageStatus), String> {
+    ocr_language::select_engine(
+        language,
+        |tag| {
+            if force_ocr_fallback() {
+                return Err("forced by MENREIKI_TEST_FORCE_OCR_FALLBACK".to_string());
+            }
+            menreiki_adapter_windows_ocr::WindowsOcrEngine::from_language(tag)
+                .map_err(|error| error.to_string())
+        },
+        menreiki_adapter_windows_ocr::WindowsOcrEngine::from_user_profile_languages,
+        |engine| engine.recognizer_language_tag().ok(),
+    )
+}
+
+/// Debug builds only: `MENREIKI_TEST_FORCE_OCR_FALLBACK=1` makes the
+/// requested-language engine fail, so the fallback warning can be
+/// exercised end to end on a machine that has the language pack.
+#[cfg(debug_assertions)]
+fn force_ocr_fallback() -> bool {
+    std::env::var("MENREIKI_TEST_FORCE_OCR_FALLBACK").as_deref() == Ok("1")
+}
+
+#[cfg(not(debug_assertions))]
+fn force_ocr_fallback() -> bool {
+    false
 }
 
 fn default_font_path() -> PathBuf {
@@ -325,6 +349,9 @@ enum AnalysisScope {
 struct AnalyzeOutcome {
     cancelled: bool,
     project: ProjectInfo,
+    /// The OCR language status when this run created an OCR engine (it
+    /// reached the OCR stage); `None` for runs that never did.
+    ocr: Option<OcrLanguageStatus>,
 }
 
 /// Builds the project's detection rules from its selected detectors and
@@ -480,12 +507,15 @@ async fn analyze_project(
                 serde_json::json!({ "stage": stage, "page": page, "total": total }),
             );
         };
-        let outcome = |cancelled: bool| -> Result<AnalyzeOutcome, String> {
-            Ok(AnalyzeOutcome {
-                cancelled,
-                project: project_info(&project_dir)?,
-            })
-        };
+        let outcome =
+            |cancelled: bool, ocr: Option<OcrLanguageStatus>| -> Result<AnalyzeOutcome, String> {
+                Ok(AnalyzeOutcome {
+                    cancelled,
+                    project: project_info(&project_dir)?,
+                    ocr,
+                })
+            };
+        let mut ocr_status: Option<OcrLanguageStatus> = None;
         let resume = matches!(scope, AnalysisScope::Resume);
         let render = matches!(
             scope,
@@ -517,14 +547,15 @@ async fn analyze_project(
             );
             match result {
                 Ok(_) => {}
-                Err(menreiki_project::AnalyzeError::Cancelled) => return outcome(true),
+                Err(menreiki_project::AnalyzeError::Cancelled) => return outcome(true, None),
                 Err(error) => return Err(error.to_string()),
             }
         }
 
         if ocr {
             emit("ocr", None, None);
-            let engine = ocr_engine(&ocr_language)?;
+            let (engine, status) = ocr_engine(&ocr_language)?;
+            ocr_status = Some(status);
             // Detect each page as its OCR lands, so candidates appear in the
             // UI mid-run; the full pass below adds cross-page layout findings.
             let stream_rules = build_detection_rules(&project_dir)?;
@@ -549,7 +580,9 @@ async fn analyze_project(
             );
             match result {
                 Ok(_) => {}
-                Err(menreiki_project::OcrPagesError::Cancelled) => return outcome(true),
+                Err(menreiki_project::OcrPagesError::Cancelled) => {
+                    return outcome(true, ocr_status)
+                }
                 Err(error) => return Err(error.to_string()),
             }
         }
@@ -558,7 +591,7 @@ async fn analyze_project(
         run_detection(&project_dir)?;
 
         emit("done", None, None);
-        outcome(false)
+        outcome(false, ocr_status)
     })
     .await
     .map_err(|error| error.to_string())?
@@ -922,7 +955,7 @@ async fn read_region(
         crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
             .map_err(|error| error.to_string())?;
 
-        let engine = ocr_engine(&ocr_language)?;
+        let (engine, _) = ocr_engine(&ocr_language)?;
         let recognized = engine.recognize(&buffer).map_err(|error| error.to_string())?;
         let words: Vec<menreiki_core::Span> = recognized
             .lines
@@ -1115,7 +1148,7 @@ async fn export_markdown(
     ocr_language: String,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let engine = ocr_engine(&ocr_language)?;
+        let (engine, _) = ocr_engine(&ocr_language)?;
         menreiki_project::export_markdown(
             Path::new(&project),
             &engine,
@@ -1149,7 +1182,7 @@ async fn audit_project(
             .map(serde_json::from_value)
             .transpose()
             .map_err(|error| error.to_string())?;
-        let engine = ocr_engine(&ocr_language)?;
+        let (engine, ocr) = ocr_engine(&ocr_language)?;
         let report = menreiki_project::audit_output(
             Path::new(&project),
             policy.as_ref(),
@@ -1157,7 +1190,9 @@ async fn audit_project(
             &engine,
         )
         .map_err(|error| error.to_string())?;
-        serde_json::to_value(&report).map_err(|error| error.to_string())
+        // The OCR status rides beside the core report (left unchanged) so
+        // the UI can qualify a pass read by a fallback engine.
+        Ok(serde_json::json!({ "report": report, "ocr": ocr }))
     })
     .await
     .map_err(|error| error.to_string())?

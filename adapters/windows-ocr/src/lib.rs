@@ -40,6 +40,19 @@ impl WindowsOcrEngine {
             .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
         Ok(Self { engine })
     }
+
+    /// The BCP-47 tag of the language this engine actually recognizes —
+    /// differs from the requested one after a profile-language fallback.
+    pub fn recognizer_language_tag(&self) -> Result<String, OcrError> {
+        let language = self
+            .engine
+            .RecognizerLanguage()
+            .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
+        let tag = language
+            .LanguageTag()
+            .map_err(|error| OcrError::EngineUnavailable(error.to_string()))?;
+        Ok(tag.to_string())
+    }
 }
 
 impl OcrEngine for WindowsOcrEngine {
