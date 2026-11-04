@@ -535,6 +535,48 @@ test("the undecided-only filter keeps the row being edited", async () => {
   await expect(row.locator(".finding-replace-input")).toHaveCount(0);
 });
 
+test("ignoring a finding can be undone from the status bar", async () => {
+  // Regression: "Ignore" ran without any feedback or way back, so a misclick
+  // silently dropped a candidate (and its decision) from the review.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const first = page.locator(".findings-list .finding-row").first();
+  const text = (await first.locator(".finding-text").innerText()).trim();
+  const category = (await first.locator(".category-tag").innerText()).trim();
+  // The same text can appear under another category; pin both.
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ has: page.locator(".finding-text", { hasText: text }) })
+    .filter({ has: page.locator(".category-tag", { hasText: category }) });
+  await expect(row).toHaveCount(1);
+
+  const erase = row.locator(".decision-btn", { hasText: "消去" });
+  await erase.click();
+  await expect(erase).toHaveClass(/current/);
+
+  await row.getByRole("button", { name: "無視", exact: true }).click();
+  await expect(row).toHaveCount(0, { timeout: 60_000 });
+  await expect(
+    page.locator(".statusbar").getByText(text, { exact: false }),
+  ).toBeVisible();
+  const undo = page.getByRole("button", { name: "元に戻す", exact: true });
+  await expect(undo).toBeVisible();
+
+  await undo.click();
+  await expect(row).toHaveCount(1, { timeout: 60_000 });
+  await expect(undo).toHaveCount(0);
+  await expect(row.locator(".decision-btn", { hasText: "消去" })).toHaveClass(
+    /current/,
+  );
+
+  // Back to undecided so the decision does not leak into later tests.
+  await row.locator(".decision-btn", { hasText: "消去" }).click();
+  await expect(
+    row.locator(".decision-btn", { hasText: "消去" }),
+  ).not.toHaveClass(/current/);
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
