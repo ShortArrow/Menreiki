@@ -1157,6 +1157,12 @@ export default function ReviewView(props: {
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The ignore entry the last "Ignore" click added, offered for a one-step
+  // undo until the next operation starts. Never persisted.
+  const [lastIgnored, setLastIgnored] = useState<{
+    text: string;
+    category: string;
+  } | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
   const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([]);
   const [exportPath, setExportPath] = useState<string | null>(null);
@@ -1426,6 +1432,7 @@ export default function ReviewView(props: {
     setBusy(label);
     setError(null);
     setNotice(null);
+    setLastIgnored(null);
     try {
       return await action();
     } catch (failure) {
@@ -2187,6 +2194,7 @@ export default function ReviewView(props: {
     setSuggestingTargets(true);
     setTargetSuggestions(null);
     setError(null);
+    setLastIgnored(null);
     suggestTargets(project.projectDir)
       .then((terms) => setTargetSuggestions(terms))
       .catch((failure) => setError(describeError(failure, t)))
@@ -2212,6 +2220,54 @@ export default function ReviewView(props: {
             ...ignored,
             { text: finding.text, category: finding.category },
           ],
+        });
+        // Set right after saving, so the undo stays available even when the
+        // re-detection below fails.
+        setLastIgnored({ text: finding.text, category: finding.category });
+      }
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+      // An entry that was already there is the reviewer's own; offering to
+      // undo it would remove something this click did not add.
+      if (!already) {
+        setNotice(
+          t("review.ignoredNotice", {
+            text: finding.text,
+            category: finding.category,
+          }),
+        );
+      }
+    });
+  }
+
+  /// Removes the entry the last "Ignore" added and re-detects, so the
+  /// candidate returns with its earlier decision (decisions are kept by key).
+  function undoIgnore() {
+    const target = lastIgnored;
+    if (!target) return;
+    void run(t("review.undoingIgnore"), async () => {
+      const settings = await getProjectSettings(project.projectDir);
+      const ignored = settings.ignored ?? [];
+      // Drop only the last exactly matching object entry; everything else
+      // keeps its content and order.
+      let index = -1;
+      for (let i = ignored.length - 1; i >= 0; i--) {
+        const entry = ignored[i];
+        if (
+          typeof entry === "object" &&
+          entry.text === target.text &&
+          entry.category === target.category
+        ) {
+          index = i;
+          break;
+        }
+      }
+      if (index >= 0) {
+        await setProjectSettings(project.projectDir, {
+          ...settings,
+          ignored: [...ignored.slice(0, index), ...ignored.slice(index + 1)],
         });
       }
       if (project.analyzed) {
@@ -2670,6 +2726,11 @@ export default function ReviewView(props: {
             </button>
           )}
           {notice && <span className="status">{notice}</span>}
+          {lastIgnored && !busy && (
+            <button className="mini" onClick={undoIgnore}>
+              {t("review.undoIgnore")}
+            </button>
+          )}
           {error && <span className="error">{error}</span>}
           {decisionsLoadError && (
             <span className="error load-error">
