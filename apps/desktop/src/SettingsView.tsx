@@ -118,6 +118,49 @@ export default function SettingsView(props: {
   // The pack row awaiting delete confirmation. A single slot keeps at most one
   // row in the confirm state; removal is immediate and cannot be undone.
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
+  // Removing a row (or swapping its buttons for the confirm) unmounts the
+  // focused control; these put focus back on a nearby control instead of
+  // letting it fall to <body>.
+  const packKeepButton = useRef<HTMLButtonElement>(null);
+  const packImportButton = useRef<HTMLButtonElement>(null);
+  const packList = useRef<HTMLElement>(null);
+  const ignoredList = useRef<HTMLDivElement>(null);
+  /// Row index whose remove button should take focus after the next render
+  /// of the pack list (the next row once one is deleted).
+  const focusPackRow = useRef<number | null>(null);
+  const focusIgnoredRow = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (pendingRemove !== null) {
+      packKeepButton.current?.focus();
+      return;
+    }
+    const row = focusPackRow.current;
+    if (row === null) return;
+    focusPackRow.current = null;
+    const buttons =
+      packList.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-pack-remove]",
+      ) ?? [];
+    const target =
+      buttons.length > 0
+        ? buttons[Math.min(row, buttons.length - 1)]
+        : packImportButton.current;
+    target?.focus();
+  }, [packs, pendingRemove]);
+
+  useEffect(() => {
+    const row = focusIgnoredRow.current;
+    if (row === null) return;
+    focusIgnoredRow.current = null;
+    const buttons =
+      ignoredList.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-ignored-remove]",
+      ) ?? [];
+    // With no row left, focus falls to <body> and the dialog's Tab trap
+    // resumes from where the list was.
+    if (buttons.length > 0) buttons[Math.min(row, buttons.length - 1)].focus();
+  }, [ignored]);
 
   useEffect(() => {
     void listDetectorPacks()
@@ -145,13 +188,20 @@ export default function SettingsView(props: {
     }
   }
 
-  async function removePack(name: string) {
+  /// Removes the pack at row `index`; the confirm stays up until it is
+  /// done, then focus moves to the row that took its place.
+  async function removePack(name: string, index: number) {
     setPackError(null);
     try {
       await removeDetectorPack(name);
-      setPacks(await listDetectorPacks());
+      const next = await listDetectorPacks();
+      focusPackRow.current = index;
+      setPacks(next);
+      setPendingRemove(null);
       props.onDetectorsChanged();
     } catch (failure) {
+      focusPackRow.current = index;
+      setPendingRemove(null);
       setPackError(String(failure));
     }
   }
@@ -330,7 +380,7 @@ export default function SettingsView(props: {
           {ignored.length === 0 ? (
             <p className="status">{t("settings.ignoredEmpty")}</p>
           ) : (
-            <div className="text-rules">
+            <div className="text-rules" ref={ignoredList}>
               {ignored.map((entry, index) => {
                 const text =
                   typeof entry === "string" ? entry : entry.text;
@@ -346,11 +396,13 @@ export default function SettingsView(props: {
                     </span>
                     <button
                       aria-label={t("settings.ignoredRemove")}
-                      onClick={() =>
+                      data-ignored-remove=""
+                      onClick={() => {
+                        focusIgnoredRow.current = index;
                         setIgnored((current) =>
                           current.filter((_, i) => i !== index),
-                        )
-                      }
+                        );
+                      }}
                     >
                       <X size={12} />
                     </button>
@@ -470,13 +522,13 @@ export default function SettingsView(props: {
           </p>
         </section>
 
-        <section>
+        <section ref={packList}>
           <h2>{t("settings.packs")}</h2>
           <p className="hint">{t("settings.packsHint")}</p>
           {packs.length === 0 && (
             <p className="hint">{t("settings.packsEmpty")}</p>
           )}
-          {packs.map((pack) => (
+          {packs.map((pack, index) => (
             <div key={pack.name} className="rule-entry">
               <span className="category-tag">{pack.version}</span>
               {pendingRemove === pack.name ? (
@@ -485,7 +537,7 @@ export default function SettingsView(props: {
                       one line, which would hide the "cannot be undone"
                       warning at the end of the sentence. */}
                   <span className="rule-target">
-                    <span>
+                    <span role="alert">
                       {t("settings.packRemoveConfirm", {
                         name: pack.displayName,
                         rules: pack.ruleCount,
@@ -495,16 +547,18 @@ export default function SettingsView(props: {
                   </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      setPendingRemove(null);
-                      void removePack(pack.name);
-                    }}
+                    className="danger"
+                    onClick={() => void removePack(pack.name, index)}
                   >
                     {t("settings.packRemoveYes")}
                   </button>
                   <button
+                    ref={packKeepButton}
                     type="button"
-                    onClick={() => setPendingRemove(null)}
+                    onClick={() => {
+                      focusPackRow.current = index;
+                      setPendingRemove(null);
+                    }}
                   >
                     {t("settings.packRemoveNo")}
                   </button>
@@ -528,6 +582,7 @@ export default function SettingsView(props: {
                   <button
                     type="button"
                     aria-label={t("settings.packRemove")}
+                    data-pack-remove=""
                     onClick={() => setPendingRemove(pack.name)}
                   >
                     <X size={12} />
@@ -537,7 +592,11 @@ export default function SettingsView(props: {
             </div>
           ))}
           <div className="field-row">
-            <button type="button" onClick={() => void importPack()}>
+            <button
+              ref={packImportButton}
+              type="button"
+              onClick={() => void importPack()}
+            >
               {t("settings.packImport")}
             </button>
           </div>

@@ -65,6 +65,9 @@ function canTakeFocus(element: Element | null): element is HTMLElement {
 interface Layer {
   container: RefObject<HTMLElement>;
   onEscape: RefObject<(() => void) | undefined>;
+  /// Tab-order index of the control that last had focus inside the layer,
+  /// so Tab can resume from there after that control unmounts.
+  lastIndex: number;
 }
 const layers: Layer[] = [];
 let inertCount = 0;
@@ -96,9 +99,23 @@ function handleKeyDown(event: KeyboardEvent) {
   if (focusable.length === 0) return;
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
-  const index = focusable.indexOf(document.activeElement as HTMLElement);
+  const active = document.activeElement;
+  const index = focusable.indexOf(active as HTMLElement);
   if (index === -1) {
-    (event.shiftKey ? last : first).focus();
+    // Focus fell to <body> because the focused control unmounted (e.g. an
+    // in-row confirm swapping its buttons). Continue from where it was: the
+    // control now at its old index is the one that followed it.
+    const lost = !active || active === document.body || !active.isConnected;
+    if (lost && layer.lastIndex >= 0) {
+      const resume = Math.min(layer.lastIndex, focusable.length);
+      if (event.shiftKey) {
+        (resume === 0 ? last : focusable[resume - 1]).focus();
+      } else {
+        (resume >= focusable.length ? first : focusable[resume]).focus();
+      }
+    } else {
+      (event.shiftKey ? last : first).focus();
+    }
   } else if (event.shiftKey) {
     (index === 0 ? last : focusable[index - 1]).focus();
   } else {
@@ -128,16 +145,25 @@ export function useFocusLayer(
 
   useEffect(() => {
     const opener = document.activeElement;
-    const layer: Layer = { container, onEscape };
+    const layer: Layer = { container, onEscape, lastIndex: -1 };
     layers.push(layer);
     if (layers.length === 1) document.addEventListener("keydown", handleKeyDown);
     if (inertCount++ === 0) setRootInert(true);
     const element = container.current;
+    const onFocusIn = (event: FocusEvent) => {
+      if (!element) return;
+      const index = focusableWithin(element).indexOf(
+        event.target as HTMLElement,
+      );
+      if (index !== -1) layer.lastIndex = index;
+    };
+    element?.addEventListener("focusin", onFocusIn);
     if (element && !element.contains(document.activeElement)) {
       focusableWithin(element)[0]?.focus();
     }
 
     return () => {
+      element?.removeEventListener("focusin", onFocusIn);
       layers.splice(layers.indexOf(layer), 1);
       if (layers.length === 0) {
         document.removeEventListener("keydown", handleKeyDown);
