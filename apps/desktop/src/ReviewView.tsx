@@ -1091,6 +1091,36 @@ export default function ReviewView(props: {
   // The candidate row just switched to replace, whose value field should take
   // focus when it mounts. A ref so the focus fires exactly once.
   const pendingFocusKey = useRef<string | null>(null);
+  // Focus moves on pointerdown, before the click lands. Dropping the row that
+  // lost focus right then would shift the rows below it and the click would
+  // miss its button, so editing-row changes made while a pointer is held wait
+  // until it is released (after the click has been dispatched).
+  const pointerHeld = useRef(false);
+  const deferredEditingUpdates = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    const down = () => {
+      pointerHeld.current = true;
+    };
+    const up = () => {
+      pointerHeld.current = false;
+      const updates = deferredEditingUpdates.current;
+      deferredEditingUpdates.current = [];
+      if (updates.length > 0)
+        window.setTimeout(() => updates.forEach((update) => update()), 0);
+    };
+    window.addEventListener("pointerdown", down, true);
+    window.addEventListener("pointerup", up, true);
+    window.addEventListener("pointercancel", up, true);
+    return () => {
+      window.removeEventListener("pointerdown", down, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+    };
+  }, []);
+  const updateEditingFindingKey = (update: () => void) => {
+    if (pointerHeld.current) deferredEditingUpdates.current.push(update);
+    else update();
+  };
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
@@ -3659,15 +3689,19 @@ export default function ReviewView(props: {
                     // While focus is anywhere in the row it stays listed even
                     // under "undecided only", so deciding does not yank away
                     // the value field the reviewer is about to type into.
-                    onFocus={() => setEditingFindingKey(key)}
+                    onFocus={() =>
+                      updateEditingFindingKey(() => setEditingFindingKey(key))
+                    }
                     onBlur={(event) => {
                       if (
                         !event.currentTarget.contains(
                           event.relatedTarget as Node | null,
                         )
                       ) {
-                        setEditingFindingKey((current) =>
-                          current === key ? null : current,
+                        updateEditingFindingKey(() =>
+                          setEditingFindingKey((current) =>
+                            current === key ? null : current,
+                          ),
                         );
                       }
                     }}
