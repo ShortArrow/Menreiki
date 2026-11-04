@@ -1473,3 +1473,108 @@ test("clicking a region rect reveals its rule; deletion is undoable from the pan
     10_000,
   );
 });
+
+test("entity members count as decided and show conflicting decisions", async () => {
+  // Regression for #36: consolidating a candidate into an entity replaced it
+  // on output, yet its row showed no alias, it still counted as undecided,
+  // and a contradicting row decision was shown as if it applied. Kept last:
+  // the test above asserts the first entity is 組織A, so ours is 組織B+.
+  const precheck = page.locator(".section-precheck .precheck");
+  const readCount = async (pattern: RegExp) => {
+    const text = (await precheck.textContent()) ?? "";
+    const match = text.match(pattern);
+    expect(match, `${pattern} in "${text}"`).not.toBeNull();
+    return Number(match![1]);
+  };
+  const undecidedPattern = /未判断の候補: (\d+) 種類/;
+  const decidedPattern = /判断済み: (\d+) 種類/;
+  const coveredPattern = /うち Entity による置換: (\d+) 種類/;
+  const conflictPattern = /競合する置換: (\d+) 件/;
+  const counts = async () => ({
+    undecided: await readCount(undecidedPattern),
+    decided: await readCount(decidedPattern),
+    covered: await readCount(coveredPattern),
+    conflict: await readCount(conflictPattern),
+  });
+
+  // Pick the first undecided row whose text is untrimmed-safe and unique in
+  // the list, so exactly one candidate group joins the new entity.
+  const targetText = await page.evaluate(() => {
+    const texts = [
+      ...document.querySelectorAll(".findings-list .finding-row .finding-text"),
+    ].map((element) => element.textContent ?? "");
+    const undecided = [
+      ...document.querySelectorAll(
+        ".findings-list .finding-row:not(.decided) .finding-text",
+      ),
+    ].map((element) => element.textContent ?? "");
+    return (
+      undecided.find(
+        (text) =>
+          text !== "" &&
+          text === text.trim() &&
+          texts.filter((other) => other === text).length === 1,
+      ) ?? null
+    );
+  });
+  expect(targetText).not.toBeNull();
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({
+      has: page.locator(".finding-text").getByText(targetText!, { exact: true }),
+    });
+  await expect(row).toHaveCount(1);
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+  const before = await counts();
+
+  // AC1/AC2: a new entity from the row shows its alias and counts as decided.
+  const entityButton = row.locator(".entity-menu > button");
+  await expect(entityButton).toHaveText("E");
+  await entityButton.click();
+  await page.locator(".entity-popover").getByText("＋ 新規Entity").click();
+  await expect(row.locator(".entity-alias-chip")).toHaveText(/→ .+/);
+  await expect(entityButton).not.toHaveText("E");
+  await expect(row).toHaveClass(/\bdecided\b/);
+  await expect(precheck).toContainText(
+    `未判断の候補: ${before.undecided - 1} 種類`,
+  );
+  expect(await counts()).toEqual({
+    ...before,
+    undecided: before.undecided - 1,
+    decided: before.decided + 1,
+    covered: before.covered + 1,
+  });
+
+  // AC3: the undecided-only filter hides the covered row.
+  const undecidedOnly = page.getByLabel("未判断のみ");
+  await undecidedOnly.check();
+  await expect(row).toHaveCount(0);
+  await undecidedOnly.uncheck();
+  await expect(row).toHaveCount(1);
+
+  // AC6: a contradicting row decision is flagged as a conflict.
+  const alias = ((await entityButton.textContent()) ?? "").trim();
+  const maskButton = row.locator(".decision-btn", { hasText: "マスク" });
+  await maskButton.click();
+  const badge = row.locator(".conflict-badge");
+  await expect(badge).toHaveText("競合");
+  await expect(badge).toHaveAttribute("title", new RegExp(alias));
+  await expect(row).toHaveClass(/\bconflict\b/);
+  await expect(precheck).toHaveClass(/\bwarn\b/);
+  await expect(precheck).toContainText(
+    `競合する置換: ${before.conflict + 1} 件`,
+  );
+
+  // AC8: releasing the decision clears the conflict; the row stays decided.
+  await maskButton.click();
+  await expect(badge).toHaveCount(0);
+  await expect(row).not.toHaveClass(/\bconflict\b/);
+  await expect(row).toHaveClass(/\bdecided\b/);
+  await expect(precheck).toContainText(`競合する置換: ${before.conflict} 件`);
+  expect(await counts()).toEqual({
+    ...before,
+    undecided: before.undecided - 1,
+    decided: before.decided + 1,
+    covered: before.covered + 1,
+  });
+});
