@@ -471,3 +471,63 @@ test("clearing decisions and rules asks first and keeps entities", async () => {
   // AC7: with only entity rules left, the bulk clear button is gone.
   await expect(clearButton).toHaveCount(0);
 });
+
+// Category tags read as the UI language's label, not the internal ID. These
+// run after the pipeline test because registering to the dictionary re-runs
+// detection.
+test("candidate category tags show the translated label", async () => {
+  const tags = page.locator(".findings-list .category-tag");
+  await expect(tags.getByText("組織名", { exact: true }).first()).toBeVisible();
+  await expect(tags.getByText("organization", { exact: true })).toHaveCount(0);
+});
+
+test("category filter labels options but keeps the ID as the value", async () => {
+  const select = page.locator(".finding-filter select");
+  await expect(
+    select.locator("option", { hasText: "組織名" }),
+  ).toHaveAttribute("value", "organization");
+  await select.selectOption("organization");
+  const tags = page.locator(".findings-list .category-tag");
+  await expect(tags.first()).toBeVisible();
+  for (const text of await tags.allTextContents()) {
+    expect(text).toBe("組織名");
+  }
+  await select.selectOption("all");
+});
+
+test("free-text filter matches both the label and the ID", async () => {
+  const filter = page.getByPlaceholder("絞り込み（語・分類・p.3）");
+  const rows = page.locator(".findings-list .finding-row");
+  await filter.fill("組織名");
+  await expect(rows.first()).toBeVisible();
+  await filter.fill("organization");
+  await expect(rows.first()).toBeVisible();
+  await filter.fill("");
+});
+
+test("exclude tooltip names the translated category", async () => {
+  const row = page
+    .locator(".findings-list .finding-row")
+    .filter({ has: page.getByText("組織名", { exact: true }) })
+    .first();
+  const title = await row.locator(".mini").getAttribute("title");
+  expect(title).toContain("を組織名の検出から除外");
+  expect(title).not.toContain("organization");
+});
+
+test("a dictionary entry registered as Other is listed as その他", async () => {
+  const word = "架空語ゼータ九九";
+  await page.getByPlaceholder("例: 株式会社アルファ技研").fill(word);
+  await page.getByRole("button", { name: "検索", exact: true }).click();
+  await page.locator(".dictionary-register select").selectOption("custom");
+  await page
+    .getByRole("button", { name: "辞書に登録（以後の解析で自動検出）" })
+    .click();
+  await expect(page.getByText("登録し、検出候補へ反映しました。")).toBeVisible({
+    timeout: 120_000,
+  });
+  const entry = page
+    .locator(".section-dictionary .rule-entry")
+    .filter({ hasText: word });
+  await expect(entry.locator(".category-tag")).toHaveText("その他");
+});
