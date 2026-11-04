@@ -26,6 +26,7 @@ export const ja = {
     "すべての処理はローカルで実行されます。ネットワークへは接続しません。",
   "home.associate": ".mnrk をこのアプリに関連付ける（ポータブル利用時）",
   "home.associated": ".mnrk をこのアプリに関連付けました。",
+  "home.help": "ヘルプ",
 
   "viewer.zoomOut": "縮小",
   "viewer.fitWidth": "幅に合わせる",
@@ -289,7 +290,7 @@ export const ja = {
   "review.regionPreviewHint":
     "この領域が各ページで何を含むか確認してから適用してください。",
 
-  "help.back": "← レビューに戻る",
+  "help.back": "← 戻る",
   "help.title": "ヘルプ",
 } as const;
 
@@ -313,6 +314,7 @@ export const en: Record<MessageKey, string> = {
     "Everything runs on this device. The app makes no network connections.",
   "home.associate": "Associate .mnrk with this app (for portable use)",
   "home.associated": ".mnrk is now associated with this app.",
+  "home.help": "Help",
 
   "viewer.zoomOut": "Zoom out",
   "viewer.fitWidth": "Fit width",
@@ -582,7 +584,7 @@ export const en: Record<MessageKey, string> = {
   "review.regionPreviewHint":
     "Check what this region covers on each page before applying it.",
 
-  "help.back": "← Back to the review",
+  "help.back": "← Back",
   "help.title": "Help",
 };
 

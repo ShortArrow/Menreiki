@@ -74,7 +74,10 @@ function AppShell(props: { onLanguageChange: (language: Language) => void }) {
         />
       ) : (
         <>
-          <HomeView onOpened={setProject} />
+          <HomeView
+            onOpened={setProject}
+            onLanguageChange={props.onLanguageChange}
+          />
           {/* Review view carries its own toggle in the toolbar so this
               floating one never overlaps the side pane's content. */}
           <button

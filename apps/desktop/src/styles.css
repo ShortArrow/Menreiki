@@ -192,6 +192,30 @@ svg.lucide {
   margin-top: 16px;
 }
 
+.home-preferences {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted-soft);
+  font-size: 12px;
+}
+
+.home-preferences label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-preferences select {
+  font-size: 12px;
+}
+
+.home-preferences .link-button {
+  margin-top: 0;
+}
+
 .sample-button {
   padding: 10px 14px;
   font-size: 14px;
