@@ -21,7 +21,7 @@ Menreikiは、PDFや画像に含まれる人物名、組織名、製品名、型
 
 ## 必要環境
 
-- Windows 11（Windows OCRの日本語言語パックが必要）
+- Windows 11（Windows OCRの日本語言語パックが必要）。無い場合はWindowsの表示言語のOCRで読み取り、GUIは候補一覧の上と監査結果に警告を出します（日本語の識別情報はほぼ検出されず、監査も信頼できません）。
 - [Rust](https://rustup.rs/)（stable）と Node.js 20+
 - [Typst](https://typst.app/)（テスト文書の生成に使用、任意）
 
