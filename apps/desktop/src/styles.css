@@ -1493,7 +1493,8 @@ button.rule-target:hover {
 .decision-btn {
   border: 1px solid var(--border);
   background: var(--panel);
-  padding: 1px 6px;
+  min-height: 24px;
+  padding: 2px 6px;
   font-size: 11px;
   line-height: 1.5;
 }

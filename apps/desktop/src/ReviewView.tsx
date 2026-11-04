@@ -369,6 +369,7 @@ function AlignToggle(props: {
         <button
           key={align}
           className={current === align ? "align-btn current" : "align-btn"}
+          aria-pressed={current === align}
           title={title}
           aria-label={title}
           onClick={() => props.onChange(align)}
@@ -436,6 +437,9 @@ function ReplaceValueEditor(props: {
 /// highlighted; clicking the active one clears the decision. The same control
 /// everywhere a target can be judged, replacing per-place dropdowns.
 function DecisionButtons(props: {
+  /// Accessible name of the group, naming the finding the buttons judge so a
+  /// screen reader can tell one row's buttons from the next.
+  label: string;
   value: DecisionAction | undefined;
   onChange: (action: DecisionAction | "undecided") => void;
 }) {
@@ -447,13 +451,14 @@ function DecisionButtons(props: {
     ["replace", t("action.replace")],
   ];
   return (
-    <span className="decision-buttons">
+    <span className="decision-buttons" role="group" aria-label={props.label}>
       {options.map(([action, label]) => (
         <button
           key={action}
           className={
             props.value === action ? "decision-btn current" : "decision-btn"
           }
+          aria-pressed={props.value === action}
           title={
             props.value === action
               ? t("action.release", { action: label })
@@ -2777,6 +2782,7 @@ export default function ReviewView(props: {
               className={
                 index === page ? "page-button current" : "page-button"
               }
+              aria-current={index === page ? "page" : undefined}
               onClick={() => goToPage(index)}
             >
               <PageThumb
@@ -2846,6 +2852,7 @@ export default function ReviewView(props: {
                   <button
                     key={mode}
                     className={drawMode === mode ? "mode current" : "mode"}
+                    aria-pressed={drawMode === mode}
                     onClick={() => setDrawMode(mode)}
                   >
                     {mode === "none"
@@ -2862,6 +2869,7 @@ export default function ReviewView(props: {
                       <button
                         key={scope}
                         className={drawScope === scope ? "mode current" : "mode"}
+                        aria-pressed={drawScope === scope}
                         onClick={() => setDrawScope(scope)}
                       >
                         {scope === "all"
@@ -3913,6 +3921,10 @@ export default function ReviewView(props: {
                       </span>
                     </button>
                     <DecisionButtons
+                      label={t("review.decisionGroup", {
+                        category: categoryLabel(t, finding.category),
+                        text: finding.text,
+                      })}
                       value={decision?.action}
                       onChange={(action) => {
                         pendingFocusKey.current =
