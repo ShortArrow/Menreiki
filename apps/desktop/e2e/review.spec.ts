@@ -546,13 +546,11 @@ test("ignoring a finding can be undone from the status bar", async () => {
   const category = (await first.locator(".category-tag").innerText()).trim();
   // The same text can appear under another category, and another candidate
   // can contain it as a substring; pin both exactly.
-  const exact = (value: string) =>
-    new RegExp("^" + value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$");
   const row = page
     .locator(".findings-list .finding-row")
-    .filter({ has: page.locator(".finding-text", { hasText: exact(text) }) })
+    .filter({ has: page.locator(".finding-text", { hasText: exactText(text) }) })
     .filter({
-      has: page.locator(".category-tag", { hasText: exact(category) }),
+      has: page.locator(".category-tag", { hasText: exactText(category) }),
     });
   await expect(row).toHaveCount(1);
 

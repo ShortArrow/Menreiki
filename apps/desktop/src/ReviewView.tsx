@@ -2235,7 +2235,7 @@ export default function ReviewView(props: {
         setNotice(
           t("review.ignoredNotice", {
             text: finding.text,
-            category: finding.category,
+            category: categoryLabel(t, finding.category),
           }),
         );
       }
