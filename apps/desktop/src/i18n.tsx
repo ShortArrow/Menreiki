@@ -289,6 +289,15 @@ export const ja = {
   "review.categoryProduct": "製品名",
   "review.categoryPlace": "地名",
   "review.categoryOther": "その他",
+  "review.categoryModelNumber": "型式",
+  "review.categoryPhone": "電話番号",
+  "review.categoryDate": "日付",
+  "review.categoryEmail": "メールアドレス",
+  "review.categoryUrl": "URL",
+  "review.categoryIpAddress": "IPアドレス",
+  "review.categoryPostalCode": "郵便番号",
+  "review.categoryMacAddress": "MACアドレス",
+  "review.categoryIdentifier": "識別子",
   "review.registerDictionary": "辞書に登録（以後の解析で自動検出）",
   "review.dictionary": "辞書（{count}件）",
   "review.save": "保存",
@@ -327,7 +336,7 @@ export const ja = {
   "review.candidateFilter": "絞り込み（語・分類・p.3）",
   "review.allCategories": "すべての分類",
   "review.undecidedOnly": "未判断のみ",
-  "review.excludeFromDetection": "「{text}」を {category} の検出から除外",
+  "review.excludeFromDetection": "「{text}」を{category}の検出から除外",
   "review.ignore": "無視",
   "review.noCandidates": "検出候補はありません",
   "review.runAnalysisForCandidates": "解析を実行すると候補が表示されます",
@@ -634,6 +643,15 @@ export const en: Record<MessageKey, string> = {
   "review.categoryProduct": "Product name",
   "review.categoryPlace": "Place name",
   "review.categoryOther": "Other",
+  "review.categoryModelNumber": "Model number",
+  "review.categoryPhone": "Phone number",
+  "review.categoryDate": "Date",
+  "review.categoryEmail": "Email address",
+  "review.categoryUrl": "URL",
+  "review.categoryIpAddress": "IP address",
+  "review.categoryPostalCode": "Postal code",
+  "review.categoryMacAddress": "MAC address",
+  "review.categoryIdentifier": "Identifier",
   "review.registerDictionary": "Add to the dictionary (detected automatically from now on)",
   "review.dictionary": "Dictionary ({count})",
   "review.save": "Save",
@@ -705,6 +723,37 @@ export type Translate = (
   key: MessageKey,
   values?: Record<string, string | number>,
 ) => string;
+
+/// Display labels for the category IDs the backend, the dictionary and the
+/// LLM assist emit. A Map (not an object lookup) so prototype keys such as
+/// `constructor` never match.
+const CATEGORY_LABELS = new Map<string, MessageKey>([
+  ["organization", "review.categoryOrganization"],
+  ["department", "review.categoryDepartment"],
+  ["person", "review.categoryPerson"],
+  ["product", "review.categoryProduct"],
+  ["place", "review.categoryPlace"],
+  ["custom", "review.categoryOther"],
+  ["other", "review.categoryOther"],
+  ["search", "review.searchTag"],
+  ["model-number", "review.categoryModelNumber"],
+  ["phone", "review.categoryPhone"],
+  ["date", "review.categoryDate"],
+  ["email", "review.categoryEmail"],
+  ["url", "review.categoryUrl"],
+  ["ip-address", "review.categoryIpAddress"],
+  ["postal-code", "review.categoryPostalCode"],
+  ["mac-address", "review.categoryMacAddress"],
+  ["identifier", "review.categoryIdentifier"],
+]);
+
+/// Translates a category ID for display. An ID outside the table (a pack's
+/// own category, say) is shown as written: users may add their own
+/// categories, and the ID is the only name they have.
+export function categoryLabel(t: Translate, category: string): string {
+  const key = CATEGORY_LABELS.get(category);
+  return key ? t(key) : category;
+}
 
 /// Substitutes `{name}` placeholders. An unknown placeholder is left as
 /// written, so a typo shows up in the UI instead of silently emptying.

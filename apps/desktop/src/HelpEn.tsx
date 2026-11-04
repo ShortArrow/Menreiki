@@ -352,7 +352,7 @@ export default function HelpEn() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">Candidate group</span>
-            category × text (organization × "Alpha Giken Inc.")
+            category × text (Organization name × "Alpha Giken Inc.")
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">Occurrence</span> p.1 — one
@@ -363,7 +363,7 @@ export default function HelpEn() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">Candidate group</span>
-            organization × "Alpha Giken"
+            Organization name × "Alpha Giken"
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">Occurrence</span> p.2

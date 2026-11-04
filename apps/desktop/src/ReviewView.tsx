@@ -50,7 +50,13 @@ import {
   vlmInRegion,
 } from "./api";
 import HelpView from "./HelpView";
-import { useI18n, type MessageKey, type Language, type Translate } from "./i18n";
+import {
+  categoryLabel,
+  useI18n,
+  type MessageKey,
+  type Language,
+  type Translate,
+} from "./i18n";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
@@ -106,6 +112,17 @@ const aliasLabel = (t: Translate, category: string) =>
   category in ALIAS_CATEGORIES
     ? t(`alias.${category}` as MessageKey)
     : t("alias.fallback");
+
+/// Categories offered when registering a word to the dictionary. "custom" is
+/// the catch-all shown as "Other".
+const DICTIONARY_CATEGORIES = [
+  "organization",
+  "department",
+  "person",
+  "product",
+  "place",
+  "custom",
+];
 
 const ALIAS_CATEGORIES = {
   organization: true,
@@ -500,7 +517,9 @@ function FindingGroupMenu(props: {
                   props.onPick(group);
                 }}
               >
-                <span className="category-tag">{group.category}</span>{" "}
+                <span className="category-tag">
+                  {categoryLabel(t, group.category)}
+                </span>{" "}
                 {group.text}
               </button>
             ))}
@@ -1339,6 +1358,7 @@ export default function ReviewView(props: {
       return (
         finding.text.toLowerCase().includes(needle) ||
         finding.category.toLowerCase().includes(needle) ||
+        categoryLabel(t, finding.category).toLowerCase().includes(needle) ||
         `p.${pageIndex + 1}`.includes(needle)
       );
     });
@@ -1348,6 +1368,7 @@ export default function ReviewView(props: {
     findingCategoryFilter,
     findingUndecidedOnly,
     decisions,
+    t,
   ]);
 
   // Collapse identical candidates (same category + text) into one row with an
@@ -2737,20 +2758,11 @@ export default function ReviewView(props: {
                       setDictionaryCategory(event.target.value)
                     }
                   >
-                    <option value="organization">
-                      {t("review.categoryOrganization")}
-                    </option>
-                    <option value="department">
-                      {t("review.categoryDepartment")}
-                    </option>
-                    <option value="person">
-                      {t("review.categoryPerson")}
-                    </option>
-                    <option value="product">
-                      {t("review.categoryProduct")}
-                    </option>
-                    <option value="place">{t("review.categoryPlace")}</option>
-                    <option value="custom">{t("review.categoryOther")}</option>
+                    {DICTIONARY_CATEGORIES.map((category) => (
+                      <option key={category} value={category}>
+                        {categoryLabel(t, category)}
+                      </option>
+                    ))}
                   </select>
                   <button onClick={registerToDictionary} disabled={busy !== null}>
                     {t("review.registerDictionary")}
@@ -2767,7 +2779,9 @@ export default function ReviewView(props: {
               <div className="rule-list">
                 {dictionary.map((entry) => (
                   <div key={entry.text} className="rule-entry">
-                    <span className="category-tag">{entry.category}</span>
+                    <span className="category-tag">
+                      {categoryLabel(t, entry.category)}
+                    </span>
                     {dictionaryEdit?.original === entry.text ? (
                       <>
                         <input
@@ -2964,7 +2978,7 @@ export default function ReviewView(props: {
                     }}
                   >
                     <span className="category-tag">
-                      {entry.finding.category}
+                      {categoryLabel(t, entry.finding.category)}
                     </span>
                     <span className="finding-text">{entry.finding.text}</span>
                   </button>
@@ -3209,7 +3223,9 @@ export default function ReviewView(props: {
               {entities.map((entity) => (
                 <div key={entity.id} className="entity-card">
                   <div className="entity-head">
-                    <span className="category-tag">{entity.category}</span>
+                    <span className="category-tag">
+                      {categoryLabel(t, entity.category)}
+                    </span>
                     <input
                       className="alias-input"
                       value={entity.alias}
@@ -3368,7 +3384,7 @@ export default function ReviewView(props: {
                 <option value="all">{t("review.allCategories")}</option>
                 {findingCategories.map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {categoryLabel(t, category)}
                   </option>
                 ))}
               </select>
@@ -3417,7 +3433,7 @@ export default function ReviewView(props: {
                         {count > 1 ? `+${count - 1}` : ""}
                       </span>
                       <span className={`category-tag cat-${finding.category}`}>
-                        {finding.category}
+                        {categoryLabel(t, finding.category)}
                       </span>
                       <span className="finding-text">{finding.text}</span>
                     </button>
@@ -3434,7 +3450,7 @@ export default function ReviewView(props: {
                       className="mini"
                       title={t("review.excludeFromDetection", {
                         text: finding.text,
-                        category: finding.category,
+                        category: categoryLabel(t, finding.category),
                       })}
                       onClick={() => ignoreFinding(finding)}
                     >

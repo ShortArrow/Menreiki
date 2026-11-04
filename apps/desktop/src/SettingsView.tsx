@@ -13,6 +13,7 @@ import {
   setProjectSettings,
 } from "./api";
 import {
+  categoryLabel,
   resolveLanguage,
   useI18n,
   type Language,
@@ -313,7 +314,7 @@ export default function SettingsView(props: {
                   const scope =
                     typeof entry === "string"
                       ? t("settings.ignoredAllCategories")
-                      : entry.category;
+                      : categoryLabel(t, entry.category);
                   return (
                     <div key={`${text}-${scope}-${index}`} className="text-rule">
                       <span className="chip-action">{scope}</span>

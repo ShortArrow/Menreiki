@@ -343,7 +343,7 @@ export default function HelpJa() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">候補グループ</span>
-            分類 × 文字列（organization ×「株式会社アルファ技研」）
+            分類 × 文字列（組織名 ×「株式会社アルファ技研」）
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">出現</span> p.1 —
@@ -354,7 +354,7 @@ export default function HelpJa() {
           </div>
           <div className="tree-node level-1">
             <span className="tree-tag group-tag">候補グループ</span>
-            organization ×「アルファ技研」
+            組織名 ×「アルファ技研」
           </div>
           <div className="tree-node level-2">
             <span className="tree-tag occ-tag">出現</span> p.2
