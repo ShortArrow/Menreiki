@@ -80,11 +80,14 @@ fn rasterizer_for(
     }
 }
 
+type SelectedOcrEngine = (
+    menreiki_adapter_windows_ocr::WindowsOcrEngine,
+    OcrLanguageStatus,
+);
+
 /// The requested OCR language, or the profile languages when that language
 /// pack is not installed, together with which language was actually used.
-fn ocr_engine(
-    language: &str,
-) -> Result<(menreiki_adapter_windows_ocr::WindowsOcrEngine, OcrLanguageStatus), String> {
+fn ocr_engine(language: &str) -> Result<SelectedOcrEngine, String> {
     ocr_language::select_engine(
         language,
         |tag| {
