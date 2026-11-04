@@ -3183,7 +3183,11 @@ export default function ReviewView(props: {
                   </>
                 )}
                 {drawMode === "detect" && (
-                  <span className="hint">{t("review.dragToDetect")}</span>
+                  <span className="hint">
+                    {analyzing
+                      ? t("review.detectWaitsForAnalysis")
+                      : t("review.dragToDetect")}
+                  </span>
                 )}
                 <span className="spacer" />
                 <label

@@ -282,6 +282,8 @@ export const ja = {
   "review.dragToAddRegion": "ドラッグで領域ルールを追加",
   "review.dragToDetect":
     "検出したい箇所をドラッグで囲むと、その文字を検出対象にします",
+  "review.detectWaitsForAnalysis":
+    "解析中は「ここを検出」を使えません。解析が終わってから囲んでください",
   "review.scrollPagingTitle":
     "ページ下端/上端でさらにスクロールすると次/前のページへ",
   "review.scrollPaging": "スクロールでページ送り",
@@ -715,6 +717,8 @@ export const en: Record<MessageKey, string> = {
   "review.dragToAddRegion": "Drag to add a region rule",
   "review.dragToDetect":
     "Drag around what you want detected to make that text a candidate",
+  "review.detectWaitsForAnalysis":
+    "Detect here is unavailable during analysis. Draw the box once it finishes",
   "review.scrollPagingTitle":
     "Scrolling past the bottom or top of a page moves to the next or previous one",
   "review.scrollPaging": "Scroll to change pages",
