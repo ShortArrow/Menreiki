@@ -1328,14 +1328,35 @@ button.rule-target:hover {
 .detector-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 4px 12px;
+  gap: 8px 12px;
   margin-top: 6px;
 }
 
 .detector-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
+}
+
+.detector-item input {
+  margin-top: 3px;
+}
+
+.detector-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.detector-description,
+.detector-id {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.detector-id {
+  font-family: ui-monospace, monospace;
 }
 
 .field {

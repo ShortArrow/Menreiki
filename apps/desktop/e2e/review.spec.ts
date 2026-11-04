@@ -231,6 +231,26 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await expect(
     page.locator(".detector-grid").getByText("date", { exact: true }),
   ).toBeVisible();
+  // Each toggle is named by its localized display name and described by a
+  // one-line explanation; the bare id stays visible as auxiliary text.
+  const aliased = page.getByRole("checkbox", {
+    name: "略称定義（〜と称する）",
+    exact: true,
+  });
+  await expect(aliased).toBeVisible();
+  await expect(aliased).toHaveAccessibleDescription(/と称する/);
+  // A group added on the Rust side without dictionary text falls back to a
+  // bare id with no description and no id element; catch that drift without
+  // hard-coding the group count.
+  const detectorBoxes = page.locator(".detector-grid").getByRole("checkbox");
+  const boxCount = await detectorBoxes.count();
+  expect(boxCount).toBeGreaterThan(0);
+  for (let index = 0; index < boxCount; index++) {
+    await expect(detectorBoxes.nth(index)).toHaveAccessibleDescription(/\S/);
+  }
+  await expect(page.locator(".detector-grid .detector-id")).toHaveCount(
+    boxCount,
+  );
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
 

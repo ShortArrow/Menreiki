@@ -166,6 +166,12 @@ test("the review screen and settings dialog render in English", async () => {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByText("Detectors used in this project")).toBeVisible();
   await expect(page.getByText("Local LLM (optional, app-wide)")).toBeVisible();
+  await expect(
+    page.getByRole("checkbox", {
+      name: "Defined abbreviation (Japanese contracts)",
+      exact: true,
+    }),
+  ).toBeVisible();
 
   // The language picker keeps its own labels bilingual on purpose; the rest
   // of the dialog must not fall back to Japanese.

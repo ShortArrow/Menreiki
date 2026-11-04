@@ -17,8 +17,70 @@ import {
   useI18n,
   type Language,
   type LanguagePreference,
+  type MessageKey,
 } from "./i18n";
 import type { IgnoreEntry, PackInfo } from "./types";
+
+/// Display text for the built-in detector groups, keyed by the backend id.
+/// An id missing here (a group added on the Rust side without a dictionary
+/// entry) falls back to showing the bare id.
+const DETECTOR_TEXT: Record<
+  string,
+  { label: MessageKey; description: MessageKey }
+> = {
+  organization: {
+    label: "detector.organization.label",
+    description: "detector.organization.description",
+  },
+  "aliased-name": {
+    label: "detector.aliased-name.label",
+    description: "detector.aliased-name.description",
+  },
+  department: {
+    label: "detector.department.label",
+    description: "detector.department.description",
+  },
+  person: {
+    label: "detector.person.label",
+    description: "detector.person.description",
+  },
+  place: {
+    label: "detector.place.label",
+    description: "detector.place.description",
+  },
+  "phone-jp": {
+    label: "detector.phone-jp.label",
+    description: "detector.phone-jp.description",
+  },
+  "postal-code": {
+    label: "detector.postal-code.label",
+    description: "detector.postal-code.description",
+  },
+  date: {
+    label: "detector.date.label",
+    description: "detector.date.description",
+  },
+  email: {
+    label: "detector.email.label",
+    description: "detector.email.description",
+  },
+  url: {
+    label: "detector.url.label",
+    description: "detector.url.description",
+  },
+  "ip-address": {
+    label: "detector.ip-address.label",
+    description: "detector.ip-address.description",
+  },
+  "mac-address": {
+    label: "detector.mac-address.label",
+    description: "detector.mac-address.description",
+  },
+  "phone-intl": {
+    label: "detector.phone-intl.label",
+    description: "detector.phone-intl.description",
+  },
+};
 
 /// Settings dialog: project-scoped detector selection (persisted in the
 /// project.mnrk) and app-level configuration — UI language and the optional
@@ -191,16 +253,50 @@ export default function SettingsView(props: {
             <h2>{t("settings.detectors")}</h2>
             <p className="hint">{t("settings.detectorsHint")}</p>
             <div className="detector-grid">
-              {allDetectors.map((id) => (
-                <label key={id} className="detector-item">
-                  <input
-                    type="checkbox"
-                    checked={enabled.has(id)}
-                    onChange={() => toggle(id)}
-                  />
-                  {id}
-                </label>
-              ))}
+              {allDetectors.map((id) => {
+                const known = Object.prototype.hasOwnProperty.call(
+                  DETECTOR_TEXT,
+                  id,
+                );
+                const text = known ? DETECTOR_TEXT[id] : undefined;
+                if (!text) {
+                  return (
+                    <label key={id} className="detector-item">
+                      <input
+                        type="checkbox"
+                        checked={enabled.has(id)}
+                        onChange={() => toggle(id)}
+                      />
+                      {id}
+                    </label>
+                  );
+                }
+                // Only the display name labels the checkbox; the description
+                // is attached as its accessible description and the id stays
+                // outside both, for matching the CLI's detector ids.
+                const inputId = `detector-${id}-input`;
+                const descriptionId = `detector-${id}-description`;
+                return (
+                  <div key={id} className="detector-item">
+                    <input
+                      id={inputId}
+                      type="checkbox"
+                      checked={enabled.has(id)}
+                      onChange={() => toggle(id)}
+                      aria-describedby={descriptionId}
+                    />
+                    <div className="detector-text">
+                      <label htmlFor={inputId} className="detector-name">
+                        {t(text.label)}
+                      </label>
+                      <span id={descriptionId} className="detector-description">
+                        {t(text.description)}
+                      </span>
+                      <code className="detector-id">{id}</code>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </section>
 

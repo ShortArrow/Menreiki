@@ -57,6 +57,42 @@ export const ja = {
   "settings.detectors": "このプロジェクトで使う検出器",
   "settings.detectorsHint":
     "チェックを外した検出器は、この文書では動作しません（project.mnrk に保存）。",
+  "detector.organization.label": "会社名・団体名",
+  "detector.organization.description":
+    "株式会社・有限会社・合同会社が前後に付いた名称や、グループ・ホールディングスなどで終わる名称。例: 株式会社アルファ技研",
+  "detector.aliased-name.label": "略称定義（〜と称する）",
+  "detector.aliased-name.description":
+    "「〜と称する」の直前にある名前。例: （以下「アルファ」と称する）のアルファ",
+  "detector.department.label": "部署名",
+  "detector.department.description":
+    "事業部・本部・支店・研究所など、または部・課・係で終わる名称。例: 第二開発部",
+  "detector.person.label": "人名（敬称付き）",
+  "detector.person.description":
+    "氏・殿・さんが付いた短い名前。例: 田中氏。敬称のない氏名は対象外",
+  "detector.place.label": "地名",
+  "detector.place.description":
+    "都・府・県・市・区・町・村で終わる短い名称と北海道。例: 青葉台市",
+  "detector.phone-jp.label": "電話番号（国内）",
+  "detector.phone-jp.description":
+    "0で始まり、ハイフンか括弧で区切った番号。例: 03-1234-5678。区切りのない数字の並びは対象外",
+  "detector.postal-code.label": "郵便番号",
+  "detector.postal-code.description":
+    "3桁-4桁の番号（〒はなくても可）。例: 123-4567",
+  "detector.date.label": "日付（西暦）",
+  "detector.date.description":
+    "西暦の年月日。例: 2024年4月1日、2024-04-01、2024/04/01。和暦は対象外",
+  "detector.email.label": "メールアドレス",
+  "detector.email.description": "例: user@example.com",
+  "detector.url.label": "URL",
+  "detector.url.description": "http または https で始まるアドレス。例: https://example.com/page",
+  "detector.ip-address.label": "IPアドレス",
+  "detector.ip-address.description": "ドット区切りの4つの数字（IPv4）。例: 192.0.2.10",
+  "detector.mac-address.label": "MACアドレス",
+  "detector.mac-address.description":
+    "コロン区切りの16進数6組。例: 00:1A:2B:3C:4D:5E",
+  "detector.phone-intl.label": "電話番号（国際形式）",
+  "detector.phone-intl.description":
+    "+と国番号で始まる番号。例: +81 3-1234-5678",
   "settings.ignored": "無視する語（このプロジェクト）",
   "settings.ignoredHint":
     "誤検出をここに入れると、この文書では検出候補になりません。候補行の「無視」ボタンからも追加できます。",
@@ -360,6 +396,44 @@ export const en: Record<MessageKey, string> = {
   "settings.detectors": "Detectors used in this project",
   "settings.detectorsHint":
     "Unchecked detectors do not run on this document (stored in project.mnrk).",
+  "detector.organization.label": "Company or organization name",
+  "detector.organization.description":
+    "Japanese company names with a legal form such as kabushiki kaisha, or names ending in \"group\" or \"holdings\" in Japanese",
+  "detector.aliased-name.label": "Defined abbreviation (Japanese contracts)",
+  "detector.aliased-name.description":
+    "The name right before \"to shosuru\" (hereinafter referred to as), e.g. Alpha in a clause defining \"Alpha\"",
+  "detector.department.label": "Department name",
+  "detector.department.description":
+    "Japanese names ending in a unit word such as division, headquarters, branch, laboratory, bu, ka or kakari",
+  "detector.person.label": "Person name (with honorific)",
+  "detector.person.description":
+    "Short names followed by an honorific (-shi, -san, -dono), e.g. Tanaka-shi. Names without an honorific are not covered",
+  "detector.place.label": "Place name",
+  "detector.place.description":
+    "Short names ending in to, fu, ken, shi, ku, machi or mura in Japanese, plus Hokkaido",
+  "detector.phone-jp.label": "Phone number (Japan)",
+  "detector.phone-jp.description":
+    "Numbers starting with 0, split by hyphens or parentheses, e.g. 03-1234-5678. Unseparated digit runs are not covered",
+  "detector.postal-code.label": "Postal code",
+  "detector.postal-code.description":
+    "Seven digits as NNN-NNNN, with or without the postal mark, e.g. 123-4567",
+  "detector.date.label": "Date (Western calendar)",
+  "detector.date.description":
+    "Year-month-day dates, e.g. 2024-04-01, 2024/04/01 or the Japanese year/month/day form. Japanese era years are not covered",
+  "detector.email.label": "Email address",
+  "detector.email.description": "e.g. user@example.com",
+  "detector.url.label": "URL",
+  "detector.url.description":
+    "Addresses starting with http or https, e.g. https://example.com/page",
+  "detector.ip-address.label": "IP address",
+  "detector.ip-address.description":
+    "Four dot-separated numbers (IPv4), e.g. 192.0.2.10",
+  "detector.mac-address.label": "MAC address",
+  "detector.mac-address.description":
+    "Six colon-separated hex pairs, e.g. 00:1A:2B:3C:4D:5E",
+  "detector.phone-intl.label": "Phone number (international)",
+  "detector.phone-intl.description":
+    "Numbers starting with + and a country code, e.g. +81 3-1234-5678",
   "settings.ignored": "Ignored words (this project)",
   "settings.ignoredHint":
     "Words listed here never become candidates in this document. The \"ignore\" button on a candidate row adds to this list too.",
