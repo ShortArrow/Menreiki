@@ -2288,106 +2288,127 @@ export default function ReviewView(props: {
         />
 
         <main className="viewer-pane">
-          <div className="viewer-toolbar">
-            <span>{t("review.rectSelect")}</span>
-            {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
+          {project.pageCount === 0 ? (
+            // No page images yet (fresh import, or pages/ went missing):
+            // PageViewer would sit on "loading" forever, so invite analysis.
+            <div className="viewer-empty">
+              <p className="status">
+                {project.analyzed
+                  ? t("viewer.emptyImagesMissing")
+                  : t("viewer.emptyNotAnalyzed")}
+              </p>
               <button
-                key={mode}
-                className={drawMode === mode ? "mode current" : "mode"}
-                onClick={() => setDrawMode(mode)}
+                className="primary"
+                onClick={() => runAnalyze("all")}
+                disabled={busy !== null}
               >
-                {mode === "none"
-                  ? t("review.drawNone")
-                  : mode === "detect"
-                    ? t("review.drawDetect")
-                    : actionLabel(t, mode)}
+                {t("review.runAnalysis")}
               </button>
-            ))}
-            {(drawMode === "erase" || drawMode === "mask") && (
-              <>
-                <span>{t("review.scope")}</span>
-                {(["all", "page"] as const).map((scope) => (
+            </div>
+          ) : (
+            <>
+              <div className="viewer-toolbar">
+                <span>{t("review.rectSelect")}</span>
+                {(["none", "erase", "mask", "detect"] as DrawMode[]).map((mode) => (
                   <button
-                    key={scope}
-                    className={drawScope === scope ? "mode current" : "mode"}
-                    onClick={() => setDrawScope(scope)}
+                    key={mode}
+                    className={drawMode === mode ? "mode current" : "mode"}
+                    onClick={() => setDrawMode(mode)}
                   >
-                    {scope === "all"
-                      ? t("review.scopeAll")
-                      : t("review.scopeThisPage")}
+                    {mode === "none"
+                      ? t("review.drawNone")
+                      : mode === "detect"
+                        ? t("review.drawDetect")
+                        : actionLabel(t, mode)}
                   </button>
                 ))}
-                <span className="hint">{t("review.dragToAddRegion")}</span>
-              </>
-            )}
-            {drawMode === "detect" && (
-              <span className="hint">{t("review.dragToDetect")}</span>
-            )}
-            <span className="spacer" />
-            <label
-              className="toggle"
-              title={t("review.scrollPagingTitle")}
-            >
-              <input
-                type="checkbox"
-                checked={scrollPageFlip}
-                onChange={(event) => {
-                  setScrollPageFlip(event.target.checked);
-                  localStorage.setItem(
-                    "menreiki.scrollPageFlip",
-                    event.target.checked ? "1" : "0",
-                  );
+                {(drawMode === "erase" || drawMode === "mask") && (
+                  <>
+                    <span>{t("review.scope")}</span>
+                    {(["all", "page"] as const).map((scope) => (
+                      <button
+                        key={scope}
+                        className={drawScope === scope ? "mode current" : "mode"}
+                        onClick={() => setDrawScope(scope)}
+                      >
+                        {scope === "all"
+                          ? t("review.scopeAll")
+                          : t("review.scopeThisPage")}
+                      </button>
+                    ))}
+                    <span className="hint">{t("review.dragToAddRegion")}</span>
+                  </>
+                )}
+                {drawMode === "detect" && (
+                  <span className="hint">{t("review.dragToDetect")}</span>
+                )}
+                <span className="spacer" />
+                <label
+                  className="toggle"
+                  title={t("review.scrollPagingTitle")}
+                >
+                  <input
+                    type="checkbox"
+                    checked={scrollPageFlip}
+                    onChange={(event) => {
+                      setScrollPageFlip(event.target.checked);
+                      localStorage.setItem(
+                        "menreiki.scrollPageFlip",
+                        event.target.checked ? "1" : "0",
+                      );
+                    }}
+                  />
+                  {t("review.scrollPaging")}
+                </label>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={showRulePreview}
+                    onChange={(event) => setShowRulePreview(event.target.checked)}
+                  />
+                  {t("review.overlayPending")}
+                </label>
+              </div>
+              <PageViewer
+                projectDir={project.projectDir}
+                pageIndex={page}
+                rendered={showRendered && hasRenders}
+                version={version}
+                findings={currentPageFindings}
+                regions={visibleRegions}
+                highlightKey={highlightKey}
+                findingKey={findingKey}
+                drawMode={drawMode}
+                rulePreview={showRulePreview ? previewByText : null}
+                focusRect={focus?.rect ?? null}
+                focusNonce={focus?.nonce ?? 0}
+                onRegion={(rect) => {
+                  if (drawMode === "detect") {
+                    detectRegion(rect);
+                    return;
+                  }
+                  setRegionRules((current) => [
+                    ...current,
+                    {
+                      rect,
+                      action: drawMode === "mask" ? "mask" : "erase",
+                      scope: drawScope === "all" ? "all" : page,
+                      drawnOn: page,
+                    },
+                  ]);
                 }}
+                onRegionRemove={(index) =>
+                  setRegionRules((current) =>
+                    current.filter((_, i) => i !== index),
+                  )
+                }
+                onFindingClick={revealFindingRow}
+                pageCount={project.pageCount}
+                scrollPageFlip={scrollPageFlip}
+                onPageChange={goToPage}
               />
-              {t("review.scrollPaging")}
-            </label>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={showRulePreview}
-                onChange={(event) => setShowRulePreview(event.target.checked)}
-              />
-              {t("review.overlayPending")}
-            </label>
-          </div>
-          <PageViewer
-            projectDir={project.projectDir}
-            pageIndex={page}
-            rendered={showRendered && hasRenders}
-            version={version}
-            findings={currentPageFindings}
-            regions={visibleRegions}
-            highlightKey={highlightKey}
-            findingKey={findingKey}
-            drawMode={drawMode}
-            rulePreview={showRulePreview ? previewByText : null}
-            focusRect={focus?.rect ?? null}
-            focusNonce={focus?.nonce ?? 0}
-            onRegion={(rect) => {
-              if (drawMode === "detect") {
-                detectRegion(rect);
-                return;
-              }
-              setRegionRules((current) => [
-                ...current,
-                {
-                  rect,
-                  action: drawMode === "mask" ? "mask" : "erase",
-                  scope: drawScope === "all" ? "all" : page,
-                  drawnOn: page,
-                },
-              ]);
-            }}
-            onRegionRemove={(index) =>
-              setRegionRules((current) =>
-                current.filter((_, i) => i !== index),
-              )
-            }
-            onFindingClick={revealFindingRow}
-            pageCount={project.pageCount}
-            scrollPageFlip={scrollPageFlip}
-            onPageChange={goToPage}
-          />
+            </>
+          )}
         </main>
 
         <div

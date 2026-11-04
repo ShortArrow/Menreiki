@@ -32,6 +32,10 @@ export const ja = {
   "viewer.zoomIn": "拡大",
   "viewer.wheelHint": "Ctrl+ホイールで拡大縮小 / Shift+ホイールで左右",
   "viewer.loading": "ページ画像を読み込み中…",
+  "viewer.emptyNotAnalyzed":
+    "この文書はまだ解析されていません。解析すると、ページ画像の生成・OCR・候補検出をこの PC 上で行います。",
+  "viewer.emptyImagesMissing":
+    "ページ画像が見つかりません。最初から解析し直してください（候補は作り直されます。判断・辞書・Entity は残ります）。",
   "viewer.revealFinding": "クリックで右ペインの該当候補を表示",
   "viewer.deleteRegionRule": "クリックでこの領域ルールを削除",
   "viewer.aliasPlaceholder": "（仮称）",
@@ -315,6 +319,10 @@ export const en: Record<MessageKey, string> = {
   "viewer.zoomIn": "Zoom in",
   "viewer.wheelHint": "Ctrl+wheel to zoom / Shift+wheel to pan",
   "viewer.loading": "Loading the page image…",
+  "viewer.emptyNotAnalyzed":
+    "This document has not been analyzed yet. Analysis renders the page images, runs OCR and detects candidates on this PC.",
+  "viewer.emptyImagesMissing":
+    "The page images are missing. Run the analysis again from the start (candidates are rebuilt; your decisions, dictionaries and entities are kept).",
   "viewer.revealFinding": "Click to show this candidate in the right pane",
   "viewer.deleteRegionRule": "Click to delete this region rule",
   "viewer.aliasPlaceholder": "(alias)",
