@@ -783,6 +783,46 @@ test("settings keeps keyboard focus inside and Escape peels one layer at a time"
   expect(await rootIsInert()).toBe(false);
 });
 
+test("a search during re-analysis keeps progress, cancel, and the locks", async () => {
+  // Regression: short operations shared the analysis busy slot, so a search
+  // or jump started mid-run hid the cancel button and, on finishing, cleared
+  // the progress line and re-enabled apply/export while pages were still
+  // unanalyzed. The run must keep owning the status bar until it ends.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  await page.getByRole("button", { name: /再解析…/ }).click();
+  await page.getByRole("button", { name: "すべて（最初から）" }).click();
+  const cancel = page.locator(".statusbar").getByRole("button", {
+    name: "キャンセル",
+  });
+  await expect(cancel).toBeVisible();
+
+  const search = page.getByPlaceholder("例: 株式会社アルファ技研");
+  await search.fill("株式会社アルファ技研");
+  await search.press("Enter");
+  await expect(page.getByText(/\d+ 件見つかりました/)).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await expect(cancel).toBeVisible();
+  await expect(page.locator(".statusbar .status").first()).not.toBeEmpty();
+  await expect(page.getByRole("button", { name: /適用（\d+ルール）/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "設定", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /再解析…/ })).toBeDisabled();
+  const ignore = page.getByRole("button", { name: "無視", exact: true });
+  if ((await ignore.count()) > 0) {
+    await expect(ignore.first()).toBeDisabled();
+  }
+
+  // Let the run finish (no cancel) so the next test sees a complete project.
+  await expect(cancel).toHaveCount(0, { timeout: 180_000 });
+  await expect(page.getByRole("button", { name: /再解析…/ })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "設定", exact: true })).toBeEnabled();
+  // Clear the search so the next test starts from an empty field.
+  await search.fill("");
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
