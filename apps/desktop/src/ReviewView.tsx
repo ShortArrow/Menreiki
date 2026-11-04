@@ -757,6 +757,15 @@ export default function ReviewView(props: {
   const [imagesPath, setImagesPath] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditReport | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  // Kept apart from `error` so other operations never clear it: while a
+  // state file failed to load, its autosave stays off until the project is
+  // reopened, and the reviewer must know their edits are not being saved.
+  const [decisionsLoadError, setDecisionsLoadError] = useState<string | null>(
+    null,
+  );
+  const [entitiesLoadError, setEntitiesLoadError] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -791,8 +800,10 @@ export default function ReviewView(props: {
         setAlignOverrides(saved.align_overrides ?? []);
         setHydrated(true);
       })
-      .catch(() => {
-        if (!cancelled) setHydrated(true);
+      .catch((failure) => {
+        // Leave `hydrated` unset so the autosave never replaces the
+        // unreadable file with an empty payload.
+        if (!cancelled) setDecisionsLoadError(String(failure));
       });
     return () => {
       cancelled = true;
@@ -868,8 +879,9 @@ export default function ReviewView(props: {
         setEntitiesHydrated(true);
         for (const entity of loaded) void refreshEntityMeta(entity);
       })
-      .catch(() => {
-        if (!cancelled) setEntitiesHydrated(true);
+      .catch((failure) => {
+        // Same as decisions: no hydration, so no overwrite.
+        if (!cancelled) setEntitiesLoadError(String(failure));
       });
     return () => {
       cancelled = true;
@@ -1928,7 +1940,12 @@ export default function ReviewView(props: {
         </button>
       </header>
 
-      {(busy || progress || error || notice) && (
+      {(busy ||
+        progress ||
+        error ||
+        notice ||
+        decisionsLoadError ||
+        entitiesLoadError) && (
         <div className="statusbar">
           {busy && <span className="status">{progress ?? busy}</span>}
           {(busy === t("review.analyzing") ||
@@ -1939,6 +1956,16 @@ export default function ReviewView(props: {
           )}
           {notice && <span className="status">{notice}</span>}
           {error && <span className="error">{error}</span>}
+          {decisionsLoadError && (
+            <span className="error load-error">
+              {t("review.decisionsLoadFailed", { error: decisionsLoadError })}
+            </span>
+          )}
+          {entitiesLoadError && (
+            <span className="error load-error">
+              {t("review.entitiesLoadFailed", { error: entitiesLoadError })}
+            </span>
+          )}
         </div>
       )}
 

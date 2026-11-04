@@ -149,6 +149,10 @@ export const ja = {
   "review.dictionaryRegisteredApplied": "登録し、検出候補へ反映しました。",
   "review.dictionaryRegistered": "登録しました。解析すると検出候補に反映されます。",
   "review.home": "← ホーム",
+  "review.decisionsLoadFailed":
+    "判断（decisions.json）を読み込めませんでした: {error}\nこの状態での変更は保存されません。ファイルを確認してから、プロジェクトを開き直してください。",
+  "review.entitiesLoadFailed":
+    "Entity（entities.json）を読み込めませんでした: {error}\nこの状態での変更は保存されません。ファイルを確認してから、プロジェクトを開き直してください。",
   "review.reanalyze": "再解析…",
   "review.reanalyzeAll": "すべて（最初から）",
   "review.reanalyzeResume": "続きから再開",
@@ -422,6 +426,10 @@ export const en: Record<MessageKey, string> = {
   "review.dictionaryRegistered":
     "Added. It will appear in the candidates on the next analysis.",
   "review.home": "← Home",
+  "review.decisionsLoadFailed":
+    "Could not load the decisions (decisions.json): {error}\nChanges made now will not be saved. Check the file, then reopen the project.",
+  "review.entitiesLoadFailed":
+    "Could not load the entities (entities.json): {error}\nChanges made now will not be saved. Check the file, then reopen the project.",
   "review.reanalyze": "Re-analyze…",
   "review.reanalyzeAll": "Everything (from scratch)",
   "review.reanalyzeResume": "Resume where it stopped",
