@@ -232,3 +232,33 @@ test("a remote inference endpoint is explained in English", async () => {
     writeFileSync(configFile, 'ui_language = "en"\n');
   }
 });
+
+test("detect-here hints at the optional VLM in English when it is off", async () => {
+  // The earlier tests left the sample open on the review screen and restored
+  // a config without [inference]. With the default (unconfigured) VLM, boxing a blank margin must point at the
+  // setting in English, never at the backend's Japanese config.toml note.
+  await page.getByRole("button", { name: "Detect here" }).click();
+  try {
+    const overlay = page.locator("svg.overlay");
+    await overlay.scrollIntoViewIfNeeded();
+    const box = await overlay.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.move(box!.x + 4, box!.y + 4);
+    await page.mouse.down();
+    await page.mouse.move(box!.x + 34, box!.y + 24, { steps: 8 });
+    await page.mouse.up();
+    await expect(page.locator(".statusbar .status").last()).toContainText(
+      '(Optional) Set up a VLM under "Local LLM" in Settings to read regions that OCR cannot.',
+      { timeout: 60_000 },
+    );
+    const statusText = await page.locator(".statusbar").innerText();
+    expect(statusText).not.toContain("config.toml");
+    expect(statusText).not.toMatch(JAPANESE);
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+  } finally {
+    await page
+      .locator(".viewer-toolbar")
+      .getByRole("button", { name: "None", exact: true })
+      .click();
+  }
+});

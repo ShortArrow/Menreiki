@@ -6,6 +6,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
 let workDir: string;
 let projectDir: string;
+let configPath: string;
 let vite: ChildProcess;
 let app: ChildProcess;
 let browser: Browser;
@@ -44,6 +46,61 @@ async function waitFor(
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`timed out waiting for ${label}`);
+}
+
+/// Drags a box over the page overlay, from (x1, y1) to (x2, y2) in screen
+/// pixels. Boxes 4px or smaller are ignored by the viewer.
+async function dragBox(x1: number, y1: number, x2: number, y2: number) {
+  await page.mouse.move(x1, y1);
+  await page.mouse.down();
+  await page.mouse.move(x2, y2, { steps: 8 });
+  await page.mouse.up();
+}
+
+/// Turns on the Detect here tool and boxes a blank margin near the page's top-left
+/// corner, where neither OCR pass finds any text.
+async function detectBlankMargin() {
+  await page.getByRole("button", { name: "ここを検出" }).click();
+  const overlay = page.locator("svg.overlay");
+  await overlay.scrollIntoViewIfNeeded();
+  const box = await overlay.boundingBox();
+  expect(box).not.toBeNull();
+  await dragBox(box!.x + 4, box!.y + 4, box!.x + 34, box!.y + 24);
+}
+
+/// Turns on the Detect here tool and boxes the first analyzed candidate on the page,
+/// with a little padding, so the region OCR reads a known word.
+async function detectKnownWord() {
+  await page.getByRole("button", { name: "ここを検出" }).click();
+  const word = page.locator("svg.overlay rect.finding-rect").first();
+  await word.scrollIntoViewIfNeeded();
+  const box = await word.boundingBox();
+  expect(box).not.toBeNull();
+  await dragBox(
+    box!.x - 3,
+    box!.y - 3,
+    box!.x + box!.width + 3,
+    box!.y + box!.height + 3,
+  );
+}
+
+/// Leaves detect mode, so later tests start with plain clicks.
+async function leaveDetectMode() {
+  await page
+    .locator(".viewer-toolbar")
+    .getByRole("button", { name: "なし", exact: true })
+    .click();
+}
+
+/// A localhost port nothing listens on: connecting is refused immediately,
+/// instead of hanging until the inference timeout.
+async function closedPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  return port;
 }
 
 function killTree(child: ChildProcess | undefined) {
@@ -96,7 +153,8 @@ test.beforeAll(async () => {
   // assertion below reads Japanese labels.
   const configDir = path.join(workDir, "config");
   mkdirSync(configDir, { recursive: true });
-  writeFileSync(path.join(configDir, "config.toml"), 'ui_language = "ja"\n');
+  configPath = path.join(configDir, "config.toml");
+  writeFileSync(configPath, 'ui_language = "ja"\n');
   vite = spawn("npm", ["run", "dev"], {
     cwd: path.join(repoRoot, "apps", "desktop"),
     shell: true,
@@ -283,6 +341,84 @@ test("finding rows show their source and mark LLM guesses as advisory", async ()
     regexRow.locator(".source-tag", { hasText: /^正規表現$/ }),
   ).toHaveCount(1);
   await expect(regexRow.locator(".source-tag.source-advisory")).toHaveCount(0);
+});
+
+test("detect-here on a blank margin hints at the optional VLM when it is off", async () => {
+  // The VLM is unconfigured by default, which is a normal state: the region
+  // must not be sent to it, and its "not configured" error must not leak
+  // (the same shape the Store rejected under 10.3.3).
+  await page.locator(".page-button").first().click();
+  try {
+    await detectBlankMargin();
+    await expect(page.locator(".statusbar .status").last()).toContainText(
+      "（任意）設定の「ローカルLLM」で VLM を設定すると、OCR で読めない領域も読み取れます。",
+      { timeout: 60_000 },
+    );
+    const statusText = await page.locator(".statusbar").innerText();
+    expect(statusText).not.toContain("config.toml");
+    expect(statusText).not.toContain("model name is not configured");
+    expect(statusText).not.toContain("[inference]");
+    expect(statusText).not.toContain("VLMで読み取り中");
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here reports a failing configured VLM on the status line", async () => {
+  // Settings are re-read on every call, so no restart is needed.
+  const port = await closedPort();
+  writeFileSync(
+    configPath,
+    `ui_language = "ja"\n\n[inference]\nbase_url = "http://127.0.0.1:${port}/v1"\nmodel = "e2e-dummy"\n`,
+  );
+  try {
+    await detectBlankMargin();
+    const status = page.locator(".statusbar .status").last();
+    await expect(status).toContainText(
+      "この領域の読み取り中にエラーが発生しました: ",
+      { timeout: 60_000 },
+    );
+    await expect(status).toContainText("VLM: ");
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    writeFileSync(configPath, 'ui_language = "ja"\n');
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here shows a failed save as an error and offers no target", async () => {
+  // A corrupt findings file makes add_manual_finding fail; the box must not
+  // look pinned.
+  const findingsPath = path.join(projectDir, "findings", "page-001.json");
+  const original = readFileSync(findingsPath);
+  writeFileSync(findingsPath, "{");
+  try {
+    await detectKnownWord();
+    await expect(page.locator(".statusbar .error")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.locator(".statusbar .error")).not.toBeEmpty();
+    await expect(page.locator(".detected-target")).toHaveCount(0);
+  } finally {
+    // The final workflow test reads this page's findings.
+    writeFileSync(findingsPath, original);
+    await leaveDetectMode();
+  }
+});
+
+test("detect-here on a readable word opens the target bar without errors", async () => {
+  try {
+    await detectKnownWord();
+    await expect(page.locator(".detected-target")).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+  } finally {
+    await leaveDetectMode();
+  }
 });
 
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
