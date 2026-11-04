@@ -117,7 +117,9 @@ export default function HelpEn() {
         </li>
         <li>
           <b>Press "Audit"</b> — the app reads the result back and checks that
-          nothing you removed is still there.
+          none of the text you transformed is still readable. It is a text
+          re-reading check, so erase/mask rectangles are not checked: inspect
+          their position yourself with "Show the result".
         </li>
       </ol>
 
@@ -306,8 +308,9 @@ export default function HelpEn() {
         </li>
         <li>
           The audit does not check areas you erased or masked with a rectangle
-          (also when they are mixed with text rules). Inspect those areas in the
-          output images by eye.
+          (also when they are mixed with text rules). Use "Show the result" to
+          confirm each rectangle sits in the right place and covers the right
+          area on every page.
         </li>
       </ul>
 

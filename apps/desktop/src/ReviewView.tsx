@@ -1060,6 +1060,10 @@ export default function ReviewView(props: {
   const [ocrFallback, setOcrFallback] = useState<OcrLanguageStatus | null>(
     null,
   );
+  // Region rules in the policy the shown audit ran with. Kept with the report
+  // (not read from the live `regionRules`) so adding or removing a rectangle
+  // afterwards does not change what the shown result claims.
+  const [auditRegionCount, setAuditRegionCount] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   // Kept apart from `error` so other operations never clear it: while a
   // state file failed to load, its autosave stays off until the project is
@@ -1724,8 +1728,26 @@ export default function ReviewView(props: {
   }
 
   function runAudit() {
+    // The re-OCR audit only checks text terms; decide here, outside `run()`
+    // (which clears the notice), so a policy with nothing to check gets a
+    // translated explanation instead of the core's CLI-oriented error.
+    if (!policy.rules.some((rule) => rule.match.text)) {
+      setAudit(null);
+      setError(null);
+      setNotice(
+        regionRules.length > 0
+          ? t("review.auditRegionsOnly", {
+              showTransformed: t("review.showTransformed"),
+            })
+          : t("review.auditNoTerms"),
+      );
+      return;
+    }
+    const regionCount = regionRules.length;
     void run(t("review.auditing"), async () => {
-      setAudit(await auditProject(project.projectDir, policy));
+      const report = await auditProject(project.projectDir, policy);
+      setAudit(report);
+      setAuditRegionCount(regionCount);
     });
   }
 
@@ -3655,6 +3677,14 @@ export default function ReviewView(props: {
                   >
                     {t("review.auditOcrFallbackWarning", {
                       lang: audit.ocr.used,
+                    })}
+                  </p>
+                )}
+                {auditRegionCount > 0 && (
+                  <p className="hint">
+                    {t("review.auditRegionsUnchecked", {
+                      count: auditRegionCount,
+                      showTransformed: t("review.showTransformed"),
                     })}
                   </p>
                 )}

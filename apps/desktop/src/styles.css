@@ -2024,6 +2024,12 @@ button.mini {
   margin: 0 0 4px;
 }
 
+.audit .hint {
+  margin: 0 0 4px;
+  font-size: 0.9em;
+  opacity: 0.85;
+}
+
 .audit .residual {
   display: block;
   width: 100%;

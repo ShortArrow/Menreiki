@@ -6,10 +6,12 @@ import { fileURLToPath } from "node:url";
 import { test, expect, chromium, Browser, Page } from "@playwright/test";
 
 // UC-02: a reviewer who only erases a fixed area with a rectangle and then
-// audits must read, in Japanese, that the audit had nothing to check and that
-// the rectangle areas need a visual check — never the backend's English
-// "no deny terms". This uses its own project: review.spec.ts shares one
-// project across its tests and decisions are saved automatically.
+// audits must read, in Japanese, that the audit re-reads text only and that
+// the rectangle positions need a visual check — never the backend's English
+// "no deny terms". Its own app, project, and CDP port: review.spec.ts shares
+// one project across its tests, and the state this one needs (no decisions,
+// no entities, no search rules, only a rectangle) would interfere with its
+// Pass flow.
 
 const CDP_PORT = 9336;
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -128,7 +130,7 @@ test.afterAll(async () => {
   if (workDir) rmSync(workDir, { recursive: true, force: true });
 });
 
-test("auditing a rectangle-only edit explains that nothing was checked", async () => {
+test("auditing with only an erase rectangle explains that regions are not checked", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
   });
@@ -157,10 +159,11 @@ test("auditing a rectangle-only edit explains that nothing was checked", async (
   });
 
   await page.getByRole("button", { name: "監査", exact: true }).click();
-  const error = page.locator(".statusbar .error");
-  await expect(error).toHaveText(
-    "監査で照合する語がありません。テキストの置換・マスクを決定していないため、再OCRで照合する対象がありません。矩形で消去・マスクした領域は監査では確認されません。出力画像を目で確認してください。",
-    { timeout: 60_000 },
-  );
-  await expect(page.getByText("no deny terms", { exact: false })).toHaveCount(0);
+  await expect(
+    page.getByText(
+      "監査は文字の再読み取りチェックのため、消去/マスクの矩形は検査しません。『変換後を表示』で矩形の位置を目視確認してください。",
+    ),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/no deny terms/)).toHaveCount(0);
+  await expect(page.getByText(/監査: (Pass|Fail)/)).toHaveCount(0);
 });

@@ -357,6 +357,12 @@ export const ja = {
   "review.auditVerdictPassWithWarnings": "Pass with warnings",
   "review.auditOcrFallbackWarning":
     "日本語のOCR言語パックが見つからないため、{lang} のOCRエンジンで照合しました。日本語の識別情報が残っていても検出できない可能性があります。言語パックを導入してから解析と監査をやり直してください。",
+  "review.auditRegionsUnchecked":
+    "領域ルール {count} 件は監査対象外です。『{showTransformed}』で位置を目視確認してください。",
+  "review.auditRegionsOnly":
+    "監査は文字の再読み取りチェックのため、消去/マスクの矩形は検査しません。『{showTransformed}』で矩形の位置を目視確認してください。",
+  "review.auditNoTerms":
+    "監査する語がありません。候補を決定するか検索ルールを追加してください。",
   "review.residual": "p.{page} 残存 [{term}] {text}",
   "review.regionPreview": "領域プレビュー（全{pages}ページ・{action}）",
   "review.regionPreviewHint":
@@ -736,6 +742,12 @@ export const en: Record<MessageKey, string> = {
   "review.auditVerdictPassWithWarnings": "Pass with warnings",
   "review.auditOcrFallbackWarning":
     "The Japanese OCR language pack was not found, so the output was checked with the {lang} OCR engine. Japanese identifying text may remain undetected. Install the language pack, then run the analysis and the audit again.",
+  "review.auditRegionsUnchecked":
+    "{count} region rule(s) are not checked by the audit. Inspect their position with \"{showTransformed}\".",
+  "review.auditRegionsOnly":
+    "The audit re-reads text only, so erase/mask rectangles are not checked. Inspect their position with \"{showTransformed}\".",
+  "review.auditNoTerms":
+    "There are no words to audit. Decide some candidates or add a search rule first.",
   "review.residual": "p.{page} residual [{term}] {text}",
   "review.regionPreview": "Region preview (all {pages} pages, {action})",
   "review.regionPreviewHint":
