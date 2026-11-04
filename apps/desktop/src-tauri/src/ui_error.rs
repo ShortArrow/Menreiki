@@ -46,7 +46,9 @@ impl From<String> for UiError {
 
 pub fn audit_error_code(error: &AuditOutputError) -> Option<&'static str> {
     match error {
-        AuditOutputError::NoTerms => Some("audit.noTerms"),
+        // The GUI checks for text rules before auditing, so these only reach
+        // it from a policy it did not build; both mean "nothing to re-read".
+        AuditOutputError::NoTerms | AuditOutputError::NoTextTerms(_) => Some("audit.noTerms"),
         _ => None,
     }
 }
@@ -76,6 +78,10 @@ mod tests {
     fn audit_codes() {
         assert_eq!(
             audit_error_code(&AuditOutputError::NoTerms),
+            Some("audit.noTerms")
+        );
+        assert_eq!(
+            audit_error_code(&AuditOutputError::NoTextTerms(2)),
             Some("audit.noTerms")
         );
         assert_eq!(audit_error_code(&AuditOutputError::NoRenders), None);
