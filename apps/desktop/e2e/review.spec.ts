@@ -1376,3 +1376,100 @@ test("deleting a merged entity asks first and can be undone", async () => {
     .poll(savedEntity, { timeout: 10_000 })
     .toEqual({ id: savedId, variants: ["株式会社アルファ技研", second] });
 });
+
+test("clicking a region rect reveals its rule; deletion is undoable from the pane", async () => {
+  // Regression: in "none" mode one click on a region rect deleted the rule —
+  // all-pages rules included — with no notice or undo, and because regions
+  // painted over findings, it also swallowed clicks on candidates inside it.
+  const savedRegions = () => {
+    try {
+      const saved = JSON.parse(
+        readFileSync(
+          path.join(projectDir, "decisions", "decisions.json"),
+          "utf8",
+        ),
+      ) as { regions: unknown[] };
+      return saved.regions;
+    } catch {
+      return null;
+    }
+  };
+  const regionEntries = page.locator(".rule-entry.region");
+  const before = await regionEntries.count();
+
+  // Focus an analyzer candidate so its rect is on screen and identifiable.
+  await page.locator(".finding-label").first().click();
+  const target = page.locator(".finding-rect.highlight").first();
+  await expect(target).toBeVisible();
+  const box = (await target.boundingBox())!;
+  const margin = 16;
+
+  async function drawAllPagesErase(x: number, y: number, w: number, h: number) {
+    const toolbar = page.locator(".viewer-toolbar");
+    await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+    await toolbar.getByRole("button", { name: "全ページ", exact: true }).click();
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + w / 2, y + h / 2);
+    await page.mouse.move(x + w, y + h);
+    await page.mouse.up();
+    await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+  }
+
+  // An all-pages erase rule covering the candidate with some room around it.
+  await drawAllPagesErase(
+    box.x - margin,
+    box.y - margin,
+    box.width + margin * 2,
+    box.height + margin * 2,
+  );
+  await expect(regionEntries).toHaveCount(before + 1);
+  const added = regionEntries.nth(before);
+
+  // AC1/AC2: clicking the region away from the candidate keeps the rule and
+  // reveals its entry in the right pane.
+  await page.mouse.click(box.x - margin + 4, box.y - margin + 4);
+  await expect(added).toHaveClass(/reveal-flash/);
+  await expect(added).toBeInViewport();
+  await expect(regionEntries).toHaveCount(before + 1);
+  await waitFor(
+    async () => savedRegions()?.length === before + 1,
+    "autosaved region rule",
+    10_000,
+  );
+
+  // AC3: the candidate inside the region still receives its click.
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await expect(page.locator(".finding-row.reveal-flash")).toHaveCount(1);
+  await expect(regionEntries).toHaveCount(before + 1);
+
+  // AC4: a second rule; delete it from the pane, then undo.
+  await drawAllPagesErase(
+    box.x - margin * 2,
+    box.y + box.height + margin * 2,
+    60,
+    30,
+  );
+  await expect(regionEntries).toHaveCount(before + 2);
+  const second = regionEntries.nth(before + 1);
+  const savedSecond = await waitFor(
+    async () => savedRegions()?.length === before + 2,
+    "autosaved second rule",
+    10_000,
+  ).then(() => savedRegions()![before + 1]);
+  await second.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(regionEntries).toHaveCount(before + 1);
+  const undoBar = page.locator(".undo-bar");
+  await expect(undoBar).toContainText("領域ルールを1件削除しました");
+  const undo = undoBar.getByRole("button", { name: "元に戻す" });
+  await undo.click();
+  await expect(undo).toHaveCount(0);
+  await expect(regionEntries).toHaveCount(before + 2);
+  await waitFor(
+    async () =>
+      JSON.stringify(savedRegions()?.[before + 1]) ===
+      JSON.stringify(savedSecond),
+    "autosaved restored rule",
+    10_000,
+  );
+});
