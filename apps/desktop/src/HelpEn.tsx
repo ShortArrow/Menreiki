@@ -108,6 +108,8 @@ export default function HelpEn() {
         <li>
           <b>Press "Apply"</b> — your decisions are painted onto the pages.
           "Show the result" in the toolbar previews the outcome.
+          After changing a decision or a candidate, press "Apply" again;
+          until you do, exporting and auditing are unavailable.
         </li>
         <li>
           <b>Press "Export PDF"</b> — a new PDF is written (Markdown and

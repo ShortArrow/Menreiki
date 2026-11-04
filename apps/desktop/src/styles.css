@@ -247,6 +247,15 @@ svg.lucide {
   flex: 1;
 }
 
+.toolbar .unapplied {
+  font-size: 12px;
+  padding: 2px 8px;
+  border: 1px solid var(--warn-border);
+  border-radius: 4px;
+  background: var(--warn-bg);
+  white-space: nowrap;
+}
+
 .reanalyze-menu {
   position: relative;
 }

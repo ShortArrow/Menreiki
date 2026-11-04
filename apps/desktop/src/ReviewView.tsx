@@ -887,6 +887,10 @@ export default function ReviewView(props: {
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
   const [showRendered, setShowRendered] = useState(false);
   const [hasRenders, setHasRenders] = useState(false);
+  /// Serialized inputs (policy + findings) of the last successful Apply. The
+  /// renders on disk reflect exactly these inputs; any difference means the
+  /// decisions on screen have not been painted yet.
+  const [appliedKey, setAppliedKey] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
@@ -1164,12 +1168,16 @@ export default function ReviewView(props: {
 
   function runAnalyze(scope: AnalysisScope, pages?: number[]) {
     void run(t("review.analyzing"), async () => {
+      // Any analysis rewrites OCR, which the apply plan reads, so the renders
+      // no longer match whatever inputs were applied last.
+      setAppliedKey(null);
       if ((scope === "all" || scope === "resume") && !pages) {
         setSearchHits(null);
         setAudit(null);
         setApplySummary(null);
         setAppliedEdits([]);
         setExportPath(null);
+        setMarkdownPath(null);
         setImagesPath(null);
         setHasRenders(false);
         setShowRendered(false);
@@ -1361,6 +1369,15 @@ export default function ReviewView(props: {
     return { rules };
   }, [entities, decidedEntries, textRules, regionRules, alignOverrides]);
 
+  /// The apply plan depends on the policy and on the findings (category and
+  /// text rules also paint the findings' rects), so both form the key. A
+  /// reorder-only change reads as stale, which errs on the safe side.
+  const inputKey = useMemo(
+    () => JSON.stringify([policy, findings]),
+    [policy, findings],
+  );
+  const stale = hasRenders && appliedKey !== inputKey;
+
   /// Text → pending transformation, so the viewer can paint what each
   /// finding on the page will become (green replace / blue mask / red erase),
   /// mirroring the text rules the policy will apply.
@@ -1449,8 +1466,18 @@ export default function ReviewView(props: {
   }
 
   function runApply() {
+    // Capture the key before awaiting: inputs edited mid-apply must still
+    // read as unapplied afterwards.
+    const key = inputKey;
     void run(t("review.applying"), async () => {
+      // A failed apply may leave old and new renders mixed, so the renders
+      // match no inputs until this one succeeds.
+      setAppliedKey(null);
       const summary = await applyPolicy(project.projectDir, policy);
+      setAppliedKey(key);
+      setExportPath(null);
+      setMarkdownPath(null);
+      setImagesPath(null);
       setApplySummary(summary);
       setAppliedEdits(
         await listAppliedEdits(project.projectDir).catch(() => []),
@@ -2058,14 +2085,19 @@ export default function ReviewView(props: {
         <button
           className="primary"
           onClick={runApply}
-          disabled={busy !== null || policy.rules.length === 0}
+          disabled={busy !== null || (policy.rules.length === 0 && !stale)}
         >
           {t("review.apply", { count: policy.rules.length })}
         </button>
+        {stale && (
+          <span className="unapplied" role="status">
+            {t("review.unappliedChanges")}
+          </span>
+        )}
         <div className="reanalyze-menu">
           <button
             onClick={() => setExportMenuOpen((open) => !open)}
-            disabled={busy !== null || !hasRenders}
+            disabled={busy !== null || !hasRenders || stale}
           >
             {t("review.exportPdf")} <ChevronDown size={13} />
           </button>
@@ -2115,18 +2147,21 @@ export default function ReviewView(props: {
         </div>
         <button
           onClick={runExportMarkdown}
-          disabled={busy !== null || !hasRenders}
+          disabled={busy !== null || !hasRenders || stale}
         >
           {t("review.exportMarkdown")}
         </button>
         <button
           onClick={runExportImages}
-          disabled={busy !== null || !hasRenders}
+          disabled={busy !== null || !hasRenders || stale}
           title={t("review.exportImagesTitle")}
         >
           {t("review.exportImages")}
         </button>
-        <button onClick={runAudit} disabled={busy !== null || !hasRenders}>
+        <button
+          onClick={runAudit}
+          disabled={busy !== null || !hasRenders || stale}
+        >
           {t("review.audit")}
         </button>
         <button
@@ -3283,7 +3318,7 @@ export default function ReviewView(props: {
 
           <section className="results-section">
             <h2>{t("review.results")}</h2>
-            {applySummary && (
+            {!stale && applySummary && (
               <p>
                 {t("review.applied", {
                   edits: applySummary.edit_count,
@@ -3291,7 +3326,7 @@ export default function ReviewView(props: {
                 })}
               </p>
             )}
-            {applySummary && appliedEdits.length > 0 && (
+            {!stale && applySummary && appliedEdits.length > 0 && (
               <div className="applied-list">
                 {appliedEdits.map((edit, index) => (
                   <div key={index} className="applied-row">
@@ -3338,10 +3373,10 @@ export default function ReviewView(props: {
                 ))}
               </div>
             )}
-            {exportPath && <ExportPathLine path={exportPath} />}
-            {markdownPath && <ExportPathLine path={markdownPath} />}
-            {imagesPath && <ExportPathLine path={imagesPath} />}
-            {audit && (
+            {!stale && exportPath && <ExportPathLine path={exportPath} />}
+            {!stale && markdownPath && <ExportPathLine path={markdownPath} />}
+            {!stale && imagesPath && <ExportPathLine path={imagesPath} />}
+            {!stale && audit && (
               <div
                 className={
                   audit.verdict === "pass" ? "audit pass" : "audit fail"
