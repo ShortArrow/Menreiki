@@ -1904,10 +1904,15 @@ export default function ReviewView(props: {
           data-save-state={saveStatus.state}
           role="status"
         >
-          {saveStatus.state === "saving" && t("review.saveSaving")}
-          {saveStatus.state === "saved" && t("review.saveSaved")}
-          {saveStatus.error !== null &&
-            `${t("review.saveFailed")}: ${saveStatus.error}`}
+          {[
+            saveStatus.state === "saving" && t("review.saveSaving"),
+            saveStatus.state === "saved" && t("review.saveSaved"),
+            // A failure stays shown while retrying, until a save succeeds.
+            saveStatus.error !== null &&
+              t("review.saveFailed", { error: saveStatus.error }),
+          ]
+            .filter(Boolean)
+            .join(" ")}
         </span>
         {closeFailed && saveStatus.state === "failed" && (
           <button onClick={discardAndGoHome}>
