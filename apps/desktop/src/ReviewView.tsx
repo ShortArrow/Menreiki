@@ -2275,12 +2275,20 @@ export default function ReviewView(props: {
     const target = detectedTarget;
     if (!target || analysisRef.current) return;
     void run(t("review.mergingIntoExisting"), async () => {
-      await removeManualFinding(
-        project.projectDir,
-        target.page,
-        target.category,
-        target.text,
-      ).catch(() => {});
+      // The stand-in is only a misread when it differs from the group. When
+      // the box already read as the group's own category and text, removing
+      // it would also drop every earlier box of that text on this page
+      // (removal matches category+text, not rect), so it is kept as is.
+      const sameAsGroup =
+        target.category === group.category && target.text === group.text;
+      if (!sameAsGroup) {
+        await removeManualFinding(
+          project.projectDir,
+          target.page,
+          target.category,
+          target.text,
+        ).catch(() => {});
+      }
       await addManualFinding(
         project.projectDir,
         target.page,
