@@ -311,13 +311,32 @@ test("clearing decisions and rules asks first and keeps entities", async () => {
   const toolbar = page.locator(".viewer-toolbar");
   await toolbar.getByRole("button", { name: "消去", exact: true }).click();
   const overlay = page.locator(".page-stage svg.overlay");
-  const box = await overlay.boundingBox();
-  expect(box).not.toBeNull();
-  await page.mouse.move(box!.x + box!.width * 0.1, box!.y + box!.height * 0.9);
+  await expect(overlay).toBeVisible();
+  // The page is taller than the scrolling viewer, so drag inside the part of
+  // the page that is actually on screen.
+  const pageBox = await overlay.boundingBox();
+  const wrapBox = await page.locator(".page-stage-wrap").boundingBox();
+  expect(pageBox).not.toBeNull();
+  expect(wrapBox).not.toBeNull();
+  const left = Math.max(pageBox!.x, wrapBox!.x);
+  const top = Math.max(pageBox!.y, wrapBox!.y);
+  const right = Math.min(pageBox!.x + pageBox!.width, wrapBox!.x + wrapBox!.width);
+  const bottom = Math.min(
+    pageBox!.y + pageBox!.height,
+    wrapBox!.y + wrapBox!.height,
+  );
+  expect(right - left).toBeGreaterThan(40);
+  expect(bottom - top).toBeGreaterThan(40);
+  await page.mouse.move(
+    left + (right - left) * 0.2,
+    top + (bottom - top) * 0.2,
+  );
   await page.mouse.down();
-  await page.mouse.move(box!.x + box!.width * 0.5, box!.y + box!.height * 0.97, {
-    steps: 5,
-  });
+  await page.mouse.move(
+    left + (right - left) * 0.6,
+    top + (bottom - top) * 0.4,
+    { steps: 5 },
+  );
   await page.mouse.up();
   await toolbar.getByRole("button", { name: "なし", exact: true }).click();
 
