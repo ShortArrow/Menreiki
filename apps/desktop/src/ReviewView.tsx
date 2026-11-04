@@ -832,6 +832,7 @@ export default function ReviewView(props: {
   const [textRules, setTextRules] = useState<TextRule[]>([]);
   const [regionRules, setRegionRules] = useState<RegionRule[]>([]);
   const [alignOverrides, setAlignOverrides] = useState<AlignOverride[]>([]);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
   const [drawMode, setDrawMode] = useState<DrawMode>("none");
   const [drawScope, setDrawScope] = useState<"all" | "page">("all");
   const [searchInput, setSearchInput] = useState("");
@@ -1889,6 +1890,25 @@ export default function ReviewView(props: {
     setTextRules([]);
     setRegionRules([]);
   }
+
+  // What the bulk clear removes. Counted from state, not from the current
+  // candidates: decisions from earlier analyses and hidden "keep" decisions
+  // are cleared too, so the reviewer must see them in the confirmation.
+  const clearableDecisionCount = Object.keys(decisions).length;
+  const clearableKeepCount = Object.values(decisions).filter(
+    (decision) => decision.action === "keep",
+  ).length;
+  const clearableCount =
+    clearableDecisionCount + textRules.length + regionRules.length;
+
+  useEffect(() => {
+    if (!confirmClearAll) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setConfirmClearAll(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [confirmClearAll]);
 
   return (
     <div className="review">
@@ -2997,8 +3017,11 @@ export default function ReviewView(props: {
                   {t("review.rulesEmpty")}
                 </p>
               )}
-              {policy.rules.length > 0 && (
-                <button onClick={clearAllRules}>
+              {clearableCount > 0 && (
+                <button
+                  className="danger"
+                  onClick={() => setConfirmClearAll(true)}
+                >
                   {t("review.clearAllRules")}
                 </button>
               )}
@@ -3373,6 +3396,45 @@ export default function ReviewView(props: {
             }
           }}
         />
+      )}
+
+      {confirmClearAll && (
+        <div
+          className="modal-backdrop"
+          onClick={() => setConfirmClearAll(false)}
+        >
+          <div
+            className="modal confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="clear-all-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="clear-all-title">{t("review.clearAllTitle")}</h2>
+            <p>
+              {t("review.clearAllBody", {
+                decisions: clearableDecisionCount,
+                keep: clearableKeepCount,
+                texts: textRules.length,
+                regions: regionRules.length,
+              })}
+            </p>
+            <div className="modal-actions">
+              <button autoFocus onClick={() => setConfirmClearAll(false)}>
+                {t("review.cancel")}
+              </button>
+              <button
+                className="danger"
+                onClick={() => {
+                  clearAllRules();
+                  setConfirmClearAll(false);
+                }}
+              >
+                {t("review.clearAllConfirm")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {previewRegion !== null && regionRules[previewRegion] && (

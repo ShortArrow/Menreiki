@@ -251,7 +251,11 @@ export const ja = {
   "review.regionPageOnly": "p.{page} のみ",
   "review.preview": "プレビュー",
   "review.rulesEmpty": "候補の判断・検索・矩形選択でルールを作成します",
-  "review.clearAllRules": "すべて解除",
+  "review.clearAllRules": "判断・文字列・矩形ルールを一括解除…",
+  "review.clearAllTitle": "判断・文字列・矩形ルールの一括解除",
+  "review.clearAllBody":
+    "判断 {decisions} 種類（うち保持 {keep} 種類）、文字列ルール {texts} 件、矩形ルール {regions} 件を解除します。Entity と配置の例外は残ります。この操作は元に戻せません。",
+  "review.clearAllConfirm": "一括解除する",
   "review.entities": "Entity（{count}件）",
   "review.aliasPlaceholder": "仮称",
   "review.registerRepresentative": "代表表記を辞書に登録（以後の解析で自動検出）",
@@ -534,7 +538,11 @@ export const en: Record<MessageKey, string> = {
   "review.preview": "Preview",
   "review.rulesEmpty":
     "Rules come from deciding on candidates, searching, or drawing a rectangle",
-  "review.clearAllRules": "Clear all",
+  "review.clearAllRules": "Clear decisions, text and region rules…",
+  "review.clearAllTitle": "Clear decisions, text and region rules",
+  "review.clearAllBody":
+    "This clears {decisions} decisions ({keep} of them Keep), {texts} text rules and {regions} region rules. Entities and alignment overrides are kept. This cannot be undone.",
+  "review.clearAllConfirm": "Clear them",
   "review.entities": "Entities ({count})",
   "review.aliasPlaceholder": "Alias",
   "review.registerRepresentative":
