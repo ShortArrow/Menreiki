@@ -84,6 +84,8 @@ import type {
 import { EMPTY_REPLACEMENT } from "./types";
 
 type DecisionAction = "keep" | "erase" | "mask" | "replace";
+/// Which long-running analysis job owns the status bar, if any.
+type AnalysisKind = "analyze" | "llm";
 
 interface Decision {
   action: DecisionAction;
@@ -565,6 +567,7 @@ function FindingGroupMenu(props: {
   groups: { category: string; text: string }[];
   seed: string;
   onPick: (group: { category: string; text: string }) => void;
+  disabled?: boolean;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
@@ -591,6 +594,7 @@ function FindingGroupMenu(props: {
         ref={anchorRef}
         className="mini"
         title={t("review.mergeIntoExisting")}
+        disabled={props.disabled}
         onClick={() => {
           setMenuStyle(popoverPosition(anchorRef.current));
           setOpen((current) => !current);
@@ -1187,6 +1191,14 @@ export default function ReviewView(props: {
   const [version, setVersion] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
+  // Long-running analysis (whole-project analyze / LLM detect) is tracked
+  // apart from `busy`, so short operations started mid-run (jump, search)
+  // neither hide its progress and cancel button nor unlock the actions that
+  // assume a finished analysis. The ref mirrors the state for `finally`
+  // blocks, which would otherwise read a stale closure value.
+  const [analysis, setAnalysis] = useState<AnalysisKind | null>(null);
+  const analysisRef = useRef<AnalysisKind | null>(null);
+  const analyzing = analysis !== null;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // The ignore entry the last "Ignore" click added, offered for a one-step
@@ -1460,6 +1472,7 @@ export default function ReviewView(props: {
   }
 
   function deleteDictionaryEntry(entry: DictionaryEntry) {
+    if (analysisRef.current) return;
     void run(t("review.removingFromDictionary"), async () => {
       setDictionary(await removeDictionaryEntry(project.projectDir, entry.text));
       // Recorded only once the removal itself succeeded; the whole entry is
@@ -1477,6 +1490,9 @@ export default function ReviewView(props: {
   /// a dictionary restore re-registers the entry like the to-dictionary button does.
   function undoLastDeletion() {
     const deletion = lastDeletion;
+    // A dictionary restore re-runs detection, which must wait for a running
+    // analysis; keep the undo offer until then.
+    if (deletion?.kind === "dictionary" && analysisRef.current) return;
     setLastDeletion(null);
     if (!deletion) return;
     if (deletion.kind === "entity") {
@@ -1553,6 +1569,7 @@ export default function ReviewView(props: {
   /// re-runs detection — the fix-a-typo path, so a small correction never
   /// requires delete-and-retype.
   function saveDictionaryEdit(entry: DictionaryEntry, draft: string) {
+    if (analysisRef.current) return;
     const corrected = draft.trim();
     setDictionaryEdit(null);
     if (!corrected || corrected === entry.text) return;
@@ -1571,6 +1588,7 @@ export default function ReviewView(props: {
   /// Registers `text` in the project dictionary under `category` and re-runs
   /// detection — the shared path behind every "→辞書" conversion.
   function registerTextToDictionary(category: string, text: string) {
+    if (analysisRef.current) return;
     const trimmed = text.trim();
     if (!trimmed) return;
     void run(t("review.registeringDictionary"), async () => {
@@ -1618,12 +1636,37 @@ export default function ReviewView(props: {
       return null;
     } finally {
       setBusy(null);
+      // A running analysis owns the progress line; leave it to that run.
+      if (!analysisRef.current) setProgress(null);
+    }
+  }
+
+  /// Runs a long analysis job (analyze / LLM detect) in its own slot, so it
+  /// keeps its progress and cancel button while the reviewer works.
+  async function runAnalysisTask<T>(
+    kind: AnalysisKind,
+    action: () => Promise<T>,
+  ) {
+    analysisRef.current = kind;
+    setAnalysis(kind);
+    setError(null);
+    setNotice(null);
+    setLastIgnored(null);
+    try {
+      return await action();
+    } catch (failure) {
+      setError(describeError(failure, t));
+      return null;
+    } finally {
+      analysisRef.current = null;
+      setAnalysis(null);
       setProgress(null);
     }
   }
 
   function runAnalyze(scope: AnalysisScope, pages?: number[]) {
-    void run(t("review.analyzing"), async () => {
+    if (analysisRef.current) return;
+    void runAnalysisTask("analyze", async () => {
       // Any analysis rewrites OCR, which the apply plan reads, so the renders
       // no longer match whatever inputs were applied last.
       setAppliedKey(null);
@@ -2156,7 +2199,8 @@ export default function ReviewView(props: {
   useEffect(refreshLlmConfigured, []);
 
   function runLlmDetect(useImage: boolean) {
-    void run(t("review.llmDetecting"), async () => {
+    if (analysisRef.current) return;
+    void runAnalysisTask("llm", async () => {
       await llmDetect(project.projectDir, useImage);
       setFindings(await listFindings(project.projectDir));
     });
@@ -2200,7 +2244,7 @@ export default function ReviewView(props: {
   /// with the group's text, so it joins that row and shares its decision.
   function assignDetectedToGroup(group: { category: string; text: string }) {
     const target = detectedTarget;
-    if (!target) return;
+    if (!target || analysisRef.current) return;
     void run(t("review.mergingIntoExisting"), async () => {
       await removeManualFinding(
         project.projectDir,
@@ -2355,6 +2399,7 @@ export default function ReviewView(props: {
   // The mode stays active afterwards (like erase/mask), so several spots can
   // be boxed in a row without re-selecting it.
   function detectRegion(rect: Rect) {
+    if (analysisRef.current) return;
     void run(t("review.readingRegion"), async () => {
       // The box is ground truth for both position and extent. Read its text
       // with a dedicated OCR pass on the (padded, upscaled) crop; fall back
@@ -2433,6 +2478,7 @@ export default function ReviewView(props: {
   /// Asks the local model which sensitive terms it would look for in this
   /// document; the reviewer picks one to search and turn into a rule.
   function runSuggestTargets() {
+    if (analysisRef.current) return;
     setSuggestingTargets(true);
     setTargetSuggestions(null);
     setError(null);
@@ -2444,6 +2490,7 @@ export default function ReviewView(props: {
   }
 
   function ignoreFinding(finding: Finding) {
+    if (analysisRef.current) return;
     void run(t("review.addingToIgnore"), async () => {
       const settings = await getProjectSettings(project.projectDir);
       const ignored = settings.ignored ?? [];
@@ -2488,7 +2535,7 @@ export default function ReviewView(props: {
   /// candidate returns with its earlier decision (decisions are kept by key).
   function undoIgnore() {
     const target = lastIgnored;
-    if (!target) return;
+    if (!target || analysisRef.current) return;
     void run(t("review.undoingIgnore"), async () => {
       const settings = await getProjectSettings(project.projectDir);
       const ignored = settings.ignored ?? [];
@@ -2529,6 +2576,7 @@ export default function ReviewView(props: {
   }
 
   function registerToDictionary() {
+    if (analysisRef.current) return;
     const text = searchInput.trim();
     if (!text) return;
     void run(t("review.registeringDictionary"), async () => {
@@ -2726,7 +2774,7 @@ export default function ReviewView(props: {
         {project.analyzed ? (
           <div className="reanalyze-menu">
             <button
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
               onClick={() => setReanalyzeOpen((open) => !open)}
             >
               {t("review.reanalyze")} <ChevronDown size={13} />
@@ -2813,14 +2861,14 @@ export default function ReviewView(props: {
             <button
               className="primary"
               onClick={() => runAnalyze("resume")}
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
               title={t("review.resumeHint")}
             >
               {t("review.resume")}
             </button>
             <button
               onClick={() => runAnalyze("all")}
-              disabled={busy !== null}
+              disabled={busy !== null || analyzing}
             >
               {t("review.fromScratch")}
             </button>
@@ -2829,7 +2877,7 @@ export default function ReviewView(props: {
           <button
             className="primary"
             onClick={() => runAnalyze("all")}
-            disabled={busy !== null}
+            disabled={busy !== null || analyzing}
           >
             {t("review.runAnalysis")}
           </button>
@@ -2837,7 +2885,7 @@ export default function ReviewView(props: {
         <span className="spacer" />
         <button
           onClick={() => setSettingsOpen(true)}
-          disabled={busy !== null}
+          disabled={busy !== null || analyzing}
           title={t("review.settingsTitle")}
         >
           <Settings2 size={14} /> {t("review.settings")}
@@ -2854,7 +2902,11 @@ export default function ReviewView(props: {
         <button
           className="primary"
           onClick={runApply}
-          disabled={busy !== null || (policy.rules.length === 0 && !stale)}
+          disabled={
+            busy !== null ||
+            analyzing ||
+            (policy.rules.length === 0 && !stale)
+          }
         >
           {t("review.apply", { count: policy.rules.length })}
         </button>
@@ -2866,7 +2918,7 @@ export default function ReviewView(props: {
         <div className="reanalyze-menu">
           <button
             onClick={() => setExportMenuOpen((open) => !open)}
-            disabled={busy !== null || !hasRenders || stale}
+            disabled={busy !== null || analyzing || !hasRenders || stale}
           >
             {t("review.exportPdf")} <ChevronDown size={13} />
           </button>
@@ -2916,13 +2968,13 @@ export default function ReviewView(props: {
         </div>
         <button
           onClick={runExportMarkdown}
-          disabled={busy !== null || !hasRenders || stale}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
         >
           {t("review.exportMarkdown")}
         </button>
         <button
           onClick={runExportImages}
-          disabled={busy !== null || !hasRenders || stale}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
           title={t("review.exportImagesTitle")}
         >
           {t("review.exportImages")}
@@ -2930,7 +2982,7 @@ export default function ReviewView(props: {
         <button
           className={needsAudit ? "primary" : undefined}
           onClick={runAudit}
-          disabled={busy !== null || !hasRenders || stale}
+          disabled={busy !== null || analyzing || !hasRenders || stale}
         >
           {t("review.audit")}
         </button>
@@ -2959,22 +3011,29 @@ export default function ReviewView(props: {
       )}
 
       {(busy ||
+        analysis ||
         progress ||
         error ||
         notice ||
         decisionsLoadError ||
         entitiesLoadError) && (
         <div className="statusbar">
-          {busy && <span className="status">{progress ?? busy}</span>}
-          {(busy === t("review.analyzing") ||
-            busy === t("review.llmDetecting") ||
-            busy === t("review.auditing")) && (
+          {(busy || analysis) && (
+            <span className="status">
+              {progress ??
+                busy ??
+                (analysis === "llm"
+                  ? t("review.llmDetecting")
+                  : t("review.analyzing"))}
+            </span>
+          )}
+          {(analysis !== null || busy === t("review.auditing")) && (
             <button onClick={() => void cancelAnalysis()}>
               {t("review.cancel")}
             </button>
           )}
           {notice && <span className="status">{notice}</span>}
-          {lastIgnored && !busy && (
+          {lastIgnored && !busy && !analyzing && (
             <button className="mini" onClick={undoIgnore}>
               {t("review.undoIgnore")}
             </button>
@@ -3082,7 +3141,7 @@ export default function ReviewView(props: {
               <button
                 className="primary"
                 onClick={() => runAnalyze("all")}
-                disabled={busy !== null}
+                disabled={busy !== null || analyzing}
               >
                 {t("review.runAnalysis")}
               </button>
@@ -3168,7 +3227,7 @@ export default function ReviewView(props: {
                 focusNonce={focus?.nonce ?? 0}
                 onRegion={(rect) => {
                   if (drawMode === "detect") {
-                    detectRegion(rect);
+                    if (!analysisRef.current) detectRegion(rect);
                     return;
                   }
                   setRegionRules((current) => [
@@ -3204,7 +3263,10 @@ export default function ReviewView(props: {
                 {lastDeletionMessage(lastDeletion)}
               </span>
               <button
-                disabled={lastDeletion.kind === "dictionary" && busy !== null}
+                disabled={
+                  lastDeletion.kind === "dictionary" &&
+                  (busy !== null || analyzing)
+                }
                 onClick={undoLastDeletion}
               >
                 {t("review.undoDeletion")}
@@ -3324,9 +3386,10 @@ export default function ReviewView(props: {
                     )}
                     seed={detectedTarget.text}
                     onPick={assignDetectedToGroup}
+                    disabled={analyzing}
                   />
                   <button
-                    disabled={busy !== null}
+                    disabled={busy !== null || analyzing}
                     onClick={() => {
                       registerTextToDictionary(
                         dictionaryCategory,
@@ -3359,7 +3422,7 @@ export default function ReviewView(props: {
                 className="mini"
                 title={t("review.suggestTargetsTitle")}
                 onClick={runSuggestTargets}
-                disabled={suggestingTargets || busy !== null}
+                disabled={suggestingTargets || busy !== null || analyzing}
               >
                 {suggestingTargets ? (
                   t("review.suggesting")
@@ -3443,7 +3506,10 @@ export default function ReviewView(props: {
                       </option>
                     ))}
                   </select>
-                  <button onClick={registerToDictionary} disabled={busy !== null}>
+                  <button
+                    onClick={registerToDictionary}
+                    disabled={busy !== null || analyzing}
+                  >
                     {t("review.registerDictionary")}
                   </button>
                 </div>
@@ -3474,7 +3540,7 @@ export default function ReviewView(props: {
                             })
                           }
                           onKeyDown={(event) => {
-                            if (event.key === "Enter")
+                            if (event.key === "Enter" && !analysisRef.current)
                               saveDictionaryEdit(entry, dictionaryEdit.draft);
                             if (event.key === "Escape") setDictionaryEdit(null);
                           }}
@@ -3483,7 +3549,7 @@ export default function ReviewView(props: {
                           className="mini"
                           title={t("review.save")}
                           aria-label={t("review.save")}
-                          disabled={busy !== null}
+                          disabled={busy !== null || analyzing}
                           onClick={() =>
                             saveDictionaryEdit(entry, dictionaryEdit.draft)
                           }
@@ -3528,7 +3594,10 @@ export default function ReviewView(props: {
                       onNew={() => createEntity(entry.category, entry.text)}
                       onAssign={(id) => addVariant(id, entry.text)}
                     />
-                    <button onClick={() => deleteDictionaryEntry(entry)}>
+                    <button
+                      disabled={analyzing}
+                      onClick={() => deleteDictionaryEntry(entry)}
+                    >
                       {t("review.delete")}
                     </button>
                   </div>
@@ -3924,7 +3993,11 @@ export default function ReviewView(props: {
                     <button
                       className="mini"
                       title={t("review.registerRepresentative")}
-                      disabled={busy !== null || entity.variants.length === 0}
+                      disabled={
+                        busy !== null ||
+                        analyzing ||
+                        entity.variants.length === 0
+                      }
                       onClick={() =>
                         registerTextToDictionary(
                           entity.category,
@@ -4214,6 +4287,7 @@ export default function ReviewView(props: {
                         text: finding.text,
                         category: categoryLabel(t, finding.category),
                       })}
+                      disabled={analyzing}
                       onClick={() => ignoreFinding(finding)}
                     >
                       {t("review.ignore")}
