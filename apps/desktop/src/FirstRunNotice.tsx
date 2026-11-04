@@ -62,6 +62,9 @@ function NoticeJa() {
           <b>プロジェクトフォルダ（.menreiki）は機密です。</b>
           中に原本のコピーと読み取った全文が入っています。出力PDFとは
           別に、アクセス制御と確実な削除を行ってください。
+          元ファイルと同じフォルダに、拡張子を .menreiki に替えた名前で
+          作られます（例：spec.pdf → spec.menreiki）。場所はレビュー画面の
+          上部に表示されます。
         </li>
       </ul>
       <p className="first-run-fineprint">
@@ -97,7 +100,10 @@ function NoticeEn() {
           <b>The project folder (.menreiki) is confidential.</b> It holds a
           copy of the original document and the full recognized text. Control
           access to it and delete it deliberately, separately from the
-          exported PDF.
+          exported PDF. It is created next to the original file, named after
+          it with the extension replaced by .menreiki (for example, spec.pdf →
+          spec.menreiki). Its location is shown at the top of the review
+          screen.
         </li>
       </ul>
       <p className="first-run-fineprint">

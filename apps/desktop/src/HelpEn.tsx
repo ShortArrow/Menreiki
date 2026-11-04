@@ -283,7 +283,10 @@ export default function HelpEn() {
           <b>The project folder (.menreiki) is itself confidential.</b> It
           holds a copy of the original and the full recognized text, so keep it
           separate from the exported PDF and delete it deliberately when you no
-          longer need it.
+          longer need it. It is created next to the original file, named after
+          it with the extension replaced by .menreiki (for example, spec.pdf →
+          spec.menreiki). Its location is shown at the top of the review
+          screen.
         </li>
         <li>
           Whether the output is safe to publish is always a human decision. A
