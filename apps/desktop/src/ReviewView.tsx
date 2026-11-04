@@ -105,6 +105,30 @@ interface RegionRule {
 const findingKey = (finding: Finding) =>
   `${finding.category}|::|${finding.text}`;
 
+// Detectors whose output is a local-AI guess, shown as advisory only
+// (PRD 11.5: LLM judgments are reference information, never a verdict).
+const ADVISORY_DETECTORS = new Set(["llm", "vlm"]);
+const KNOWN_DETECTORS = new Set([
+  "regex",
+  "dictionary",
+  "layout",
+  "llm",
+  "vlm",
+  "manual",
+]);
+
+/** Chip label for a `Finding.detector`; unknown values (e.g. `pack:foo`)
+ * are shown raw so their provenance stays traceable (ADR-016). */
+const sourceLabel = (
+  detector: string,
+  t: Translate,
+): { label: string; advisory: boolean } => ({
+  label: KNOWN_DETECTORS.has(detector)
+    ? t(`review.source.${detector}` as MessageKey)
+    : detector,
+  advisory: ADVISORY_DETECTORS.has(detector),
+});
+
 const actionLabel = (t: Translate, action: Exclude<DecisionAction, "keep">) =>
   t(`action.${action}` as MessageKey);
 
@@ -1338,6 +1362,29 @@ export default function ReviewView(props: {
       ),
     [findings],
   );
+
+  // Provenance of each candidate group across the whole document, so the
+  // chips and the advisory note do not change with the list filters.
+  const findingSources = useMemo(() => {
+    const byKey = new Map<string, { detectors: string[]; note?: string }>();
+    for (const { finding } of flatFindings) {
+      const key = findingKey(finding);
+      let entry = byKey.get(key);
+      if (!entry) {
+        entry = { detectors: [] };
+        byKey.set(key, entry);
+      }
+      if (!entry.detectors.includes(finding.detector))
+        entry.detectors.push(finding.detector);
+      if (
+        entry.note === undefined &&
+        ADVISORY_DETECTORS.has(finding.detector) &&
+        finding.note?.trim()
+      )
+        entry.note = finding.note;
+    }
+    return byKey;
+  }, [flatFindings]);
 
   const findingCategories = useMemo(
     () =>
@@ -3403,6 +3450,7 @@ export default function ReviewView(props: {
               {dedupedFindings.map(({ pageIndex, finding, count }, index) => {
                 const key = findingKey(finding);
                 const decision = decisions[key];
+                const sources = findingSources.get(key);
                 return (
                   <div
                     key={index}
@@ -3435,7 +3483,34 @@ export default function ReviewView(props: {
                       <span className={`category-tag cat-${finding.category}`}>
                         {categoryLabel(t, finding.category)}
                       </span>
-                      <span className="finding-text">{finding.text}</span>
+                      {(sources?.detectors ?? [
+                        finding.detector,
+                      ]).map((detector) => {
+                        const source = sourceLabel(detector, t);
+                        return (
+                          <span
+                            key={detector}
+                            className={
+                              source.advisory
+                                ? "source-tag source-advisory"
+                                : "source-tag"
+                            }
+                            title={
+                              source.advisory
+                                ? t("review.source.advisory")
+                                : undefined
+                            }
+                          >
+                            {source.label}
+                          </span>
+                        );
+                      })}
+                      <span className="finding-main">
+                        <span className="finding-text">{finding.text}</span>
+                        {sources?.note && (
+                          <span className="finding-note">{sources.note}</span>
+                        )}
+                      </span>
                     </button>
                     <DecisionButtons
                       value={decision?.action}

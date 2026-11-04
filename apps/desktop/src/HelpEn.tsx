@@ -634,7 +634,10 @@ export default function HelpEn() {
               <td>
                 Optional candidates from the local AI. The VLM looks at page
                 images, so it can pick up text inside figures, but a word it
-                cannot place ends up with an unresolved position.
+                cannot place ends up with an unresolved position. In the
+                candidate list, each row's source chip (Regex, Dictionary, LLM,
+                and so on) tells them apart, and an LLM/VLM chip marks the row
+                as advisory only, not a verdict (its reason is shown inline).
               </td>
             </tr>
           </tbody>

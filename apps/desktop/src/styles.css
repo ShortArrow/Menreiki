@@ -1816,7 +1816,39 @@ button.rule-target:hover {
   color: var(--muted);
 }
 
+.source-tag {
+  flex: none;
+  font-size: 11px;
+  background: var(--chip-bg);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0 6px;
+  color: var(--muted);
+}
+
+/* LLM/VLM guesses: advisory only, never a verdict (PRD 11.5). */
+.source-advisory {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--muted-soft);
+}
+
+.finding-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .finding-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.finding-note {
+  font-size: 11px;
+  color: var(--muted-soft);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
