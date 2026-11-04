@@ -229,6 +229,8 @@ export const ja = {
   "review.reanalyzeDetect": "検出のみ",
   "review.reanalyzeLlm": "LLM検出（テキスト・実験的）",
   "review.reanalyzeVlm": "VLM検出（ページ画像・実験的）",
+  "review.reanalyzeLlmSetup": "LLM検出 — 設定で構成…",
+  "review.reanalyzeVlmSetup": "VLM検出 — 設定で構成…",
   "review.resumeHint": "完了済みのページをスキップして続きから解析します",
   "review.resume": "解析を再開",
   "review.fromScratch": "最初から",
@@ -378,7 +380,7 @@ export const ja = {
   "error.inference.invalidUrl":
     "ローカルLLMのエンドポイントのURLが正しくありません。{settings} → {llm} でエンドポイントを設定してください。",
   "error.inference.notLocal":
-    "このマシン以外の推論エンドポイントには接続しません。リモートのGPUを使う場合は、SSHトンネルでlocalhostに転送し、localhostのURLを {settings} → {llm} に設定してください。（{detail}）",
+    "このマシン以外の推論エンドポイントには接続しません。{settings} → {llm} のエンドポイントには、このマシン上（localhost / 127.0.0.1 / ::1）のURLを設定してください。リモートのGPUを使う場合は、SSHトンネルでlocalhostに転送してください。",
   "error.inference.request":
     "ローカルの推論サーバーに接続できません。起動しているか確認してください。（{detail}）",
 } as const;
@@ -611,6 +613,8 @@ export const en: Record<MessageKey, string> = {
   "review.reanalyzeDetect": "Detection only",
   "review.reanalyzeLlm": "LLM detection (text, experimental)",
   "review.reanalyzeVlm": "VLM detection (page images, experimental)",
+  "review.reanalyzeLlmSetup": "LLM detection — set up in Settings…",
+  "review.reanalyzeVlmSetup": "VLM detection — set up in Settings…",
   "review.resumeHint": "Skips finished pages and continues from there",
   "review.resume": "Resume analysis",
   "review.fromScratch": "From scratch",
@@ -763,7 +767,7 @@ export const en: Record<MessageKey, string> = {
   "error.inference.invalidUrl":
     "The local LLM endpoint URL is not valid. Set the endpoint in {settings} → {llm}.",
   "error.inference.notLocal":
-    "Menreiki does not connect to inference endpoints on other machines. To use a remote GPU, forward it to localhost through an SSH tunnel and enter the localhost URL in {settings} → {llm}. ({detail})",
+    "Menreiki does not connect to inference endpoints on other machines. In {settings} → {llm}, enter a valid URL on this machine (localhost / 127.0.0.1 / ::1). To use a remote GPU, forward it to localhost through an SSH tunnel.",
   "error.inference.request":
     "Cannot reach the local inference server. Check that it is running. ({detail})",
 };

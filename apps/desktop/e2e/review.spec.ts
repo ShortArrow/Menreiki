@@ -598,3 +598,70 @@ test("a dictionary entry registered as Other is listed as その他", async () =
     .filter({ hasText: word });
   await expect(entry.locator(".category-tag")).toHaveText("その他");
 });
+
+// The LLM features stay off until a model is configured (settings.rs). The
+// re-analyze menu used to offer them anyway and answer a click with an
+// English backend error plus a fixed Japanese hint to hand-edit config.toml;
+// it must lead to the settings dialog instead.
+// The export menu shares the `.reanalyze-menu` class, so pin the label.
+const reanalyzeButton = () =>
+  page.locator(".reanalyze-menu > button", { hasText: "再解析…" });
+const reanalyzeItem = (label: string | RegExp) =>
+  page.locator(".reanalyze-menu .menu button", { hasText: label });
+
+test("LLM and VLM detection without a model lead to the settings dialog", async () => {
+  for (const label of ["LLM検出 — 設定で構成…", "VLM検出 — 設定で構成…"]) {
+    await expect(reanalyzeButton()).toBeEnabled({ timeout: 120_000 });
+    await reanalyzeButton().click();
+    const item = reanalyzeItem(label);
+    await expect(item).toBeVisible();
+    await item.click();
+
+    await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeVisible();
+    await expect(page.locator(".statusbar .error")).toHaveCount(0);
+    await page.getByRole("button", { name: "閉じる" }).click();
+    await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeHidden();
+  }
+});
+
+test("saving a model restores the regular LLM menu items without reopening", async () => {
+  await reanalyzeButton().click();
+  await reanalyzeItem("LLM検出 — 設定で構成…").click();
+  await page.getByPlaceholder("qwen3（VLM検出は vision モデル）").fill("dummy-model");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeHidden();
+
+  // Saving re-runs detection; wait for it before reading the menu again.
+  await expect(page.locator(".statusbar .status")).toHaveCount(0, {
+    timeout: 120_000,
+  });
+  await expect(reanalyzeButton()).toBeEnabled({ timeout: 120_000 });
+  await reanalyzeButton().click();
+  // Only read the labels: clicking would reach out to localhost:11434.
+  await expect(reanalyzeItem("LLM検出（テキスト・実験的）")).toBeVisible();
+  await expect(reanalyzeItem("VLM検出（ページ画像・実験的）")).toBeVisible();
+  await expect(reanalyzeItem(/設定で構成/)).toHaveCount(0);
+  await page.locator(".menu-backdrop").click();
+});
+
+test("a remote endpoint is explained in Japanese without the backend text", async () => {
+  // NotLocal is raised before any connection, so no server is needed.
+  writeFileSync(
+    path.join(workDir, "config", "config.toml"),
+    'ui_language = "ja"\n\n[inference]\nbase_url = "http://example.com/v1"\nmodel = "dummy-model"\n',
+  );
+  // The review screen reads the config on mount and when settings close.
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await expect(page.getByText("ローカルLLM（任意・アプリ全体）")).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
+
+  await reanalyzeButton().click();
+  await reanalyzeItem("LLM検出（テキスト・実験的）").click();
+  const error = page.locator(".statusbar .error");
+  await expect(error).toContainText("このマシン上", { timeout: 30_000 });
+  const text = await error.innerText();
+  expect(text).toContain("設定 → ローカルLLM（任意・アプリ全体）");
+  expect(text).not.toContain("inference endpoint must be");
+  expect(text).not.toContain("model name is not configured");
+  expect(text).not.toContain("config.toml");
+});

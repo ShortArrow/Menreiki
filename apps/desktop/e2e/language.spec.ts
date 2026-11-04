@@ -181,14 +181,14 @@ test("the review screen and settings dialog render in English", async () => {
   await page.getByRole("button", { name: "Close" }).click();
 });
 
-test("LLM detection with no model configured explains the fix in English", async () => {
+test("an inference setup error with no model explains the fix in English", async () => {
   // The config holds only ui_language, so the model name is empty. The error
   // used to be the backend's English text followed by a Japanese hint to
   // hand-edit config.toml; it must read in English and point to the dialog.
-  await page.getByRole("button", { name: /^Re-analyze/ }).click();
-  await page
-    .getByRole("button", { name: "LLM detection (text, experimental)" })
-    .click();
+  // The re-analyze menu now leads to the settings dialog instead of failing,
+  // so reach the error through the target suggestion, which still asks the
+  // backend.
+  await page.getByRole("button", { name: "Ask AI what to detect" }).click();
 
   const error = page.locator(".statusbar .error");
   await expect(error).toHaveText(
@@ -198,4 +198,37 @@ test("LLM detection with no model configured explains the fix in English", async
   const text = await error.innerText();
   expect(text).not.toContain("config.toml");
   expect(text).not.toMatch(JAPANESE);
+});
+
+test("a remote inference endpoint is explained in English", async () => {
+  // A remote endpoint is refused (NotLocal) before any connection, so no
+  // server is needed. This used to show the backend's English text followed
+  // by a fixed Japanese hint to hand-edit config.toml.
+  const configFile = path.join(workDir, "config", "config.toml");
+  writeFileSync(
+    configFile,
+    'ui_language = "en"\n\n[inference]\nbase_url = "http://example.com/v1"\nmodel = "dummy-model"\n',
+  );
+  try {
+    // The review screen reads the config on mount and when settings close.
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await expect(page.getByText("Local LLM (optional, app-wide)")).toBeVisible();
+    await page.getByRole("button", { name: "Close" }).click();
+
+    // The export menu shares the `.reanalyze-menu` class, so pin the label.
+    await page.getByRole("button", { name: /^Re-analyze/ }).click();
+    await page
+      .getByRole("button", { name: "LLM detection (text, experimental)" })
+      .click();
+    const error = page.locator(".statusbar .error");
+    await expect(error).toContainText("valid URL on this machine", {
+      timeout: 30_000,
+    });
+    const text = await error.innerText();
+    expect(text).toContain("Settings → Local LLM (optional, app-wide)");
+    expect(text).not.toMatch(JAPANESE);
+    expect(text).not.toContain("inference endpoint must be");
+  } finally {
+    writeFileSync(configFile, 'ui_language = "en"\n');
+  }
 });

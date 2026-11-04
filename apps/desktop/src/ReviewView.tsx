@@ -23,6 +23,7 @@ import {
   cancelAnalysis,
   countMatches,
   exportMarkdown,
+  getConfig,
   getProjectSettings,
   setProjectSettings,
   exportImages,
@@ -1011,6 +1012,10 @@ export default function ReviewView(props: {
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportPagesInput, setExportPagesInput] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Whether a local model is configured. Without one the LLM menu items lead
+  // to the settings dialog; if the config cannot be read, assume configured
+  // so the features stay usable as before.
+  const [llmConfigured, setLlmConfigured] = useState(true);
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   const [focus, setFocus] = useState<{ rect: Rect; nonce: number } | null>(
     null,
@@ -1751,6 +1756,16 @@ export default function ReviewView(props: {
     });
   }
 
+  function refreshLlmConfigured() {
+    getConfig()
+      .then((config) =>
+        setLlmConfigured(config.inference.model.trim() !== ""),
+      )
+      .catch(() => setLlmConfigured(true));
+  }
+
+  useEffect(refreshLlmConfigured, []);
+
   function runLlmDetect(useImage: boolean) {
     void run(t("review.llmDetecting"), async () => {
       await llmDetect(project.projectDir, useImage);
@@ -2225,16 +2240,28 @@ export default function ReviewView(props: {
                         t("review.reanalyzeDetect"),
                         () => runAnalyze("detect-only"),
                       ],
-                      [
-                        "llm",
-                        t("review.reanalyzeLlm"),
-                        () => runLlmDetect(false),
-                      ],
-                      [
-                        "vlm",
-                        t("review.reanalyzeVlm"),
-                        () => runLlmDetect(true),
-                      ],
+                      llmConfigured
+                        ? [
+                            "llm",
+                            t("review.reanalyzeLlm"),
+                            () => runLlmDetect(false),
+                          ]
+                        : [
+                            "llm",
+                            t("review.reanalyzeLlmSetup"),
+                            () => setSettingsOpen(true),
+                          ],
+                      llmConfigured
+                        ? [
+                            "vlm",
+                            t("review.reanalyzeVlm"),
+                            () => runLlmDetect(true),
+                          ]
+                        : [
+                            "vlm",
+                            t("review.reanalyzeVlmSetup"),
+                            () => setSettingsOpen(true),
+                          ],
                     ] as [string, string, () => void][]
                   ).map(([key, label, action]) => (
                     <button
@@ -3719,7 +3746,10 @@ export default function ReviewView(props: {
       {settingsOpen && (
         <SettingsView
           projectDir={project.projectDir}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => {
+            setSettingsOpen(false);
+            refreshLlmConfigured();
+          }}
           onLanguageChange={props.onLanguageChange}
           onDetectorsChanged={() => {
             if (project.analyzed) {
