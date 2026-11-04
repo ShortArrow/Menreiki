@@ -2,20 +2,42 @@ import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 
 /// Elements that take focus with Tab. Visibility is checked separately.
+/// `summary` covers the help page's collapsible sections.
 const FOCUSABLE = [
   "a[href]",
   "button:not([disabled])",
   "input:not([disabled]):not([type='hidden'])",
   "select:not([disabled])",
   "textarea:not([disabled])",
+  "details > summary:first-of-type",
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+/// Whether Chromium makes `element` a Tab stop as a scroll container: it
+/// overflows, scrolls, and holds no focusable control of its own. Without
+/// it, a trapped Tab could never reach (and so never scroll) a list of
+/// thumbnails such as the region preview's body.
+function isKeyboardScroller(element: HTMLElement): boolean {
+  const overflows =
+    element.scrollHeight > element.clientHeight ||
+    element.scrollWidth > element.clientWidth;
+  if (!overflows) return false;
+  const style = getComputedStyle(element);
+  const scrolls = (value: string) => value === "auto" || value === "scroll";
+  return (
+    (scrolls(style.overflowY) || scrolls(style.overflowX)) &&
+    element.querySelector(FOCUSABLE) === null
+  );
+}
+
 /// Tab-reachable elements inside `container`, in document order.
 export function focusableWithin(container: ParentNode): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+  return Array.from(container.querySelectorAll<HTMLElement>("*")).filter(
     (element) =>
-      element.getClientRects().length > 0 && !element.closest("[inert]"),
+      (element.matches(FOCUSABLE) || isKeyboardScroller(element)) &&
+      // Also false inside a closed <details>, whose content keeps its boxes.
+      element.checkVisibility() &&
+      !element.closest("[inert]"),
   );
 }
 
