@@ -924,3 +924,117 @@ test("a remote endpoint is explained in Japanese without the backend text", asyn
   expect(text).not.toContain("model name is not configured");
   expect(text).not.toContain("config.toml");
 });
+
+// Depends on undecided candidates being left over: the bulk clear test above
+// resets every decision and the tests after it leave the decision buttons
+// alone. Keep decision-dependent tests out of the rest of this file, after
+// this one.
+test("bulk apply decides only the shown undecided candidates", async () => {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const filterSelect = page.locator(".finding-filter select");
+  const rows = page.locator(".findings-list .finding-row");
+  const bulk = page.locator(".bulk-apply");
+  const modal = page.locator(".bulk-apply-modal");
+  const undecidedCount = async () => {
+    const text = await page.getByText(/未判断の候補: \d+ 種類/).textContent();
+    return Number(/(\d+)/.exec(text ?? "")![1]);
+  };
+
+  // 1. The first category with at least two shown rows; no hard-coded name.
+  const categories = (
+    await filterSelect.locator("option").evaluateAll((options) =>
+      options.map((option) => (option as HTMLOptionElement).value),
+    )
+  ).filter((value) => value !== "all");
+  let category: string | undefined;
+  for (const candidate of categories) {
+    await filterSelect.selectOption(candidate);
+    if ((await rows.count()) >= 2) {
+      category = candidate;
+      break;
+    }
+  }
+  expect(category, "a category with two or more rows").toBeDefined();
+  const rowCount = await rows.count();
+
+  // 2. Erase the first row, so bulk Mask must leave it alone (AC3).
+  const firstRow = rows.first();
+  const firstText = await firstRow.locator(".finding-text").textContent();
+  await firstRow.getByRole("button", { name: "消去", exact: true }).click();
+  await expect(firstRow).toHaveClass(/decided/);
+
+  // 3. Decided rows across every category before the bulk action.
+  await filterSelect.selectOption("all");
+  const decidedBefore = await page
+    .locator(".findings-list .finding-row.decided")
+    .count();
+  const otherDecidedBefore = decidedBefore - 1;
+  await filterSelect.selectOption(category!);
+  const before = await undecidedCount();
+
+  const maskButton = bulk.getByRole("button", { name: "マスク", exact: true });
+  await expect(bulk).toContainText(`表示中の未判断 ${rowCount - 1} 種類`);
+
+  // 4. Cancel changes nothing (AC4); so does a backdrop click.
+  await maskButton.click();
+  await expect(modal).toBeVisible();
+  await expect(modal.locator(".bulk-apply-target")).toHaveCount(rowCount - 1);
+  await modal.getByRole("button", { name: "キャンセル" }).click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    1,
+  );
+  expect(await undecidedCount()).toBe(before);
+  await maskButton.click();
+  await page.locator(".modal-backdrop").click({ position: { x: 5, y: 5 } });
+  await expect(modal).toHaveCount(0);
+  expect(await undecidedCount()).toBe(before);
+
+  // 5. Confirm: every shown row is decided, the erased row keeps Erase, and
+  // the undecided count drops by the number applied (AC2, AC3, AC9).
+  await maskButton.click();
+  await modal
+    .getByRole("button", { name: `マスクを ${rowCount - 1} 種類に適用` })
+    .click();
+  await expect(modal).toHaveCount(0);
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    rowCount,
+  );
+  await expect(
+    firstRow.locator(".decision-btn.current", { hasText: "消去" }),
+  ).toHaveCount(1);
+  for (let i = 1; i < rowCount; i++) {
+    await expect(
+      rows.nth(i).locator(".decision-btn.current", { hasText: "マスク" }),
+    ).toHaveCount(1);
+  }
+  expect(await undecidedCount()).toBe(before - (rowCount - 1));
+  await expect(bulk.getByRole("button", { name: "マスク", exact: true })).toBeDisabled();
+
+  // Other categories keep their prior state.
+  await filterSelect.selectOption("all");
+  await expect(page.locator(".findings-list .finding-row.decided")).toHaveCount(
+    otherDecidedBefore + rowCount,
+  );
+
+  // Saved after the debounce, keyed by category + text.
+  const decisionsPath = path.join(projectDir, "decisions", "decisions.json");
+  await waitFor(async () => {
+    const saved = JSON.parse(readFileSync(decisionsPath, "utf8")) as {
+      findings: { category: string; text: string; action: string }[];
+    };
+    const ofCategory = saved.findings.filter(
+      (entry) => entry.category === category,
+    );
+    return (
+      ofCategory.length === rowCount &&
+      ofCategory.filter((entry) => entry.action === "mask").length ===
+        rowCount - 1 &&
+      ofCategory.some(
+        (entry) => entry.text === firstText && entry.action === "erase",
+      )
+    );
+  }, "bulk decisions saved to decisions.json");
+});
