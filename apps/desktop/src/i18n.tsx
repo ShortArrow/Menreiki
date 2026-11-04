@@ -364,6 +364,17 @@ export const ja = {
 
   "help.back": "← 戻る",
   "help.title": "ヘルプ",
+
+  "error.audit.noTerms":
+    "監査で照合する語がありません。テキストの置換・マスクを決定していないため、再OCRで照合する対象がありません。矩形で消去・マスクした領域は監査では確認されません。出力画像を目で確認してください。",
+  "error.inference.modelMissing":
+    "ローカルLLMのモデル名が設定されていません。{settings} → {llm} でモデル名を設定してください。",
+  "error.inference.invalidUrl":
+    "ローカルLLMのエンドポイントのURLが正しくありません。{settings} → {llm} でエンドポイントを設定してください。",
+  "error.inference.notLocal":
+    "このマシン以外の推論エンドポイントには接続しません。リモートのGPUを使う場合は、SSHトンネルでlocalhostに転送し、localhostのURLを {settings} → {llm} に設定してください。（{detail}）",
+  "error.inference.request":
+    "ローカルの推論サーバーに接続できません。起動しているか確認してください。（{detail}）",
 } as const;
 
 export type MessageKey = keyof typeof ja;
@@ -732,6 +743,17 @@ export const en: Record<MessageKey, string> = {
 
   "help.back": "← Back",
   "help.title": "Help",
+
+  "error.audit.noTerms":
+    "The audit has no terms to check. No text replacement or mask has been decided, so re-OCR has nothing to look for. Areas erased or masked with a rectangle are not checked by the audit. Inspect the output images by eye.",
+  "error.inference.modelMissing":
+    "No local LLM model name is set. Set the model name in {settings} → {llm}.",
+  "error.inference.invalidUrl":
+    "The local LLM endpoint URL is not valid. Set the endpoint in {settings} → {llm}.",
+  "error.inference.notLocal":
+    "Menreiki does not connect to inference endpoints on other machines. To use a remote GPU, forward it to localhost through an SSH tunnel and enter the localhost URL in {settings} → {llm}. ({detail})",
+  "error.inference.request":
+    "Cannot reach the local inference server. Check that it is running. ({detail})",
 };
 
 const dictionaries: Record<Language, Record<MessageKey, string>> = { ja, en };

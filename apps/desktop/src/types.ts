@@ -174,3 +174,19 @@ export interface AuditOutcome {
   report: AuditReport;
   ocr: OcrLanguageStatus;
 }
+
+/// Codes the backend attaches to errors the UI explains in its own words
+/// (see `src-tauri/src/ui_error.rs`).
+export type ErrorCode =
+  | "audit.noTerms"
+  | "inference.modelMissing"
+  | "inference.invalidUrl"
+  | "inference.notLocal"
+  | "inference.request";
+
+/// The shape a coded command rejects with. `detail` is the backend's own
+/// message, shown as is when `code` is null.
+export interface UiError {
+  code: ErrorCode | null;
+  detail: string;
+}

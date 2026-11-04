@@ -50,6 +50,7 @@ import {
   vlmInRegion,
 } from "./api";
 import HelpView from "./HelpView";
+import { describeError } from "./errors";
 import {
   categoryLabel,
   useI18n,
@@ -275,7 +276,7 @@ function AliasSuggest(props: {
     setItems(null);
     suggestReplacements(props.text, props.category)
       .then((loaded) => setItems(loaded))
-      .catch((failure) => setError(String(failure)))
+      .catch((failure) => setError(describeError(failure, t)))
       .finally(() => setLoading(false));
   }
 
@@ -1315,7 +1316,7 @@ export default function ReviewView(props: {
     try {
       return await action();
     } catch (failure) {
-      setError(String(failure));
+      setError(describeError(failure, t));
       return null;
     } finally {
       setBusy(null);
@@ -1952,7 +1953,7 @@ export default function ReviewView(props: {
     setError(null);
     suggestTargets(project.projectDir)
       .then((terms) => setTargetSuggestions(terms))
-      .catch((failure) => setError(String(failure)))
+      .catch((failure) => setError(describeError(failure, t)))
       .finally(() => setSuggestingTargets(false));
   }
 
