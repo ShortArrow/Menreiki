@@ -1491,6 +1491,9 @@ export default function ReviewView(props: {
 
   function runExport(pages?: number[]) {
     setExportMenuOpen(false);
+    // The page menu can stay open while inputs change underneath it (e.g. by
+    // keyboard focus behind the backdrop), so re-check staleness here too.
+    if (stale) return;
     void run(t("review.rebuildingPdf"), async () => {
       setExportPath(await exportProject(project.projectDir, 300, pages));
       // Any joining whitespace lives in the dictionary strings: English pads
