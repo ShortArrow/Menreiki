@@ -304,6 +304,11 @@ export default function HelpEn() {
           passing audit confirms that the checks you configured found nothing —
           it is not proof of safety.
         </li>
+        <li>
+          The audit does not check areas you erased or masked with a rectangle
+          (also when they are mixed with text rules). Inspect those areas in the
+          output images by eye.
+        </li>
       </ul>
 
       <h2>How it works (only if you want the detail)</h2>
