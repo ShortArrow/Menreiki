@@ -180,3 +180,22 @@ test("the review screen and settings dialog render in English", async () => {
 
   await page.getByRole("button", { name: "Close" }).click();
 });
+
+test("LLM detection with no model configured explains the fix in English", async () => {
+  // The config holds only ui_language, so the model name is empty. The error
+  // used to be the backend's English text followed by a Japanese hint to
+  // hand-edit config.toml; it must read in English and point to the dialog.
+  await page.getByRole("button", { name: /^Re-analyze/ }).click();
+  await page
+    .getByRole("button", { name: "LLM detection (text, experimental)" })
+    .click();
+
+  const error = page.locator(".statusbar .error");
+  await expect(error).toHaveText(
+    "No local LLM model name is set. Set the model name in Settings → Local LLM (optional, app-wide).",
+    { timeout: 30_000 },
+  );
+  const text = await error.innerText();
+  expect(text).not.toContain("config.toml");
+  expect(text).not.toMatch(JAPANESE);
+});
