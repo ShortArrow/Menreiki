@@ -1,5 +1,12 @@
-import { spawn, execSync, ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, execSync, ChildProcess } from "node:child_process";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +22,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, "..", "..", "..");
 const targetDir = process.env.CARGO_TARGET_DIR ?? path.join(repoRoot, "target");
 const appExe = path.join(targetDir, "debug", "menreiki-desktop.exe");
+const cliExe = path.join(targetDir, "debug", "menreiki.exe");
 const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
+const dummyPdf = path.join(repoRoot, "test-documents", "dummy-spec.pdf");
 
 // Full-width punctuation counts too: a hard-coded 「）」 or 「・」 in JSX
 // survives translation and shows up mid-sentence in the English UI.
@@ -295,4 +304,97 @@ test("detect-here hints at the optional VLM in English when it is off", async ()
       .getByRole("button", { name: "None", exact: true })
       .click();
   }
+});
+
+// Projects written by older builds marked a location-unknown VLM candidate
+// only with a Japanese prefix in its note. Opened in the English UI, neither
+// the row nor its tooltip may show that prefix; the badge must be English.
+test.describe("legacy location-unknown candidates", () => {
+  const NAME = "株式会社サンプル精機";
+  let legacyWorkDir: string;
+
+  test.beforeAll(async () => {
+    legacyWorkDir = mkdtempSync(path.join(tmpdir(), "menreiki-lang-legacy-"));
+    const legacyProject = path.join(legacyWorkDir, "spec.menreiki");
+    const cliEnv = { ...process.env, MENREIKI_PDFIUM_PATH: pdfiumDir };
+    execFileSync(cliExe, ["import", dummyPdf, "--project", legacyProject], {
+      env: cliEnv,
+    });
+    execFileSync(cliExe, ["analyze", legacyProject], {
+      env: cliEnv,
+      timeout: 180_000,
+    });
+
+    const findingsDir = path.join(legacyProject, "findings");
+    for (const file of readdirSync(findingsDir)) {
+      writeFileSync(path.join(findingsDir, file), "[]");
+    }
+    const ocr = JSON.parse(
+      readFileSync(path.join(legacyProject, "ocr", "page-001.json"), "utf8"),
+    ) as { width: number; height: number };
+    // The old on-disk shape: no `unlocated` key, status in the note.
+    writeFileSync(
+      path.join(findingsDir, "page-001.json"),
+      JSON.stringify([
+        {
+          category: "organization",
+          text: NAME,
+          rect: { x: 0, y: 0, width: ocr.width, height: ocr.height },
+          detector: "vlm",
+          note: "位置未特定（画像内で検出）",
+        },
+      ]),
+    );
+
+    await browser?.close().catch(() => {});
+    killTree(app);
+    app = spawn(appExe, [legacyProject], {
+      env: {
+        ...process.env,
+        MENREIKI_PDFIUM_PATH: pdfiumDir,
+        MENREIKI_CONFIG_DIR: path.join(workDir, "config"),
+        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      },
+      stdio: "ignore",
+    });
+    await waitFor(
+      async () => (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).ok,
+      "WebView2 CDP endpoint",
+    );
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    await waitFor(async () => {
+      const candidate = browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidatePage) => candidatePage.url().includes("localhost:1420"));
+      if (!candidate) return false;
+      page = candidate;
+      return true;
+    }, "app page over CDP");
+    await page.locator(".side-pane").waitFor({ timeout: 60_000 });
+    const ack = page.getByRole("button", { name: "I understand" });
+    if (await ack.isVisible().catch(() => false)) {
+      await ack.click();
+    }
+  });
+
+  test.afterAll(() => {
+    if (legacyWorkDir) rmSync(legacyWorkDir, { recursive: true, force: true });
+  });
+
+  test("the row, badge, and tooltip are English", async () => {
+    const row = page
+      .locator(".finding-row")
+      .filter({ has: page.locator(".finding-text", { hasText: NAME }) });
+    await expect(row).toHaveCount(1, { timeout: 120_000 });
+    await expect(row).toHaveClass(/\bunlocated\b/);
+    await expect(row.locator(".badge.lost")).toHaveText("Location unknown");
+
+    const rowText = await row.innerText();
+    expect(rowText).not.toContain("位置未特定");
+    const title = (await row.locator(".finding-label").getAttribute("title")) ?? "";
+    expect(title).not.toContain("位置未特定");
+    expect(title).toContain("Location unknown");
+    expect(title).toContain("Detect here");
+  });
 });

@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -1621,5 +1622,192 @@ test("entity members count as decided and show conflicting decisions", async () 
     undecided: before.undecided - 1,
     decided: before.decided + 1,
     covered: before.covered + 1,
+  });
+});
+
+// A location-unknown VLM candidate: a decision on it alone edits nothing, so
+// it must be badged, counted apart from decided, and warned about on export.
+// Runs on its own project (the shared one above stays untouched) and swaps
+// the running app over to it.
+test.describe("location-unknown candidates", () => {
+  const NAME = "株式会社サンプル精機";
+  const RESOLVED = "架空工業株式会社";
+  const OTHER_PAGE = "試作電機株式会社";
+  let unlocatedWorkDir: string;
+
+  test.beforeAll(async () => {
+    unlocatedWorkDir = mkdtempSync(path.join(tmpdir(), "menreiki-e2e-unlocated-"));
+    const unlocatedProject = path.join(unlocatedWorkDir, "spec.menreiki");
+    const cliEnv = { ...process.env, MENREIKI_PDFIUM_PATH: pdfiumDir };
+    execFileSync(cliExe, ["import", dummyPdf, "--project", unlocatedProject], {
+      env: cliEnv,
+    });
+    execFileSync(cliExe, ["analyze", unlocatedProject], {
+      env: cliEnv,
+      timeout: 180_000,
+    });
+
+    // Replace every page's findings so the fixture is the only data: page 1
+    // holds the unresolved candidate, one resolved by a located finding of
+    // the same text (other category) on the same page, and one whose located
+    // twin sits on page 2 only — which must not resolve it.
+    const findingsDir = path.join(unlocatedProject, "findings");
+    for (const file of readdirSync(findingsDir)) {
+      writeFileSync(path.join(findingsDir, file), "[]");
+    }
+    const ocr = JSON.parse(
+      readFileSync(path.join(unlocatedProject, "ocr", "page-001.json"), "utf8"),
+    ) as { width: number; height: number };
+    const wholePage = { x: 0, y: 0, width: ocr.width, height: ocr.height };
+    const located = { x: 40, y: 40, width: 200, height: 24 };
+    const unlocated = (text: string, category: string) => ({
+      category,
+      text,
+      rect: wholePage,
+      detector: "vlm",
+      note: "図中の社名に見える",
+      unlocated: true,
+    });
+    writeFileSync(
+      path.join(findingsDir, "page-001.json"),
+      JSON.stringify([
+        unlocated(NAME, "organization"),
+        unlocated(RESOLVED, "other"),
+        {
+          category: "organization",
+          text: RESOLVED,
+          rect: located,
+          detector: "manual",
+        },
+        unlocated(OTHER_PAGE, "organization"),
+      ]),
+    );
+    writeFileSync(
+      path.join(findingsDir, "page-002.json"),
+      JSON.stringify([
+        {
+          category: "organization",
+          text: OTHER_PAGE,
+          rect: located,
+          detector: "manual",
+        },
+      ]),
+    );
+
+    await browser?.close().catch(() => {});
+    killTree(app);
+    app = spawn(appExe, [unlocatedProject], {
+      env: {
+        ...process.env,
+        MENREIKI_PDFIUM_PATH: pdfiumDir,
+        MENREIKI_CONFIG_DIR: path.join(workDir, "config"),
+        WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+      },
+      stdio: "ignore",
+    });
+    await waitFor(
+      async () => (await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`)).ok,
+      "WebView2 CDP endpoint",
+    );
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${CDP_PORT}`);
+    await waitFor(async () => {
+      const candidate = browser
+        .contexts()
+        .flatMap((context) => context.pages())
+        .find((candidatePage) => candidatePage.url().includes("localhost:1420"));
+      if (!candidate) return false;
+      page = candidate;
+      return true;
+    }, "app page over CDP");
+    await page.locator(".side-pane").waitFor({ timeout: 60_000 });
+    const ack = page.getByRole("button", { name: "理解しました" });
+    if (await ack.isVisible().catch(() => false)) {
+      await ack.click();
+    }
+  });
+
+  test.afterAll(() => {
+    if (unlocatedWorkDir)
+      rmSync(unlocatedWorkDir, { recursive: true, force: true });
+  });
+
+  const rowFor = (text: string, category: string) =>
+    page
+      .locator(".finding-row")
+      .filter({ has: page.locator(".finding-text", { hasText: text }) })
+      .filter({ has: page.locator(".category-tag", { hasText: category }) });
+
+  test("an unresolved candidate is badged with a localized hint", async () => {
+    const row = rowFor(NAME, "organization");
+    await expect(row).toHaveCount(1, { timeout: 120_000 });
+    await expect(row).toHaveClass(/\bunlocated\b/);
+    await expect(row.locator(".badge.lost")).toHaveText("位置未特定");
+    const title = await row.locator(".finding-label").getAttribute("title");
+    expect(title).toContain("ここを検出");
+    expect(title).toContain("図中の社名に見える");
+    expect(title).not.toMatch(/保持/);
+
+    // A located finding of the same text on the same page resolves it, in
+    // any category; one on another page does not.
+    await expect(rowFor(RESOLVED, "other")).not.toHaveClass(/\bunlocated\b/);
+    await expect(rowFor(RESOLVED, "other").locator(".badge.lost")).toHaveCount(0);
+    await expect(rowFor(OTHER_PAGE, "organization").first()).toHaveClass(
+      /\bunlocated\b/,
+    );
+  });
+
+  test("a mask on it stays out of decided and warns on every export", async () => {
+    // Settle every other group with keep so only the unlocated one is left.
+    const rows = page.locator(".finding-row");
+    const total = await rows.count();
+    for (let index = 0; index < total; index++) {
+      const row = rows.nth(index);
+      const isTarget =
+        (await row.locator(".finding-text").innerText()) === NAME;
+      await row
+        .getByRole("button", { name: isTarget ? "マスク" : "保持", exact: true })
+        .click();
+    }
+    // OTHER_PAGE is unresolved too but kept, which still counts as decided.
+    const precheck = page.locator(".section-precheck .precheck");
+    await expect(precheck).toHaveClass(/\bwarn\b/);
+    await expect(precheck).toContainText("未判断の候補: 0 種類");
+    await expect(precheck).toContainText("位置未特定（適用されません）: 1 種類");
+
+    const warning = /位置未特定のため判断が適用されていない候補が 1 種類/;
+    const applyButton = page.getByRole("button", { name: /適用（\d+ルール）/ });
+    await applyButton.click();
+    await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+      timeout: 60_000,
+    });
+
+    await page.getByRole("button", { name: "PDF出力" }).click();
+    await page.getByRole("button", { name: "すべてのページを出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/未判断の候補が \d+ 種類残っています/)).toHaveCount(0);
+
+    await page.getByRole("button", { name: "画像出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 60_000 });
+
+    await page.getByRole("button", { name: "Markdown出力" }).click();
+    await expect(page.getByText(warning)).toBeVisible({ timeout: 120_000 });
+
+    // Keep is a decision that does not depend on a position.
+    await rowFor(NAME, "organization")
+      .getByRole("button", { name: "保持", exact: true })
+      .click();
+    await expect(precheck).toHaveClass(/\bok\b/);
+    await expect(precheck).not.toContainText("位置未特定");
+    // The changed decision makes the renders stale, which disables export
+    // until the policy is applied again.
+    await applyButton.click();
+    await expect(page.getByText(/適用済み: \d+ 箇所/)).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.getByRole("button", { name: "Markdown出力" }).click();
+    await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
+      timeout: 120_000,
+    });
+    await expect(page.getByText(warning)).toHaveCount(0);
   });
 });
