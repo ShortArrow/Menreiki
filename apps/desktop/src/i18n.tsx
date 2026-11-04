@@ -358,6 +358,14 @@ export const ja = {
   "review.registerRepresentative": "代表表記を辞書に登録（以後の解析で自動検出）",
   "review.toDictionaryArrow": "→辞書",
   "review.removeVariant": "表記を外す",
+  "review.confirmDeleteEntity":
+    "Entity「{alias}」（表記ゆれ{count}件）を削除しますか？",
+  "review.confirmDelete": "削除を確定",
+  "review.deletedEntity": "Entity「{alias}」を削除しました",
+  "review.removedVariant": "表記「{text}」を外しました",
+  "review.removedDictionaryEntry": "辞書から「{text}」を削除しました",
+  "review.undoDeletion": "元に戻す",
+  "review.dismissUndo": "元に戻す案内を閉じる",
   "review.similarVariants": "類似表記の候補:",
   "review.entitiesEmpty":
     "検索結果の「Entityとして登録」や候補行の「E」から、表記揺れを1つの仮称へまとめられます",
@@ -780,6 +788,14 @@ export const en: Record<MessageKey, string> = {
     "Add the main spelling to the dictionary (detected automatically from now on)",
   "review.toDictionaryArrow": "→ dictionary",
   "review.removeVariant": "Remove this spelling",
+  "review.confirmDeleteEntity":
+    "Delete the entity \"{alias}\" ({count} spellings)?",
+  "review.confirmDelete": "Confirm delete",
+  "review.deletedEntity": "Deleted the entity \"{alias}\"",
+  "review.removedVariant": "Removed the spelling \"{text}\"",
+  "review.removedDictionaryEntry": "Removed \"{text}\" from the dictionary",
+  "review.undoDeletion": "Undo",
+  "review.dismissUndo": "Dismiss the undo offer",
   "review.similarVariants": "Similar spellings:",
   "review.entitiesEmpty":
     "\"Register as an entity\" in the search results, or \"E\" on a candidate row, merges spelling variants into one alias",

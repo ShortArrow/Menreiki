@@ -1467,6 +1467,30 @@ button.rule-target:hover {
   gap: 20px;
 }
 
+/* Single-step undo offer for the last deletion. Not a section, so the
+   section layout rules (and their overlap test) do not apply to it; it sticks
+   to the top of the scrolling pane and comes first in the visual order. */
+.undo-bar {
+  flex: none;
+  order: -1;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--warn-border);
+  border-radius: 6px;
+  background: var(--warn-bg);
+}
+
+.undo-bar .undo-message {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Sections must never flex-shrink: the pane itself scrolls. A shrunk section
    lets its content paint over the next one (the overlapping-sections bug). */
 .side-pane > section {
@@ -1939,6 +1963,28 @@ button.rule-target:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* Inline two-step confirmation for deleting an entity with hand-made work. */
+.entity-delete-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--warn-border);
+  border-radius: 6px;
+  background: var(--warn-bg);
+}
+
+.entity-delete-confirm > span {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+
+.entity-delete-confirm .danger {
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .alias-input {

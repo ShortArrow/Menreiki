@@ -496,6 +496,13 @@ function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
 /// In-place entity assignment: a small popover right on the row offering a
 /// new entity or any existing one, so consolidating a spelling never requires
 /// jumping to a distant bar.
+/// The one deletion the review pane can still take back (transient UI state).
+type LastDeletion =
+  | { kind: "entity"; entity: Entity; index: number }
+  | { kind: "variant"; entityId: string; variant: string; index: number }
+  | { kind: "dictionary"; entry: DictionaryEntry }
+  | null;
+
 function EntityMenu(props: {
   entities: Entity[];
   label?: string;
@@ -1073,6 +1080,16 @@ export default function ReviewView(props: {
     Record<string, string[]>
   >({});
   const [entityCounts, setEntityCounts] = useState<Record<string, number>>({});
+  // The single most recent deletion that can still be undone. Kept apart from
+  // `notice` (which every `run` clears) and never persisted to any layer.
+  const [lastDeletion, setLastDeletion] = useState<LastDeletion>(null);
+  // Entity id awaiting the in-app delete confirmation, if any.
+  const [pendingEntityDelete, setPendingEntityDelete] = useState<
+    string | null
+  >(null);
+  // Entity ids whose meta must be refreshed once a restore has landed in
+  // `entities` (the restore itself runs inside a state updater).
+  const pendingMetaRefresh = useRef(new Set<string>());
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
@@ -1319,6 +1336,20 @@ export default function ReviewView(props: {
   }, [project.projectDir]);
 
   useEffect(() => {
+    setLastDeletion(null);
+    setPendingEntityDelete(null);
+  }, [project.projectDir]);
+
+  useEffect(() => {
+    if (pendingMetaRefresh.current.size === 0) return;
+    const ids = pendingMetaRefresh.current;
+    pendingMetaRefresh.current = new Set();
+    for (const entity of entities) {
+      if (ids.has(entity.id)) void refreshEntityMeta(entity);
+    }
+  }, [entities]);
+
+  useEffect(() => {
     if (!entitiesHydrated) return;
     entitiesAutosave.schedule({ dir: project.projectDir, entities });
   }, [entities, entitiesHydrated, project.projectDir]);
@@ -1374,6 +1405,128 @@ export default function ReviewView(props: {
       current.map((entity) => (entity.id === entityId ? updated : entity)),
     );
     void refreshEntityMeta(updated);
+  }
+
+  /// Deleting an entity loses hand-made merges (several spellings, or
+  /// per-position align overrides owned by it), so those ask first. The alias
+  /// is not a signal: every entity gets one automatically on creation.
+  function needsDeleteConfirm(entity: Entity) {
+    return (
+      entity.variants.length >= 2 ||
+      alignOverrides.some((override) => override.owner === `ent-${entity.id}`)
+    );
+  }
+
+  function deleteEntity(entity: Entity) {
+    setPendingEntityDelete(null);
+    const index = entities.findIndex((candidate) => candidate.id === entity.id);
+    if (index < 0) return;
+    setLastDeletion({ kind: "entity", entity: entities[index], index });
+    setEntities((current) =>
+      current.filter((candidate) => candidate.id !== entity.id),
+    );
+  }
+
+  function requestDeleteEntity(entity: Entity) {
+    if (needsDeleteConfirm(entity)) setPendingEntityDelete(entity.id);
+    else deleteEntity(entity);
+  }
+
+  function removeVariant(entity: Entity, variant: string) {
+    const index = entity.variants.indexOf(variant);
+    if (index < 0) return;
+    const updated = {
+      ...entity,
+      variants: entity.variants.filter((candidate) => candidate !== variant),
+    };
+    setLastDeletion({ kind: "variant", entityId: entity.id, variant, index });
+    setEntities((current) =>
+      current.map((candidate) =>
+        candidate.id === entity.id ? updated : candidate,
+      ),
+    );
+    void refreshEntityMeta(updated);
+  }
+
+  function deleteDictionaryEntry(entry: DictionaryEntry) {
+    void run(t("review.removingFromDictionary"), async () => {
+      setDictionary(await removeDictionaryEntry(project.projectDir, entry.text));
+      // Recorded only once the removal itself succeeded; the whole entry is
+      // kept so richer entry shapes survive the round trip.
+      setLastDeletion({ kind: "dictionary", entry });
+      if (project.analyzed) {
+        await analyzeProject(project.projectDir, "detect-only");
+        setFindings(await listFindings(project.projectDir));
+      }
+    });
+  }
+
+  /// Restores the most recent deletion. Entity and variant restores are
+  /// checked against the live list and persisted by the entity autosave;
+  /// a dictionary restore re-registers the entry like the to-dictionary button does.
+  function undoLastDeletion() {
+    const deletion = lastDeletion;
+    setLastDeletion(null);
+    if (!deletion) return;
+    if (deletion.kind === "entity") {
+      const { entity, index } = deletion;
+      setEntities((current) => {
+        if (current.some((candidate) => candidate.id === entity.id)) {
+          return current;
+        }
+        const next = [...current];
+        next.splice(Math.min(index, next.length), 0, entity);
+        pendingMetaRefresh.current.add(entity.id);
+        return next;
+      });
+    } else if (deletion.kind === "variant") {
+      const { entityId, variant, index } = deletion;
+      setEntities((current) => {
+        const parent = current.find((candidate) => candidate.id === entityId);
+        // A spelling already owned by any entity would make the alias depend
+        // on list order, so it is never restored twice.
+        if (
+          !parent ||
+          current.some((candidate) => candidate.variants.includes(variant))
+        ) {
+          return current;
+        }
+        const variants = [...parent.variants];
+        variants.splice(Math.min(index, variants.length), 0, variant);
+        pendingMetaRefresh.current.add(entityId);
+        return current.map((candidate) =>
+          candidate.id === entityId ? { ...parent, variants } : candidate,
+        );
+      });
+    } else {
+      const { entry } = deletion;
+      void run(t("review.registeringDictionary"), async () => {
+        setDictionary(
+          await addDictionaryEntry(
+            project.projectDir,
+            entry.category,
+            entry.text,
+          ),
+        );
+        if (project.analyzed) {
+          await analyzeProject(project.projectDir, "detect-only");
+          setFindings(await listFindings(project.projectDir));
+        }
+      });
+    }
+  }
+
+  function lastDeletionMessage(deletion: NonNullable<LastDeletion>) {
+    switch (deletion.kind) {
+      case "entity":
+        return t("review.deletedEntity", {
+          alias: deletion.entity.alias || deletion.entity.variants[0] || "",
+        });
+      case "variant":
+        return t("review.removedVariant", { text: deletion.variant });
+      case "dictionary":
+        return t("review.removedDictionaryEntry", { text: deletion.entry.text });
+    }
   }
 
   /// Renames a dictionary entry in place (remove old, add corrected) and
@@ -2959,6 +3112,27 @@ export default function ReviewView(props: {
         />
 
         <aside className="side-pane">
+          {lastDeletion && (
+            <div className="undo-bar" role="status">
+              <span className="undo-message">
+                {lastDeletionMessage(lastDeletion)}
+              </span>
+              <button
+                disabled={lastDeletion.kind === "dictionary" && busy !== null}
+                onClick={undoLastDeletion}
+              >
+                {t("review.undoDeletion")}
+              </button>
+              <button
+                className="mini"
+                title={t("review.dismissUndo")}
+                aria-label={t("review.dismissUndo")}
+                onClick={() => setLastDeletion(null)}
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
           <section className="section-precheck">
             <h2>{t("review.preflight")}</h2>
             <div
@@ -3264,25 +3438,7 @@ export default function ReviewView(props: {
                       onNew={() => createEntity(entry.category, entry.text)}
                       onAssign={(id) => addVariant(id, entry.text)}
                     />
-                    <button
-                      onClick={() => {
-                        void run(t("review.removingFromDictionary"), async () => {
-                          setDictionary(
-                            await removeDictionaryEntry(
-                              project.projectDir,
-                              entry.text,
-                            ),
-                          );
-                          if (project.analyzed) {
-                            await analyzeProject(
-                              project.projectDir,
-                              "detect-only",
-                            );
-                            setFindings(await listFindings(project.projectDir));
-                          }
-                        });
-                      }}
-                    >
+                    <button onClick={() => deleteDictionaryEntry(entry)}>
                       {t("review.delete")}
                     </button>
                   </div>
@@ -3682,18 +3838,29 @@ export default function ReviewView(props: {
                     >
                       {t("review.toDictionaryArrow")}
                     </button>
-                    <button
-                      onClick={() =>
-                        setEntities((current) =>
-                          current.filter(
-                            (candidate) => candidate.id !== entity.id,
-                          ),
-                        )
-                      }
-                    >
+                    <button onClick={() => requestDeleteEntity(entity)}>
                       {t("review.delete")}
                     </button>
                   </div>
+                  {pendingEntityDelete === entity.id && (
+                    <div className="entity-delete-confirm" role="alert">
+                      <span>
+                        {t("review.confirmDeleteEntity", {
+                          alias: entity.alias || entity.variants[0] || "",
+                          count: entity.variants.length,
+                        })}
+                      </span>
+                      <button
+                        className="danger"
+                        onClick={() => deleteEntity(entity)}
+                      >
+                        {t("review.confirmDelete")}
+                      </button>
+                      <button onClick={() => setPendingEntityDelete(null)}>
+                        {t("review.cancel")}
+                      </button>
+                    </div>
+                  )}
                   <div className="entity-variants">
                     {entity.variants.map((variant) => (
                       <span key={variant} className="variant-chip">
@@ -3710,22 +3877,7 @@ export default function ReviewView(props: {
                           </span>
                         )}
                         <button
-                          onClick={() => {
-                            const updated = {
-                              ...entity,
-                              variants: entity.variants.filter(
-                                (candidate) => candidate !== variant,
-                              ),
-                            };
-                            setEntities((current) =>
-                              current.map((candidate) =>
-                                candidate.id === entity.id
-                                  ? updated
-                                  : candidate,
-                              ),
-                            );
-                            void refreshEntityMeta(updated);
-                          }}
+                          onClick={() => removeVariant(entity, variant)}
                           aria-label={t("review.removeVariant")}
                         >
                           <X size={11} />
