@@ -27,6 +27,11 @@ let vite: ChildProcess;
 let app: ChildProcess;
 let browser: Browser;
 let page: Page;
+// A rule-detected finding on page 1 and the LLM finding injected next to it,
+// for the source-chip test.
+let regexFinding: { category: string; text: string };
+const injectedLlmText = "架空太郎テスト";
+const injectedLlmNote = "E2E用の架空の理由";
 
 async function waitFor(
   check: () => Promise<boolean>,
@@ -65,6 +70,27 @@ test.beforeAll(async () => {
     env: cliEnv,
   });
   execFileSync(cliExe, ["analyze", projectDir], { env: cliEnv, timeout: 180_000 });
+
+  // Inject an LLM-sourced finding into page 1 so the review list shows an
+  // advisory row next to the rule-based ones. Opening the app does not
+  // re-analyze (ADR-005), so it survives until a detect-only rerun.
+  const pageFindingsPath = path.join(projectDir, "findings", "page-001.json");
+  const pageFindings = JSON.parse(readFileSync(pageFindingsPath, "utf-8")) as {
+    category: string;
+    text: string;
+    detector: string;
+  }[];
+  const regex = pageFindings.find((finding) => finding.detector === "regex");
+  if (!regex) throw new Error("page 1 has no regex finding to compare against");
+  regexFinding = { category: regex.category, text: regex.text };
+  pageFindings.push({
+    category: "person",
+    text: injectedLlmText,
+    rect: { x: 1, y: 1, width: 8, height: 8 },
+    detector: "llm",
+    note: injectedLlmNote,
+  } as (typeof pageFindings)[number]);
+  writeFileSync(pageFindingsPath, JSON.stringify(pageFindings, null, 2));
 
   // Pin the UI language: the app follows the OS otherwise, and every
   // assertion below reads Japanese labels.
@@ -218,6 +244,45 @@ test("the LLM settings read as optional and stay quiet with no server", async ()
   await expect(page.getByText(/モデル一覧を取得できませんでした/)).toHaveCount(0);
   await page.getByRole("button", { name: "閉じる" }).click();
   await expect(page.getByText("このプロジェクトで使う検出器")).toBeHidden();
+});
+
+test("finding rows show their source and mark LLM guesses as advisory", async () => {
+  // Must run before any dictionary edit or re-analysis: a detect-only rerun
+  // rewrites the findings and drops the injected LLM row.
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const llmRow = page.locator(".findings-list .finding-row", {
+    hasText: injectedLlmText,
+  });
+  await expect(llmRow).toHaveCount(1);
+
+  const llmChip = llmRow.locator(".source-tag", {
+    hasText: /^LLM$/,
+  });
+  await expect(llmChip).toHaveClass(/\bsource-advisory\b/);
+  await expect(llmChip).toHaveAttribute("title", "参考情報（確定ではありません）");
+  const note = llmRow.locator(".finding-note");
+  await expect(note).toBeVisible();
+  await expect(note).toHaveText(injectedLlmNote);
+
+  const exact = (text: string) =>
+    new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  const regexRow = page
+    .locator(".findings-list .finding-row", { hasText: regexFinding.text })
+    .filter({
+      has: page.locator(".finding-text", { hasText: exact(regexFinding.text) }),
+    })
+    .filter({
+      has: page.locator(".category-tag", {
+        hasText: exact(regexFinding.category),
+      }),
+    });
+  await expect(regexRow).toHaveCount(1);
+  await expect(
+    regexRow.locator(".source-tag", { hasText: /^正規表現$/ }),
+  ).toHaveCount(1);
+  await expect(regexRow.locator(".source-tag.source-advisory")).toHaveCount(0);
 });
 
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
