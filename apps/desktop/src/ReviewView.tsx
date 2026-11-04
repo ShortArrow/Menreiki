@@ -50,6 +50,7 @@ import {
   textInRegion,
   vlmInRegion,
 } from "./api";
+import ExportConfirmDialog from "./ExportConfirmDialog";
 import HelpView from "./HelpView";
 import { describeError } from "./errors";
 import {
@@ -1223,6 +1224,12 @@ export default function ReviewView(props: {
   // (not read from the live `regionRules`) so adding or removing a rectangle
   // afterwards does not change what the shown result claims.
   const [auditRegionCount, setAuditRegionCount] = useState(0);
+  // An export held back by the undecided-candidates confirmation. Always set
+  // it as `setPendingExport(() => action)`: passing the function directly
+  // would make React call it as an updater and export on the spot.
+  const [pendingExport, setPendingExport] = useState<(() => void) | null>(
+    null,
+  );
   const [hydrated, setHydrated] = useState(false);
   // Kept apart from `error` so other operations never clear it: while a
   // state file failed to load, its autosave stays off until the project is
@@ -2172,6 +2179,17 @@ export default function ReviewView(props: {
     });
   }
 
+  /// Every export path goes through here: with undecided candidates left the
+  /// export waits for the confirmation dialog, otherwise it runs at once.
+  function guardExport(action: () => void) {
+    setExportMenuOpen(false);
+    if (undecidedCount > 0) {
+      setPendingExport(() => action);
+    } else {
+      action();
+    }
+  }
+
   function runExportImages() {
     void run(t("review.exportingImages"), async () => {
       setImagesPath(await exportImages(project.projectDir));
@@ -2977,7 +2995,7 @@ export default function ReviewView(props: {
                 onClick={() => setExportMenuOpen(false)}
               />
               <div className="menu export-menu">
-                <button onClick={() => runExport()}>
+                <button onClick={() => guardExport(() => runExport())}>
                   {t("review.exportAllPages")}
                 </button>
                 <div className="export-range">
@@ -2994,7 +3012,9 @@ export default function ReviewView(props: {
                           exportPagesInput,
                           project.pageCount,
                         );
-                        if (pages.length > 0) runExport(pages);
+                        if (pages.length > 0) {
+                          guardExport(() => runExport(pages));
+                        }
                       }
                     }}
                   />
@@ -3004,7 +3024,9 @@ export default function ReviewView(props: {
                         exportPagesInput,
                         project.pageCount,
                       );
-                      if (pages.length > 0) runExport(pages);
+                      if (pages.length > 0) {
+                        guardExport(() => runExport(pages));
+                      }
                     }}
                   >
                     {t("review.exportSelectedPages")}
@@ -3015,13 +3037,13 @@ export default function ReviewView(props: {
           )}
         </div>
         <button
-          onClick={runExportMarkdown}
+          onClick={() => guardExport(runExportMarkdown)}
           disabled={busy !== null || analyzing || !hasRenders || stale}
         >
           {t("review.exportMarkdown")}
         </button>
         <button
-          onClick={runExportImages}
+          onClick={() => guardExport(runExportImages)}
           disabled={busy !== null || analyzing || !hasRenders || stale}
           title={t("review.exportImagesTitle")}
         >
@@ -4506,6 +4528,13 @@ export default function ReviewView(props: {
                     })}
                   </p>
                 )}
+                {audit.report.verdict === "pass" && undecidedCount > 0 && (
+                  <p className="hint">
+                    {t("review.auditPassUndecidedNote", {
+                      count: undecidedCount,
+                    })}
+                  </p>
+                )}
                 {audit.report.residuals.map((residual, index) => (
                   <button
                     key={index}
@@ -4531,6 +4560,19 @@ export default function ReviewView(props: {
           </section>
         </aside>
       </div>
+
+      {pendingExport !== null && (
+        <ExportConfirmDialog
+          undecidedCount={undecidedCount}
+          busy={busy !== null}
+          onCancel={() => setPendingExport(null)}
+          onProceed={() => {
+            const action = pendingExport;
+            setPendingExport(null);
+            action();
+          }}
+        />
+      )}
 
       {helpOpen && <HelpView onClose={() => setHelpOpen(false)} />}
 

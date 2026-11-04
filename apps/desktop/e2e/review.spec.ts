@@ -886,8 +886,29 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
     timeout: 60_000,
   });
 
+  // No candidate was decided above, so every export must stop at the
+  // pre-export confirmation first. Make sure that premise holds.
+  await expect(page.getByText(/未判断の候補: [1-9]/)).toBeVisible();
+
+  // PDF: going back to the review writes nothing.
   await page.getByRole("button", { name: "PDF出力" }).click();
   await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  const confirm = page.getByRole("dialog");
+  await expect(confirm).toBeVisible();
+  await expect(confirm.getByText(/未判断の候補が \d+ 種類あります/)).toBeVisible();
+  await expect(
+    confirm.getByRole("button", { name: "レビューに戻る" }),
+  ).toBeFocused();
+  await expect(page.getByRole("button", { name: "すべてのページを出力" })).toHaveCount(0);
+  await confirm.getByRole("button", { name: "レビューに戻る" }).click();
+  await expect(confirm).toBeHidden();
+  await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+
+  // PDF again: proceeding exports as before.
+  await page.getByRole("button", { name: "PDF出力" }).click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });
@@ -898,13 +919,25 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   );
   await expect(auditButton).toHaveClass(/\bprimary\b/);
 
+  // Markdown: Esc cancels, then proceeding exports.
   await page.getByRole("button", { name: "Markdown出力" }).click();
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden();
+  await expect(page.getByText(/出力: .+sanitized\.md/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Markdown出力" }).click();
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.md/)).toBeVisible({
     timeout: 120_000,
   });
 
   await auditButton.click();
   await expect(page.getByText(/監査: Pass/)).toBeVisible({ timeout: 120_000 });
+  // The pass is qualified: undecided candidates were not checked.
+  await expect(
+    page.getByText(/未判断の候補 \d+ 種類は、監査の検査語の作成元に含まれていません/),
+  ).toBeVisible();
   await expect(auditButton).not.toHaveClass(/\bprimary\b/);
 
   // Changing a decision after Apply must mark the renders as stale: the old
@@ -946,6 +979,7 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
 
   await exportPdf.click();
   await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await confirm.getByRole("button", { name: "このまま出力" }).click();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toBeVisible({
     timeout: 60_000,
   });

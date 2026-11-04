@@ -206,6 +206,11 @@ export const ja = {
     "共有する前に「監査」を実行してください。変換後のページを再OCRし、ポリシーの対象語が残っていないかを照合します。",
   "review.unlocatedWarning":
     "{scope}位置未特定のため判断が適用されていない候補が {count} 種類あります。同じページで「ここを検出」で囲んで割り当てるか、出力を目視で確認してください。",
+  "review.exportConfirmTitle": "未判断の候補があります",
+  "review.exportConfirmBody":
+    "未判断の候補が {count} 種類あります。このまま出力すると、これらは元の表記のまま残る可能性があります。",
+  "review.exportConfirmBack": "レビューに戻る",
+  "review.exportConfirmProceed": "このまま出力",
   "review.exportingImages": "画像を出力中…",
   "review.generatingMarkdown": "Markdownを生成中…",
   "review.auditing": "再検査中…",
@@ -421,6 +426,8 @@ export const ja = {
     "監査は文字の再読み取りチェックのため、消去/マスクの矩形は検査しません。『{showTransformed}』で矩形の位置を目視確認してください。",
   "review.auditNoTerms":
     "監査する語がありません。候補を決定するか検索ルールを追加してください。",
+  "review.auditPassUndecidedNote":
+    "未判断の候補 {count} 種類は、監査の検査語の作成元に含まれていません。",
   "review.residual": "p.{page} 残存 [{term}] {text}",
   "review.regionPreview": "領域プレビュー（全{pages}ページ・{action}）",
   "review.regionPreviewHint":
@@ -644,6 +651,11 @@ export const en: Record<MessageKey, string> = {
     "Run Audit before sharing: it re-OCRs the transformed pages and checks that the policy's terms no longer appear.",
   "review.unlocatedWarning":
     "{scope}{count} candidate kinds have a decision that is not applied because their location is unknown. Box them with \"Detect here\" on the same page and assign them, or check the output visually. ",
+  "review.exportConfirmTitle": "Some candidates are undecided",
+  "review.exportConfirmBody":
+    "{count} candidate kinds are still undecided. If you export now, they may remain in their original form.",
+  "review.exportConfirmBack": "Back to review",
+  "review.exportConfirmProceed": "Export anyway",
   "review.exportingImages": "Exporting images…",
   "review.generatingMarkdown": "Generating Markdown…",
   "review.auditing": "Re-checking…",
@@ -864,6 +876,8 @@ export const en: Record<MessageKey, string> = {
     "The audit re-reads text only, so erase/mask rectangles are not checked. Inspect their position with \"{showTransformed}\".",
   "review.auditNoTerms":
     "There are no words to audit. Decide some candidates or add a search rule first.",
+  "review.auditPassUndecidedNote":
+    "The {count} undecided candidate kinds are not among the sources of the audit's search terms.",
   "review.residual": "p.{page} residual [{term}] {text}",
   "review.regionPreview": "Region preview (all {pages} pages, {action})",
   "review.regionPreviewHint":
