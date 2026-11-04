@@ -134,6 +134,10 @@ export interface Policy {
   rules: PolicyRule[];
 }
 
+/// What a replace rule writes when its value was left empty. The preview
+/// draws the same string so it never promises an alias the export lacks.
+export const EMPTY_REPLACEMENT = "■■■";
+
 export interface ApplySummary {
   page_count: number;
   edit_count: number;

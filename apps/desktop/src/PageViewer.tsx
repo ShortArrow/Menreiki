@@ -2,7 +2,7 @@ import { Minus, Plus } from "./icons";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { pageImageUrl } from "./api";
 import { useI18n } from "./i18n";
-import type { Finding, Rect } from "./types";
+import { EMPTY_REPLACEMENT, type Finding, type Rect } from "./types";
 
 export type DrawMode = "none" | "erase" | "mask" | "detect";
 
@@ -352,7 +352,7 @@ export default function PageViewer(props: {
                   // visible before applying.
                   const text =
                     rule.action === "replace"
-                      ? rule.value || t("viewer.aliasPlaceholder")
+                      ? rule.value || EMPTY_REPLACEMENT
                       : rule.action === "mask"
                         ? "■".repeat(Math.max(1, [...finding.text].length))
                         : null;

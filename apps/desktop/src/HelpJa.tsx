@@ -497,7 +497,10 @@ export default function HelpJa() {
                 <span className="from">検出候補</span> ⟶{" "}
                 <span className="to">適用予定ルール</span>
               </td>
-              <td>再クリックまたは「解除」で候補に戻る</td>
+              <td>
+                再クリックまたは「解除」で候補に戻る。置換を選ぶと、その行で置換後の値を入力できる（適用予定ルール側と同じ値）。値が空のまま出力すると
+                ■■■ になり、出力前確認で警告される
+              </td>
             </tr>
             <tr>
               <th>候補行: E</th>

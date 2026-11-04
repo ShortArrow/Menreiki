@@ -80,6 +80,7 @@ import type {
   ReviewDecisions,
   TextAlign,
 } from "./types";
+import { EMPTY_REPLACEMENT } from "./types";
 
 type DecisionAction = "keep" | "erase" | "mask" | "replace";
 
@@ -368,6 +369,58 @@ function AlignToggle(props: {
         </button>
       ))}
     </span>
+  );
+}
+
+/// The value field, alias suggestions and alignment of one replace decision.
+/// Shared by the pending-rules row and the candidate row, which both edit the
+/// same decision. Without `className` it renders its controls inline in the
+/// parent row; with one it wraps them (the candidate row's second line).
+function ReplaceValueEditor(props: {
+  text: string;
+  category: string;
+  value: string;
+  align: TextAlign | undefined;
+  onValue: (value: string) => void;
+  onAlign: (align: TextAlign) => void;
+  className?: string;
+  inputClassName?: string;
+  inputLabel?: string;
+  /// Focus the field once when it mounts, then report it.
+  autoFocus?: boolean;
+  onAutoFocused?: () => void;
+}) {
+  const { t } = useI18n();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Captured at mount: later renders must not steal focus back.
+  const mountProps = useRef(props);
+  useEffect(() => {
+    if (!mountProps.current.autoFocus) return;
+    inputRef.current?.focus();
+    mountProps.current.onAutoFocused?.();
+  }, []);
+  const controls = (
+    <>
+      <input
+        ref={inputRef}
+        className={props.inputClassName ?? "replace-input"}
+        placeholder={t("review.replacementPlaceholder")}
+        aria-label={props.inputLabel}
+        value={props.value}
+        onChange={(event) => props.onValue(event.target.value)}
+      />
+      <AliasSuggest
+        text={props.text}
+        category={props.category}
+        onPick={props.onValue}
+      />
+      <AlignToggle value={props.align} onChange={props.onAlign} />
+    </>
+  );
+  return props.className ? (
+    <div className={props.className}>{controls}</div>
+  ) : (
+    controls
   );
 }
 
@@ -807,7 +860,7 @@ function RuleCropsPanel(props: {
                           : "center",
                   }}
                 >
-                  {props.action === "replace" ? props.value || "■■■" : ""}
+                  {props.action === "replace" ? props.value || EMPTY_REPLACEMENT : ""}
                 </span>
               </span>
             </button>
@@ -1031,6 +1084,13 @@ export default function ReviewView(props: {
   const [findingFilter, setFindingFilter] = useState("");
   const [findingCategoryFilter, setFindingCategoryFilter] = useState("all");
   const [findingUndecidedOnly, setFindingUndecidedOnly] = useState(false);
+  // The candidate row holding focus; exempt from the "undecided only" filter.
+  const [editingFindingKey, setEditingFindingKey] = useState<string | null>(
+    null,
+  );
+  // The candidate row just switched to replace, whose value field should take
+  // focus when it mounts. A ref so the focus fires exactly once.
+  const pendingFocusKey = useRef<string | null>(null);
   const [paneWidths, setPaneWidths] = useState(loadPaneWidths);
   const panesRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef<HTMLButtonElement>(null);
@@ -1420,7 +1480,9 @@ export default function ReviewView(props: {
         finding.category !== findingCategoryFilter
       )
         return false;
-      if (findingUndecidedOnly && decisions[findingKey(finding)]) return false;
+      const key = findingKey(finding);
+      if (findingUndecidedOnly && decisions[key] && key !== editingFindingKey)
+        return false;
       if (!needle) return true;
       return (
         finding.text.toLowerCase().includes(needle) ||
@@ -1436,6 +1498,7 @@ export default function ReviewView(props: {
     findingUndecidedOnly,
     decisions,
     t,
+    editingFindingKey,
   ]);
 
   // Collapse identical candidates (same category + text) into one row with an
@@ -1486,27 +1549,42 @@ export default function ReviewView(props: {
       }));
   }, [flatFindings, decisions]);
 
-  const policy: Policy = useMemo(() => {
+  // Also counts the text rules that fall back to EMPTY_REPLACEMENT, so the
+  // pre-export check can say the output will carry ■■■ instead of an alias.
+  // Counted after de-duplication: a text claimed by an entity with an alias
+  // is not empty in the output. Alignment exceptions are not counted; they
+  // only repeat their owning rule's value.
+  const { policy, emptyReplaceCount } = useMemo((): {
+    policy: Policy;
+    emptyReplaceCount: number;
+  } => {
     const rules: PolicyRule[] = [];
     const seenTexts = new Set<string>();
+    let emptyReplaceCount = 0;
     // Per-occurrence alignment exceptions become region-scoped replace rules
     // pushed FIRST: the planner keeps the first of two same-box edits, so
     // these one-spot rules win over the document-wide text rule below.
     const replaceValueByOwner = new Map<string, string>();
     for (const entity of entities) {
-      replaceValueByOwner.set(`ent-${entity.id}`, entity.alias || "■■■");
+      replaceValueByOwner.set(
+        `ent-${entity.id}`,
+        entity.alias || EMPTY_REPLACEMENT,
+      );
     }
     for (const entry of decidedEntries) {
       if (entry.decision.action === "replace") {
         replaceValueByOwner.set(
           `dec-${entry.key}`,
-          entry.decision.value || "■■■",
+          entry.decision.value || EMPTY_REPLACEMENT,
         );
       }
     }
     for (const rule of textRules) {
       if (rule.action === "replace") {
-        replaceValueByOwner.set(`txt-${rule.text}`, rule.value || "■■■");
+        replaceValueByOwner.set(
+          `txt-${rule.text}`,
+          rule.value || EMPTY_REPLACEMENT,
+        );
       }
     }
     for (const override of alignOverrides) {
@@ -1525,11 +1603,16 @@ export default function ReviewView(props: {
     ) => {
       if (!text || seenTexts.has(text)) return;
       seenTexts.add(text);
+      if (action === "replace" && !value) emptyReplaceCount += 1;
       rules.push({
         match: { text },
         action:
           action === "replace"
-            ? { type: "replace", value: value || "■■■", align: align ?? "center" }
+            ? {
+                type: "replace",
+                value: value || EMPTY_REPLACEMENT,
+                align: align ?? "center",
+              }
             : action === "mask"
               ? { type: "mask" }
               : { type: "remove" },
@@ -1561,7 +1644,7 @@ export default function ReviewView(props: {
           region.action === "mask" ? { type: "mask" } : { type: "remove" },
       });
     }
-    return { rules };
+    return { policy: { rules }, emptyReplaceCount };
   }, [entities, decidedEntries, textRules, regionRules, alignOverrides]);
 
   /// The apply plan depends on the policy and on the findings (category and
@@ -1685,18 +1768,24 @@ export default function ReviewView(props: {
   }
 
   // Builds the status notice shown after a successful export: the page-scope
-  // note, then the undecided-candidates warning, then the audit nudge while
-  // no audit result exists. The scope note is embedded through `{scope}` so it
-  // is not repeated; joining whitespace lives in the dictionary strings.
+  // note, then what the reviewer may not have meant to ship (undecided
+  // candidates, empty replacements), then the audit nudge while no audit
+  // result exists. Warnings never block the export. The scope note is embedded
+  // through `{scope}` so it is not repeated; joining whitespace lives in the
+  // dictionary strings, so the result is only trimmed.
   function composeExportNotice(scopeNote: string): string | null {
-    const base =
+    let text =
       undecidedCount > 0
         ? t("review.undecidedWarning", {
             scope: scopeNote,
             count: undecidedCount,
           })
         : scopeNote;
-    const text = base + (audit === null ? t("review.auditNudge") : "");
+    if (emptyReplaceCount > 0) {
+      text += t("review.emptyReplaceWarning", { count: emptyReplaceCount });
+    }
+    if (audit === null) text += t("review.auditNudge");
+    text = text.trim();
     return text === "" ? null : text;
   }
 
@@ -2705,10 +2794,21 @@ export default function ReviewView(props: {
         <aside className="side-pane">
           <section className="section-precheck">
             <h2>{t("review.preflight")}</h2>
-            <div className={undecidedCount > 0 ? "precheck warn" : "precheck ok"}>
+            <div
+              className={
+                undecidedCount > 0 || emptyReplaceCount > 0
+                  ? "precheck warn"
+                  : "precheck ok"
+              }
+            >
               <span>
                 {t("review.undecidedCount", { count: undecidedCount })}
               </span>
+              {emptyReplaceCount > 0 && (
+                <span>
+                  {t("review.emptyReplaceCount", { count: emptyReplaceCount })}
+                </span>
+              )}
               <span>{t("review.decidedCount", { count: decidedCount })}</span>
               <span>
                 {t("review.pendingRules", { count: policy.rules.length })}
@@ -3131,25 +3231,14 @@ export default function ReviewView(props: {
                     <span className="finding-text">{entry.finding.text}</span>
                   </button>
                   {entry.decision.action === "replace" && (
-                    <>
-                      <input
-                        className="replace-input"
-                        placeholder={t("review.replacementPlaceholder")}
-                        value={entry.decision.value}
-                        onChange={(event) =>
-                          setDecisionValue(entry.key, event.target.value)
-                        }
-                      />
-                      <AliasSuggest
-                        text={entry.finding.text}
-                        category={entry.finding.category}
-                        onPick={(value) => setDecisionValue(entry.key, value)}
-                      />
-                      <AlignToggle
-                        value={entry.decision.align}
-                        onChange={(align) => setDecisionAlign(entry.key, align)}
-                      />
-                    </>
+                    <ReplaceValueEditor
+                      text={entry.finding.text}
+                      category={entry.finding.category}
+                      value={entry.decision.value}
+                      align={entry.decision.align}
+                      onValue={(value) => setDecisionValue(entry.key, value)}
+                      onAlign={(align) => setDecisionAlign(entry.key, align)}
+                    />
                   )}
                   <EntityMenu
                     entities={entities}
@@ -3556,16 +3645,31 @@ export default function ReviewView(props: {
               </label>
             </div>
             <div className="findings-list">
-              {dedupedFindings.map(({ pageIndex, finding, count }, index) => {
+              {dedupedFindings.map(({ pageIndex, finding, count }) => {
                 const key = findingKey(finding);
                 const decision = decisions[key];
                 const sources = findingSources.get(key);
                 return (
                   <div
-                    key={index}
+                    key={key}
                     ref={(element) => {
                       if (element) findingRowRefs.current.set(key, element);
                       else findingRowRefs.current.delete(key);
+                    }}
+                    // While focus is anywhere in the row it stays listed even
+                    // under "undecided only", so deciding does not yank away
+                    // the value field the reviewer is about to type into.
+                    onFocus={() => setEditingFindingKey(key)}
+                    onBlur={(event) => {
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        setEditingFindingKey((current) =>
+                          current === key ? null : current,
+                        );
+                      }
                     }}
                     className={[
                       "finding-row",
@@ -3623,7 +3727,14 @@ export default function ReviewView(props: {
                     </button>
                     <DecisionButtons
                       value={decision?.action}
-                      onChange={(action) => setDecision(key, action)}
+                      onChange={(action) => {
+                        pendingFocusKey.current =
+                          action === "replace" && decision?.action !== "replace"
+                            ? key
+                            : null;
+                        setEditingFindingKey(key);
+                        setDecision(key, action);
+                      }}
                     />
                     <EntityMenu
                       entities={entities}
@@ -3640,6 +3751,26 @@ export default function ReviewView(props: {
                     >
                       {t("review.ignore")}
                     </button>
+                    {decision?.action === "replace" && (
+                      <ReplaceValueEditor
+                        className="finding-replace"
+                        inputClassName="finding-replace-input"
+                        inputLabel={t("review.findingReplacementLabel", {
+                          text: finding.text,
+                        })}
+                        text={finding.text}
+                        category={finding.category}
+                        value={decision.value}
+                        align={decision.align}
+                        onValue={(value) => setDecisionValue(key, value)}
+                        onAlign={(align) => setDecisionAlign(key, align)}
+                        autoFocus={pendingFocusKey.current === key}
+                        onAutoFocused={() => {
+                          if (pendingFocusKey.current === key)
+                            pendingFocusKey.current = null;
+                        }}
+                      />
+                    )}
                   </div>
                 );
               })}

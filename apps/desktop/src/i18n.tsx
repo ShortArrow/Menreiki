@@ -46,7 +46,6 @@ export const ja = {
     "ページ画像が見つかりません。最初から解析し直してください（候補は作り直されます。判断・辞書・Entity は残ります）。",
   "viewer.revealFinding": "クリックで右ペインの該当候補を表示",
   "viewer.deleteRegionRule": "クリックでこの領域ルールを削除",
-  "viewer.aliasPlaceholder": "（仮称）",
 
   "settings.title": "設定",
   "settings.close": "閉じる",
@@ -194,6 +193,8 @@ export const ja = {
   "review.exportedPages": "{count} ページを出力しました。",
   "review.undecidedWarning":
     "{scope}未判断の候補が {count} 種類残っています。出力を共有する前に確認してください。",
+  "review.emptyReplaceWarning":
+    "置換値が空の置換が {count} 件あり、■■■ で出力されました。",
   "review.auditNudge":
     "共有する前に「監査」を実行してください。変換後のページを再OCRし、ポリシーの対象語が残っていないかを照合します。",
   "review.exportingImages": "画像を出力中…",
@@ -279,6 +280,7 @@ export const ja = {
 
   "review.preflight": "出力前確認",
   "review.undecidedCount": "未判断の候補: {count} 種類",
+  "review.emptyReplaceCount": "置換値が空の置換: {count} 件（■■■ で出力）",
   "review.decidedCount": "判断済み: {count} 種類",
   "review.pendingRules": "適用予定ルール: {count} 件",
   "review.detected": "検出",
@@ -327,6 +329,7 @@ export const ja = {
   "review.variantSeparator": "、",
   "review.aliasUnset": "（仮称未設定）",
   "review.replacementPlaceholder": "置換後",
+  "review.findingReplacementLabel": "「{text}」の置換後",
   "review.release": "解除",
   "review.searchTag": "検索",
   "review.jumpToRegion": "クリックで該当領域へジャンプ",
@@ -433,7 +436,6 @@ export const en: Record<MessageKey, string> = {
     "The page images are missing. Run the analysis again from the start (candidates are rebuilt; your decisions, dictionaries and entities are kept).",
   "viewer.revealFinding": "Click to show this candidate in the right pane",
   "viewer.deleteRegionRule": "Click to delete this region rule",
-  "viewer.aliasPlaceholder": "(alias)",
 
   "settings.title": "Settings",
   "settings.close": "Close",
@@ -584,6 +586,8 @@ export const en: Record<MessageKey, string> = {
   "review.exportedPages": "Exported {count} pages. ",
   "review.undecidedWarning":
     "{scope}{count} candidate kinds are still undecided. Review them before sharing the output. ",
+  "review.emptyReplaceWarning":
+    "{count} replacements have no value and were exported as ■■■. ",
   "review.auditNudge":
     "Run Audit before sharing: it re-OCRs the transformed pages and checks that the policy's terms no longer appear.",
   "review.exportingImages": "Exporting images…",
@@ -672,6 +676,7 @@ export const en: Record<MessageKey, string> = {
 
   "review.preflight": "Before you export",
   "review.undecidedCount": "Undecided: {count} kinds",
+  "review.emptyReplaceCount": "Empty replacement values: {count} (exported as ■■■)",
   "review.decidedCount": "Decided: {count} kinds",
   "review.pendingRules": "Pending rules: {count}",
   "review.detected": "Detected",
@@ -720,6 +725,7 @@ export const en: Record<MessageKey, string> = {
   "review.variantSeparator": ", ",
   "review.aliasUnset": "(alias not set)",
   "review.replacementPlaceholder": "Replacement",
+  "review.findingReplacementLabel": "Replacement for \"{text}\"",
   "review.release": "Undo",
   "review.searchTag": "Search",
   "review.jumpToRegion": "Click to jump to this region",

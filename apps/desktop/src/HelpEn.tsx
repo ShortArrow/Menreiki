@@ -526,7 +526,12 @@ export default function HelpEn() {
                 <span className="from">Candidates</span> ⟶{" "}
                 <span className="to">Pending rules</span>
               </td>
-              <td>Click again, or "Undo", to send it back</td>
+              <td>
+                Click again, or "Undo", to send it back. Choosing replace lets
+                you type the replacement right in that row (the same value as
+                in the pending rules). A replacement left empty is exported as
+                ■■■, and "Before you export" warns about it
+              </td>
             </tr>
             <tr>
               <th>Candidate row: E</th>
