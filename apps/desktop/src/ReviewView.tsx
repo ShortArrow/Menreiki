@@ -1804,12 +1804,14 @@ export default function ReviewView(props: {
     let excluded = 0;
     for (const { finding } of dedupedFindings) {
       const key = findingKey(finding);
-      if (decisions[key]) continue;
+      // Entity members already count as decided; a bulk decision on them
+      // would only add conflicts with the entity's replacement.
+      if (decisions[key] || variantToEntity.has(finding.text)) continue;
       if (unlocatedKeys.has(key)) excluded += 1;
       else targets.push({ key, finding });
     }
     return { targets, excluded };
-  }, [dedupedFindings, decisions, unlocatedKeys]);
+  }, [dedupedFindings, decisions, unlocatedKeys, variantToEntity]);
 
   // Every candidate group (category + text) in the document, for assigning a
   // boxed detection to an existing group as a missed occurrence.

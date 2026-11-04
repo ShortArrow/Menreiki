@@ -1194,7 +1194,9 @@ test("bulk apply decides only the shown undecided candidates", async () => {
     return Number(/(\d+)/.exec(text ?? "")![1]);
   };
 
-  // 1. The first category with at least two shown rows; no hard-coded name.
+  // 1. The first category with at least two shown rows and no entity member
+  // (the pipeline test leaves one, which counts as decided and is skipped by
+  // bulk apply); no hard-coded name.
   const categories = (
     await filterSelect.locator("option").evaluateAll((options) =>
       options.map((option) => (option as HTMLOptionElement).value),
@@ -1203,7 +1205,10 @@ test("bulk apply decides only the shown undecided candidates", async () => {
   let category: string | undefined;
   for (const candidate of categories) {
     await filterSelect.selectOption(candidate);
-    if ((await rows.count()) >= 2) {
+    if (
+      (await rows.count()) >= 2 &&
+      (await rows.locator(".entity-alias-chip").count()) === 0
+    ) {
       category = candidate;
       break;
     }
