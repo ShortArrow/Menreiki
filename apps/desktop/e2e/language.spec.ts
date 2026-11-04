@@ -21,6 +21,16 @@ const pdfiumDir = path.join(repoRoot, "vendor", "pdfium");
 // survives translation and shows up mid-sentence in the English UI.
 const JAPANESE = /[ぁ-んァ-ヶ一-龠（）、。・「」]/;
 
+// The language picker's own labels are bilingual on purpose, so a user stuck
+// in a UI they cannot read can still find it. Remove every occurrence of
+// them before looking for stray Japanese.
+function stripPicker(text: string): string {
+  return text
+    .replaceAll("Language / 言語", "")
+    .replaceAll("Auto / 自動", "")
+    .replaceAll("日本語", "");
+}
+
 let workDir: string;
 let vite: ChildProcess;
 let app: ChildProcess;
@@ -131,8 +141,13 @@ test("the first-run notice and home screen render in English", async () => {
     page.getByText("Everything runs on this device.", { exact: false }),
   ).toBeVisible();
 
+  // The home screen carries the same bilingual language picker as the
+  // settings dialog. A <select>'s innerText includes every <option>, and the
+  // label repeats the picker's name, so strip all occurrences before the
+  // check; anything Japanese left over is a real translation gap.
   const homeText = (await page.locator(".home").innerText()) ?? "";
-  expect(homeText).not.toMatch(JAPANESE);
+  expect(homeText).toContain("Language / 言語");
+  expect(stripPicker(homeText)).not.toMatch(JAPANESE);
 });
 
 test("the review screen and settings dialog render in English", async () => {
@@ -155,11 +170,7 @@ test("the review screen and settings dialog render in English", async () => {
   // The language picker keeps its own labels bilingual on purpose; the rest
   // of the dialog must not fall back to Japanese.
   const dialogText = await page.locator(".modal-body").innerText();
-  const withoutPicker = dialogText
-    .replace("Language / 言語", "")
-    .replace("Auto / 自動", "")
-    .replace("日本語", "");
-  expect(withoutPicker).not.toMatch(JAPANESE);
+  expect(stripPicker(dialogText)).not.toMatch(JAPANESE);
 
   await page.getByRole("button", { name: "Close" }).click();
 });
