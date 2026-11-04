@@ -644,6 +644,99 @@ test("removing a detector pack asks for confirmation in the row first", async ()
   ).toBeEnabled({ timeout: 120_000 });
 });
 
+test("decision buttons expose their pressed state and row name", async () => {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+
+  // Every group carries a name built from its own row's category and text,
+  // so a screen reader (or a role query) can tell the rows apart.
+  const rows = page.locator(".findings-list .finding-row");
+  const rowCount = await rows.count();
+  expect(rowCount).toBeGreaterThan(0);
+  for (let i = 0; i < rowCount; i++) {
+    const row = rows.nth(i);
+    const group = row.locator(".decision-buttons");
+    await expect(group).toHaveAttribute("role", "group");
+    const label = (await group.getAttribute("aria-label")) ?? "";
+    expect(label).not.toBe("");
+    const category = (await row.locator(".category-tag").textContent()) ?? "";
+    const text = (await row.locator(".finding-text").textContent()) ?? "";
+    expect(label).toContain(category);
+    expect(label).toContain(text);
+  }
+
+  // The toolbar has its own "マスク"/"消去" buttons, so scope to the row group.
+  const row = rows.first();
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+  const group = row.getByRole("group");
+  const buttons = group.getByRole("button");
+  await expect(buttons).toHaveCount(4);
+
+  // Targets are at least 24px tall so adjacent choices are hard to mis-hit.
+  for (let i = 0; i < 4; i++) {
+    const box = await buttons.nth(i).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.height).toBeGreaterThanOrEqual(24);
+  }
+
+  await group.getByRole("button", { name: "マスク", exact: true }).click();
+  await expect(
+    group.getByRole("button", { name: "マスク", pressed: true }),
+  ).toHaveCount(1);
+  await expect(group.locator('button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(group.locator('button[aria-pressed="false"]')).toHaveCount(3);
+
+  // Pressing the active choice again clears the decision; the run must end
+  // undecided because decisions autosave and later tests share the project.
+  await group.getByRole("button", { name: "マスク", exact: true }).click();
+  await expect(group.locator('button[aria-pressed="false"]')).toHaveCount(4);
+  await expect(row).not.toHaveClass(/\bdecided\b/);
+});
+
+test("rectangle draw mode and scope expose their pressed state", async () => {
+  const toolbar = page.locator(".viewer-toolbar");
+  await toolbar.getByRole("button", { name: "消去", exact: true }).click();
+  await toolbar.getByRole("button", { name: "このページ", exact: true }).click();
+
+  const modes = toolbar.locator("button.mode");
+  // Four draw modes plus the two scope buttons shown for erase.
+  await expect(modes).toHaveCount(6);
+  await expect(toolbar.locator('button.mode[aria-pressed="true"]')).toHaveCount(2);
+  await expect(
+    toolbar.getByRole("button", { name: "消去", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    toolbar.getByRole("button", { name: "このページ", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    toolbar.getByRole("button", { name: "全ページ", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
+  for (const name of ["なし", "マスク"]) {
+    await expect(
+      toolbar.getByRole("button", { name, exact: true }),
+    ).toHaveAttribute("aria-pressed", "false");
+  }
+
+  // Restore the defaults for the tests that follow.
+  await toolbar.getByRole("button", { name: "全ページ", exact: true }).click();
+  await toolbar.getByRole("button", { name: "なし", exact: true }).click();
+  await expect(
+    toolbar.getByRole("button", { name: "なし", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("only the current page button carries aria-current", async () => {
+  const pages = page.locator(".page-button");
+  await pages.nth(1).click();
+  await expect(pages.nth(1)).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".page-button[aria-current]")).toHaveCount(1);
+
+  await pages.first().click();
+  await expect(pages.first()).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(".page-button[aria-current]")).toHaveCount(1);
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
