@@ -696,8 +696,8 @@ async fn suggest_targets(project: String) -> Result<Vec<String>, UiError> {
             &config.inference.model,
         )
         .map_err(|error| UiError::inference(&error))?;
-        let pages =
-            menreiki_project::load_ocr_pages(Path::new(&project)).map_err(|error| error.to_string())?;
+        let pages = menreiki_project::load_ocr_pages(Path::new(&project))
+            .map_err(|error| error.to_string())?;
         let mut sample = String::new();
         for page in &pages {
             sample.push_str(&page.text());
@@ -1049,16 +1049,26 @@ async fn vlm_in_region(
         if x >= iw || y >= ih {
             return Err("領域がページ外です".to_string());
         }
-        let crop = image.crop_imm(x, y, (rect.width.max(1.0) as u32).min(iw - x), (rect.height.max(1.0) as u32).min(ih - y));
+        let crop = image.crop_imm(
+            x,
+            y,
+            (rect.width.max(1.0) as u32).min(iw - x),
+            (rect.height.max(1.0) as u32).min(ih - y),
+        );
         let mut buffer = Vec::new();
-        crop.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
-            .map_err(|error| error.to_string())?;
-        Ok(menreiki_inference::detect_candidates_in_image(&client, &buffer)
-            .map_err(|error| error.to_string())?
-            .into_iter()
-            .map(|candidate| candidate.text)
-            .filter(|text| !text.trim().is_empty())
-            .collect())
+        crop.write_to(
+            &mut std::io::Cursor::new(&mut buffer),
+            image::ImageFormat::Png,
+        )
+        .map_err(|error| error.to_string())?;
+        Ok(
+            menreiki_inference::detect_candidates_in_image(&client, &buffer)
+                .map_err(|error| error.to_string())?
+                .into_iter()
+                .map(|candidate| candidate.text)
+                .filter(|text| !text.trim().is_empty())
+                .collect(),
+        )
     })
     .await
     .map_err(|error| error.to_string())?
