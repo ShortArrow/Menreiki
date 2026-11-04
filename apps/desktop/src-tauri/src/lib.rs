@@ -18,7 +18,8 @@ use tauri::{Emitter, Manager};
 use ocr_language::OcrLanguageStatus;
 use ui_error::UiError;
 
-/// Set to true by `cancel_analysis`; analysis loops stop between pages.
+/// Set to true by `cancel_analysis`; analysis and audit loops stop between
+/// pages.
 struct AnalysisCancel(Arc<AtomicBool>);
 
 #[derive(Debug, Clone, Serialize)]
@@ -357,6 +358,18 @@ struct AnalyzeOutcome {
     /// The OCR language status when this run created an OCR engine (it
     /// reached the OCR stage); `None` for runs that never did.
     ocr: Option<OcrLanguageStatus>,
+}
+
+/// The audit result; a cancelled audit carries no report (and no verdict).
+/// `report` keeps the report's own snake_case field names. The OCR status
+/// rides beside the core report (left unchanged) so the UI can qualify a
+/// pass read by a fallback engine.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuditOutcome {
+    cancelled: bool,
+    report: Option<menreiki_audit::AuditReport>,
+    ocr: OcrLanguageStatus,
 }
 
 /// Builds the project's detection rules from its selected detectors and
@@ -1171,27 +1184,52 @@ async fn export_markdown(
 
 #[tauri::command]
 async fn audit_project(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AnalysisCancel>,
     project: String,
     policy: Option<serde_json::Value>,
     extra_terms: Vec<String>,
     ocr_language: String,
-) -> Result<serde_json::Value, UiError> {
+) -> Result<AuditOutcome, UiError> {
+    let cancel = state.0.clone();
+    cancel.store(false, Ordering::Relaxed);
+
     tauri::async_runtime::spawn_blocking(move || {
         let policy: Option<menreiki_policy::Policy> = policy
             .map(serde_json::from_value)
             .transpose()
             .map_err(|error| error.to_string())?;
         let (engine, ocr) = ocr_engine(&ocr_language)?;
-        let report = menreiki_project::audit_output(
+        let result = menreiki_project::audit_output(
             Path::new(&project),
             policy.as_ref(),
             &extra_terms,
             &engine,
-        )
-        .map_err(|error| UiError::audit(&error))?;
-        // The OCR status rides beside the core report (left unchanged) so
-        // the UI can qualify a pass read by a fallback engine.
-        Ok(serde_json::json!({ "report": report, "ocr": ocr }))
+            &mut |page_index, total| {
+                let _ = app.emit(
+                    "analyze-progress",
+                    serde_json::json!({
+                        "stage": "audit",
+                        "page": page_index + 1,
+                        "total": total,
+                    }),
+                );
+                !cancel.load(Ordering::Relaxed)
+            },
+        );
+        match result {
+            Ok(report) => Ok(AuditOutcome {
+                cancelled: false,
+                report: Some(report),
+                ocr,
+            }),
+            Err(menreiki_project::AuditOutputError::Cancelled) => Ok(AuditOutcome {
+                cancelled: true,
+                report: None,
+                ocr,
+            }),
+            Err(error) => Err(UiError::audit(&error)),
+        }
     })
     .await
     .map_err(|error| error.to_string())?
