@@ -421,6 +421,110 @@ test("detect-here on a readable word opens the target bar without errors", async
   }
 });
 
+// The first candidate row, pinned by its text so the locator keeps pointing at
+// the same row while decisions change around it.
+async function firstCandidateRow() {
+  await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
+    timeout: 120_000,
+  });
+  const text = await page
+    .locator(".findings-list .finding-row .finding-text")
+    .first()
+    .textContent();
+  expect(text).toBeTruthy();
+  return page
+    .locator(".findings-list .finding-row")
+    .filter({ has: page.locator(".finding-text", { hasText: text! }) })
+    .first();
+}
+
+test("a replace decision takes its value right in the candidate row", async () => {
+  const row = await firstCandidateRow();
+  const replace = row.locator(".decision-btn", { hasText: "置換" });
+  const input = row.locator(".finding-replace-input");
+  await expect(input).toHaveCount(0);
+
+  // A1: choosing replace opens the value field in place and focuses it.
+  await replace.click();
+  await expect(input).toBeVisible();
+  await expect(input).toBeFocused();
+
+  // A2: the row and the pending rule edit the same value, both ways.
+  const ruleInput = page.locator(".section-rules .replace-input");
+  await expect(ruleInput).toHaveCount(1);
+  await input.fill("共同研究先A");
+  await expect(ruleInput).toHaveValue("共同研究先A");
+  await ruleInput.fill("共同研究先B");
+  await expect(input).toHaveValue("共同研究先B");
+
+  // A3: the row's alignment toggle drives the rule's alignment.
+  await row.getByRole("button", { name: "右揃え" }).click();
+  await expect(
+    page.locator(".section-rules .align-btn.current"),
+  ).toHaveAttribute("aria-label", "右揃え");
+
+  // A4: other actions hide the field; replace brings the value back.
+  await row.locator(".decision-btn", { hasText: "マスク" }).click();
+  await expect(input).toHaveCount(0);
+  await replace.click();
+  await expect(input).toHaveValue("共同研究先B");
+  await replace.click();
+  await expect(input).toHaveCount(0);
+});
+
+test("an empty replacement is previewed as ■■■ and flagged before export", async () => {
+  const row = await firstCandidateRow();
+  // Bring the candidate's page into view so its rule preview is drawn.
+  await row.locator(".finding-label").click();
+  const replace = row.locator(".decision-btn", { hasText: "置換" });
+  await replace.click();
+
+  // C1: the pre-export check counts the empty replacement and warns.
+  const precheck = page.locator(".precheck");
+  await expect(precheck).toHaveClass(/warn/);
+  await expect(precheck.getByText(/置換値が空の置換: 1 件/)).toBeVisible();
+
+  // B1: the preview draws what the export will contain, not a placeholder.
+  await expect(
+    page.locator(".rule-preview").filter({ hasText: "■■■" }).first(),
+  ).toBeVisible();
+  await expect(
+    page.locator(".rule-preview").filter({ hasText: "（仮称）" }),
+  ).toHaveCount(0);
+
+  // C2: entering a value clears the warning line.
+  await row.locator(".finding-replace-input").fill("共同研究先A");
+  await expect(precheck.getByText(/置換値が空の置換/)).toHaveCount(0);
+
+  // Leave no decision behind for the tests that follow.
+  await replace.click();
+  await expect(row.locator(".finding-replace-input")).toHaveCount(0);
+});
+
+test("the undecided-only filter keeps the row being edited", async () => {
+  const row = await firstCandidateRow();
+  const filter = page.getByLabel("未判断のみ");
+  await filter.check();
+  try {
+    // A6: deciding keeps the row while focus stays inside it.
+    await row.locator(".decision-btn", { hasText: "置換" }).click();
+    const input = row.locator(".finding-replace-input");
+    await expect(input).toBeFocused();
+    await row.getByRole("button", { name: "左揃え" }).click();
+    await expect(row.getByRole("button", { name: "左揃え" })).toHaveClass(
+      /current/,
+    );
+    // Focus leaving the row lets the filter drop it.
+    await page.getByPlaceholder("例: 株式会社アルファ技研").focus();
+    await expect(row).toHaveCount(0);
+  } finally {
+    await filter.uncheck();
+  }
+  // Clean up: undo the decision so later tests start undecided.
+  await row.locator(".decision-btn", { hasText: "置換" }).click();
+  await expect(row.locator(".finding-replace-input")).toHaveCount(0);
+});
+
 test("search, decide, apply, export, and audit pass on the dummy document", async () => {
   await expect(page.getByText(/検出候補（\d+種/)).toBeVisible({
     timeout: 120_000,
