@@ -6,6 +6,7 @@
 
 mod ocr_language;
 mod settings;
+mod ui_error;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +16,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 
 use ocr_language::OcrLanguageStatus;
+use ui_error::UiError;
 
 /// Set to true by `cancel_analysis`; analysis loops stop between pages.
 struct AnalysisCancel(Arc<AtomicBool>);
@@ -609,7 +611,7 @@ async fn llm_detect_project(
     state: tauri::State<'_, AnalysisCancel>,
     project: String,
     use_image: bool,
-) -> Result<u16, String> {
+) -> Result<u16, UiError> {
     let cancel = state.0.clone();
     cancel.store(false, Ordering::Relaxed);
     tauri::async_runtime::spawn_blocking(move || {
@@ -618,11 +620,7 @@ async fn llm_detect_project(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| UiError::inference(&error))?;
         let project_dir = PathBuf::from(&project);
         let stage = if use_image { "vlm" } else { "llm" };
         let mut progress = |page_index: u16, total: u16| {
@@ -644,7 +642,7 @@ async fn llm_detect_project(
         match result {
             Ok(pages) => Ok(pages),
             Err(menreiki_project::LlmDetectError::Cancelled) => Ok(0),
-            Err(error) => Err(error.to_string()),
+            Err(error) => Err(UiError::llm_detect(&error)),
         }
     })
     .await
@@ -670,20 +668,16 @@ async fn suggest_replacements(
     text: String,
     category: String,
     context: String,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let config = settings::load_config();
         let client = menreiki_inference::InferenceClient::new(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| UiError::inference(&error))?;
         menreiki_inference::suggest_replacements(&client, &text, &category, &context)
-            .map_err(|error| error.to_string())
+            .map_err(|error| UiError::inference(&error))
     })
     .await
     .map_err(|error| error.to_string())?
@@ -694,18 +688,14 @@ async fn suggest_replacements(
 /// rules, distinct from writing findings directly. Returns unique candidate
 /// strings from a bounded sample of the document's OCR text.
 #[tauri::command]
-async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
+async fn suggest_targets(project: String) -> Result<Vec<String>, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let config = settings::load_config();
         let client = menreiki_inference::InferenceClient::new(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| UiError::inference(&error))?;
         let pages =
             menreiki_project::load_ocr_pages(Path::new(&project)).map_err(|error| error.to_string())?;
         let mut sample = String::new();
@@ -718,7 +708,7 @@ async fn suggest_targets(project: String) -> Result<Vec<String>, String> {
         }
         let mut seen = std::collections::HashSet::new();
         let targets = menreiki_inference::detect_candidates(&client, &sample)
-            .map_err(|error| error.to_string())?
+            .map_err(|error| UiError::inference(&error))?
             .into_iter()
             .map(|candidate| candidate.text)
             .filter(|text| !text.trim().is_empty() && seen.insert(text.clone()))
@@ -1049,11 +1039,7 @@ async fn vlm_in_region(
             &config.inference.base_url,
             &config.inference.model,
         )
-        .map_err(|error| {
-            format!(
-                "{error}（~/.config/menreiki/config.toml の [inference] に base_url と model を設定してください）"
-            )
-        })?;
+        .map_err(|error| error.to_string())?;
         let png = std::fs::read(menreiki_project::page_image_path(Path::new(&project), page))
             .map_err(|error| error.to_string())?;
         let image = image::load_from_memory(&png).map_err(|error| error.to_string())?;
@@ -1179,7 +1165,7 @@ async fn audit_project(
     policy: Option<serde_json::Value>,
     extra_terms: Vec<String>,
     ocr_language: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, UiError> {
     tauri::async_runtime::spawn_blocking(move || {
         let policy: Option<menreiki_policy::Policy> = policy
             .map(serde_json::from_value)
@@ -1192,7 +1178,7 @@ async fn audit_project(
             &extra_terms,
             &engine,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| UiError::audit(&error))?;
         // The OCR status rides beside the core report (left unchanged) so
         // the UI can qualify a pass read by a fallback engine.
         Ok(serde_json::json!({ "report": report, "ocr": ocr }))
