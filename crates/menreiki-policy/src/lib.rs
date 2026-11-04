@@ -283,6 +283,7 @@ mod tests {
             },
             detector: "regex".to_string(),
             note: None,
+            unlocated: false,
         }
     }
 
@@ -470,6 +471,7 @@ rules:
             },
             detector: "manual".to_string(),
             note: None,
+            unlocated: false,
         }]];
 
         let plans = plan_page_edits(&policy, &ocr, &findings).unwrap();
@@ -495,7 +497,8 @@ rules:
                 height: 1000.0,
             },
             detector: "vlm".to_string(),
-            note: Some("位置未特定".to_string()),
+            note: None,
+            unlocated: true,
         }]];
 
         let plans = plan_page_edits(&policy, &ocr, &findings).unwrap();

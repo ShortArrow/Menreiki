@@ -976,7 +976,8 @@ async fn read_region(
 
 /// Adds a reviewer-asserted candidate at the exact box they drew — the
 /// coordinates are ground truth, so the finding is pinned there even when
-/// page OCR misread the text and a literal search would miss it.
+/// page OCR misread the text and a literal search would miss it. Duplicate
+/// handling lives in [`menreiki_project::add_manual_finding`].
 #[tauri::command]
 fn add_manual_finding(
     project: String,
@@ -985,32 +986,8 @@ fn add_manual_finding(
     category: String,
     text: String,
 ) -> Result<(), String> {
-    let path = menreiki_project::page_findings_path(Path::new(&project), page);
-    let mut findings: Vec<menreiki_core::Finding> = if path.exists() {
-        serde_json::from_str(&std::fs::read_to_string(&path).map_err(|error| error.to_string())?)
-            .map_err(|error| error.to_string())?
-    } else {
-        Vec::new()
-    };
-    let duplicate = findings
-        .iter()
-        .any(|known| known.category == category && known.text == text);
-    if !duplicate {
-        findings.push(menreiki_core::Finding {
-            category,
-            text,
-            rect,
-            detector: "manual".to_string(),
-            note: Some("手動指定（ここを検出）".to_string()),
-        });
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let json =
-            serde_json::to_string_pretty(&findings).expect("findings are always serializable");
-        std::fs::write(&path, json).map_err(|error| error.to_string())?;
-    }
-    Ok(())
+    menreiki_project::add_manual_finding(Path::new(&project), page, rect, &category, &text)
+        .map_err(|error| error.to_string())
 }
 
 /// Removes a reviewer-asserted candidate again — the counterpart to

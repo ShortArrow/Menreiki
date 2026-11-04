@@ -121,10 +121,8 @@ fn merge_candidates(
                         height: ocr.height as f32,
                     },
                     detector: detector_name.to_string(),
-                    note: Some(match &note {
-                        Some(reason) => format!("位置未特定: {reason}"),
-                        None => "位置未特定（画像内で検出）".to_string(),
-                    }),
+                    note,
+                    unlocated: true,
                 });
             }
             continue;
@@ -140,6 +138,7 @@ fn merge_candidates(
             findings.push(Finding {
                 detector: detector_name.to_string(),
                 note: note.clone(),
+                unlocated: false,
                 ..hit
             });
         }

@@ -18,6 +18,7 @@ mod layout;
 mod llm_detect;
 mod maintenance;
 mod manifest;
+mod manual;
 mod markdown;
 mod ocr;
 mod search;
@@ -53,6 +54,7 @@ pub use manifest::{
     load_manifest, load_project_settings, save_project_settings, IgnoreEntry, LoadError,
     ProjectManifest, ProjectSettings, SettingsError, SCHEMA_VERSION,
 };
+pub use manual::{add_manual_finding, ManualFindingError};
 pub use markdown::{export_markdown, render_markdown, MarkdownError};
 pub use ocr::{load_ocr_pages, ocr_pages, LoadOcrError, OcrPagesError};
 pub use search::search_text;

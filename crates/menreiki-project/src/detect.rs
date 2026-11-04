@@ -137,11 +137,38 @@ pub fn load_findings(project_dir: &Path) -> Result<Vec<PageFindings>, LoadFindin
     while page_findings_path(project_dir, page_index).exists() {
         let text = fs::read_to_string(page_findings_path(project_dir, page_index))
             .map_err(LoadFindingsError::Read)?;
+        let mut findings: Vec<Finding> = serde_json::from_str(&text)?;
+        findings.iter_mut().for_each(upgrade_legacy_unlocated);
         pages.push(PageFindings {
             page_index,
-            findings: serde_json::from_str(&text)?,
+            findings,
         });
         page_index += 1;
     }
     Ok(pages)
+}
+
+/// Prefix older builds wrote into `note` to mark a location-unknown VLM
+/// candidate (followed by ": {reason}", or by a fixed "found in the image"
+/// suffix in full-width parentheses), before
+/// [`Finding::unlocated`] existed. Kept only to read such projects back.
+const LEGACY_UNLOCATED_NOTE_PREFIX: &str = "位置未特定";
+
+/// Moves the legacy note-encoded status into the structured flag, leaving
+/// only the model's reason (if any) as the advisory note.
+fn upgrade_legacy_unlocated(finding: &mut Finding) {
+    let Some(rest) = finding
+        .note
+        .as_deref()
+        .and_then(|note| note.strip_prefix(LEGACY_UNLOCATED_NOTE_PREFIX))
+    else {
+        return;
+    };
+    let reason = rest
+        .strip_prefix(':')
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+        .map(str::to_string);
+    finding.unlocated = true;
+    finding.note = reason;
 }

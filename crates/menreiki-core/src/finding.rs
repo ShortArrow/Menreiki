@@ -19,4 +19,10 @@ pub struct Finding {
     /// context for the reviewer, never a verdict.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// Whether the detector saw this text but could not place it on the page
+    /// (a VLM candidate OCR never read). Its `rect` is then the whole page, a
+    /// placeholder no policy edits — a decision on it alone changes nothing
+    /// until the reviewer boxes the occurrence. Omitted from JSON when false.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unlocated: bool,
 }
