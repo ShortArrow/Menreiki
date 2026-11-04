@@ -3013,6 +3013,10 @@ export default function ReviewView(props: {
                           project.pageCount,
                         );
                         if (pages.length > 0) {
+                          // Without this, the same Enter's keypress lands on
+                          // the dialog's autofocused "back" button and
+                          // cancels the confirmation the moment it opens.
+                          event.preventDefault();
                           guardExport(() => runExport(pages));
                         }
                       }
