@@ -1,5 +1,5 @@
 import { ChevronDown, X } from "./icons";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   getConfig,
@@ -12,6 +12,7 @@ import {
   setConfig,
   setProjectSettings,
 } from "./api";
+import Modal from "./Modal";
 import {
   categoryLabel,
   resolveLanguage,
@@ -91,8 +92,13 @@ export default function SettingsView(props: {
   onClose: () => void;
   onDetectorsChanged: () => void;
   onLanguageChange: (language: Language) => void;
+  /// Where focus goes on close when the opener can no longer take it (the
+  /// save path disables "Settings" by starting a re-detection).
+  fallbackFocus?: () => HTMLElement | null;
 }) {
   const { t } = useI18n();
+  const titleId = useId();
+  const modelListButton = useRef<HTMLButtonElement>(null);
   const [uiLanguage, setUiLanguage] = useState<LanguagePreference>("auto");
   const [allDetectors, setAllDetectors] = useState<string[]>([]);
   const [enabled, setEnabled] = useState<Set<string>>(new Set());
@@ -197,6 +203,13 @@ export default function SettingsView(props: {
     }
   }
 
+  /// Closes the model list and hands focus back to its toggle, so it never
+  /// falls to <body> when the focused candidate disappears.
+  function closeModelMenu() {
+    setModelMenuOpen(false);
+    modelListButton.current?.focus();
+  }
+
   function toggle(id: string) {
     setEnabled((current) => {
       const next = new Set(current);
@@ -231,307 +244,313 @@ export default function SettingsView(props: {
   }
 
   return (
-    <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" onClick={(event) => event.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{t("settings.title")}</h2>
-          <button onClick={props.onClose}>{t("settings.close")}</button>
-        </div>
-        <div className="modal-body">
-          <section>
-            <h2>{t("settings.language")}</h2>
-            <p className="hint">{t("settings.languageHint")}</p>
-            <select
-              value={uiLanguage}
-              aria-label={t("settings.language")}
-              onChange={(event) =>
-                setUiLanguage(event.target.value as LanguagePreference)
-              }
-            >
-              <option value="auto">{t("settings.languageAuto")}</option>
-              <option value="ja">日本語</option>
-              <option value="en">English</option>
-            </select>
-          </section>
+    <Modal
+      titleId={titleId}
+      onDismiss={props.onClose}
+      // Escape peels the innermost layer first: the model list, then the
+      // dialog itself.
+      onEscape={modelMenuOpen ? closeModelMenu : props.onClose}
+      fallbackFocus={props.fallbackFocus}
+    >
+      <div className="modal-header">
+        <h2 id={titleId}>{t("settings.title")}</h2>
+        <button onClick={props.onClose}>{t("settings.close")}</button>
+      </div>
+      <div className="modal-body">
+        <section>
+          <h2>{t("settings.language")}</h2>
+          <p className="hint">{t("settings.languageHint")}</p>
+          <select
+            value={uiLanguage}
+            aria-label={t("settings.language")}
+            onChange={(event) =>
+              setUiLanguage(event.target.value as LanguagePreference)
+            }
+          >
+            <option value="auto">{t("settings.languageAuto")}</option>
+            <option value="ja">日本語</option>
+            <option value="en">English</option>
+          </select>
+        </section>
 
-          <section>
-            <h2>{t("settings.detectors")}</h2>
-            <p className="hint">{t("settings.detectorsHint")}</p>
-            <div className="detector-grid">
-              {allDetectors.map((id) => {
-                const known = Object.prototype.hasOwnProperty.call(
-                  DETECTOR_TEXT,
-                  id,
-                );
-                const text = known ? DETECTOR_TEXT[id] : undefined;
-                if (!text) {
-                  return (
-                    <label key={id} className="detector-item">
-                      <input
-                        type="checkbox"
-                        checked={enabled.has(id)}
-                        onChange={() => toggle(id)}
-                      />
-                      {id}
-                    </label>
-                  );
-                }
-                // Only the display name labels the checkbox; the description
-                // is attached as its accessible description and the id stays
-                // outside both, for matching the CLI's detector ids.
-                const inputId = `detector-${id}-input`;
-                const descriptionId = `detector-${id}-description`;
+        <section>
+          <h2>{t("settings.detectors")}</h2>
+          <p className="hint">{t("settings.detectorsHint")}</p>
+          <div className="detector-grid">
+            {allDetectors.map((id) => {
+              const known = Object.prototype.hasOwnProperty.call(
+                DETECTOR_TEXT,
+                id,
+              );
+              const text = known ? DETECTOR_TEXT[id] : undefined;
+              if (!text) {
                 return (
-                  <div key={id} className="detector-item">
+                  <label key={id} className="detector-item">
                     <input
-                      id={inputId}
                       type="checkbox"
                       checked={enabled.has(id)}
                       onChange={() => toggle(id)}
-                      aria-describedby={descriptionId}
                     />
-                    <div className="detector-text">
-                      <label htmlFor={inputId} className="detector-name">
-                        {t(text.label)}
-                      </label>
-                      <span id={descriptionId} className="detector-description">
-                        {t(text.description)}
-                      </span>
-                      <code className="detector-id">{id}</code>
-                    </div>
+                    {id}
+                  </label>
+                );
+              }
+              // Only the display name labels the checkbox; the description
+              // is attached as its accessible description and the id stays
+              // outside both, for matching the CLI's detector ids.
+              const inputId = `detector-${id}-input`;
+              const descriptionId = `detector-${id}-description`;
+              return (
+                <div key={id} className="detector-item">
+                  <input
+                    id={inputId}
+                    type="checkbox"
+                    checked={enabled.has(id)}
+                    onChange={() => toggle(id)}
+                    aria-describedby={descriptionId}
+                  />
+                  <div className="detector-text">
+                    <label htmlFor={inputId} className="detector-name">
+                      {t(text.label)}
+                    </label>
+                    <span id={descriptionId} className="detector-description">
+                      {t(text.description)}
+                    </span>
+                    <code className="detector-id">{id}</code>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section>
+          <h2>{t("settings.ignored")}</h2>
+          <p className="hint">{t("settings.ignoredHint")}</p>
+          {ignored.length === 0 ? (
+            <p className="status">{t("settings.ignoredEmpty")}</p>
+          ) : (
+            <div className="text-rules">
+              {ignored.map((entry, index) => {
+                const text =
+                  typeof entry === "string" ? entry : entry.text;
+                const scope =
+                  typeof entry === "string"
+                    ? t("settings.ignoredAllCategories")
+                    : categoryLabel(t, entry.category);
+                return (
+                  <div key={`${text}-${scope}-${index}`} className="text-rule">
+                    <span className="chip-action">{scope}</span>
+                    <span className="rule-text" title={text}>
+                      {text}
+                    </span>
+                    <button
+                      aria-label={t("settings.ignoredRemove")}
+                      onClick={() =>
+                        setIgnored((current) =>
+                          current.filter((_, i) => i !== index),
+                        )
+                      }
+                    >
+                      <X size={12} />
+                    </button>
                   </div>
                 );
               })}
             </div>
-          </section>
+          )}
+        </section>
 
-          <section>
-            <h2>{t("settings.ignored")}</h2>
-            <p className="hint">{t("settings.ignoredHint")}</p>
-            {ignored.length === 0 ? (
-              <p className="status">{t("settings.ignoredEmpty")}</p>
-            ) : (
-              <div className="text-rules">
-                {ignored.map((entry, index) => {
-                  const text =
-                    typeof entry === "string" ? entry : entry.text;
-                  const scope =
-                    typeof entry === "string"
-                      ? t("settings.ignoredAllCategories")
-                      : categoryLabel(t, entry.category);
-                  return (
-                    <div key={`${text}-${scope}-${index}`} className="text-rule">
-                      <span className="chip-action">{scope}</span>
-                      <span className="rule-text" title={text}>
-                        {text}
-                      </span>
-                      <button
-                        aria-label={t("settings.ignoredRemove")}
-                        onClick={() =>
-                          setIgnored((current) =>
-                            current.filter((_, i) => i !== index),
-                          )
-                        }
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-
-          <section>
-            <h2>{t("settings.llm")}</h2>
-            <p className="hint">{t("settings.llmHint")}</p>
-            <label className="field">
-              {t("settings.endpoint")}
-              <input
-                value={baseUrl}
-                placeholder="http://localhost:11434/v1"
-                onChange={(event) => setBaseUrl(event.target.value)}
-                onBlur={(event) => void refreshModels(event.target.value)}
-              />
-            </label>
-            <label className="field">
-              {t("settings.model")}
-              <div className="field-row combo">
-                <span className="combo-input-wrap">
-                  <input
-                    value={model}
-                    placeholder={t("settings.modelPlaceholder")}
-                    onChange={(event) => setModel(event.target.value)}
-                  />
-                  {model && (
-                    <button
-                      type="button"
-                      className="combo-clear"
-                      title={t("settings.clear")}
-                      aria-label={t("settings.clear")}
-                      onClick={() => setModel("")}
-                    >
-                      <X size={13} />
-                    </button>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  title={t("settings.modelListTitle")}
-                  aria-label={t("settings.openModelList")}
-                  onClick={() => {
-                    setModelFilter("");
-                    setModelMenuOpen((open) => !open);
-                  }}
-                >
-                  <ChevronDown size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void refreshModels(baseUrl)}
-                  disabled={loadingModels}
-                >
-                  {loadingModels
-                    ? t("settings.refreshing")
-                    : t("settings.refresh")}
-                </button>
-                {modelMenuOpen && (
-                  <>
-                    <div
-                      className="menu-backdrop"
-                      onClick={() => setModelMenuOpen(false)}
-                    />
-                    <div className="menu combo-popover">
-                      <input
-                        autoFocus
-                        placeholder={t("settings.modelFilter")}
-                        value={modelFilter}
-                        onChange={(event) =>
-                          setModelFilter(event.target.value)
-                        }
-                      />
-                      {models
-                        .filter((id) =>
-                          id
-                            .toLowerCase()
-                            .includes(modelFilter.trim().toLowerCase()),
-                        )
-                        .map((id) => (
-                          <button
-                            key={id}
-                            type="button"
-                            className={id === model ? "current" : undefined}
-                            onClick={() => {
-                              setModel(id);
-                              setModelMenuOpen(false);
-                            }}
-                          >
-                            {id}
-                          </button>
-                        ))}
-                      {models.length === 0 && (
-                        <span className="hint">
-                          {t("settings.noModelCandidates")}
-                        </span>
-                      )}
-                    </div>
-                  </>
+        <section>
+          <h2>{t("settings.llm")}</h2>
+          <p className="hint">{t("settings.llmHint")}</p>
+          <label className="field">
+            {t("settings.endpoint")}
+            <input
+              value={baseUrl}
+              placeholder="http://localhost:11434/v1"
+              onChange={(event) => setBaseUrl(event.target.value)}
+              onBlur={(event) => void refreshModels(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            {t("settings.model")}
+            <div className="field-row combo">
+              <span className="combo-input-wrap">
+                <input
+                  value={model}
+                  placeholder={t("settings.modelPlaceholder")}
+                  onChange={(event) => setModel(event.target.value)}
+                />
+                {model && (
+                  <button
+                    type="button"
+                    className="combo-clear"
+                    title={t("settings.clear")}
+                    aria-label={t("settings.clear")}
+                    onClick={() => setModel("")}
+                  >
+                    <X size={13} />
+                  </button>
                 )}
-              </div>
-            </label>
-            <p className="hint">
-              {loadingModels
-                ? t("settings.loadingModels")
-                : modelsError
-                  ? t("settings.modelsFailed")
-                  : models.length > 0
-                    ? t("settings.modelsFound", { count: models.length })
-                    : t("settings.modelsNone")}
-            </p>
-          </section>
-
-          <section>
-            <h2>{t("settings.packs")}</h2>
-            <p className="hint">{t("settings.packsHint")}</p>
-            {packs.length === 0 && (
-              <p className="hint">{t("settings.packsEmpty")}</p>
-            )}
-            {packs.map((pack) => (
-              <div key={pack.name} className="rule-entry">
-                <span className="category-tag">{pack.version}</span>
-                {pendingRemove === pack.name ? (
-                  <>
-                    {/* Plain span, not .finding-text: that class clips to
-                        one line, which would hide the "cannot be undone"
-                        warning at the end of the sentence. */}
-                    <span className="rule-target">
-                      <span>
-                        {t("settings.packRemoveConfirm", {
-                          name: pack.displayName,
-                          rules: pack.ruleCount,
-                          words: pack.wordCount,
-                        })}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingRemove(null);
-                        void removePack(pack.name);
-                      }}
-                    >
-                      {t("settings.packRemoveYes")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingRemove(null)}
-                    >
-                      {t("settings.packRemoveNo")}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="rule-target" title={pack.description}>
-                      <span className="finding-text">
-                        {pack.displayName}
-                        {t("settings.packSummary", {
-                          rules: pack.ruleCount,
-                          words: pack.wordCount,
-                          publisher: pack.publisher
-                            ? t("settings.packPublisher", {
-                                name: pack.publisher,
-                              })
-                            : "",
-                        })}
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={t("settings.packRemove")}
-                      onClick={() => setPendingRemove(pack.name)}
-                    >
-                      <X size={12} />
-                    </button>
-                  </>
-                )}
-              </div>
-            ))}
-            <div className="field-row">
-              <button type="button" onClick={() => void importPack()}>
-                {t("settings.packImport")}
+              </span>
+              <button
+                ref={modelListButton}
+                type="button"
+                title={t("settings.modelListTitle")}
+                aria-label={t("settings.openModelList")}
+                onClick={() => {
+                  setModelFilter("");
+                  setModelMenuOpen((open) => !open);
+                }}
+              >
+                <ChevronDown size={14} />
               </button>
+              <button
+                type="button"
+                onClick={() => void refreshModels(baseUrl)}
+                disabled={loadingModels}
+              >
+                {loadingModels
+                  ? t("settings.refreshing")
+                  : t("settings.refresh")}
+              </button>
+              {modelMenuOpen && (
+                <>
+                  <div
+                    className="menu-backdrop"
+                    onClick={() => setModelMenuOpen(false)}
+                  />
+                  <div className="menu combo-popover">
+                    <input
+                      autoFocus
+                      placeholder={t("settings.modelFilter")}
+                      value={modelFilter}
+                      onChange={(event) =>
+                        setModelFilter(event.target.value)
+                      }
+                    />
+                    {models
+                      .filter((id) =>
+                        id
+                          .toLowerCase()
+                          .includes(modelFilter.trim().toLowerCase()),
+                      )
+                      .map((id) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={id === model ? "current" : undefined}
+                          onClick={() => {
+                            setModel(id);
+                            closeModelMenu();
+                          }}
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    {models.length === 0 && (
+                      <span className="hint">
+                        {t("settings.noModelCandidates")}
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-            {packError && <p className="error">{packError}</p>}
-          </section>
+          </label>
+          <p className="hint">
+            {loadingModels
+              ? t("settings.loadingModels")
+              : modelsError
+                ? t("settings.modelsFailed")
+                : models.length > 0
+                  ? t("settings.modelsFound", { count: models.length })
+                  : t("settings.modelsNone")}
+          </p>
+        </section>
 
-          {error && <p className="error">{error}</p>}
-        </div>
-        <div className="modal-footer">
-          <button className="primary" onClick={save} disabled={!ready || saving}>
-            {t("settings.save")}
-          </button>
-        </div>
+        <section>
+          <h2>{t("settings.packs")}</h2>
+          <p className="hint">{t("settings.packsHint")}</p>
+          {packs.length === 0 && (
+            <p className="hint">{t("settings.packsEmpty")}</p>
+          )}
+          {packs.map((pack) => (
+            <div key={pack.name} className="rule-entry">
+              <span className="category-tag">{pack.version}</span>
+              {pendingRemove === pack.name ? (
+                <>
+                  {/* Plain span, not .finding-text: that class clips to
+                      one line, which would hide the "cannot be undone"
+                      warning at the end of the sentence. */}
+                  <span className="rule-target">
+                    <span>
+                      {t("settings.packRemoveConfirm", {
+                        name: pack.displayName,
+                        rules: pack.ruleCount,
+                        words: pack.wordCount,
+                      })}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingRemove(null);
+                      void removePack(pack.name);
+                    }}
+                  >
+                    {t("settings.packRemoveYes")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingRemove(null)}
+                  >
+                    {t("settings.packRemoveNo")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="rule-target" title={pack.description}>
+                    <span className="finding-text">
+                      {pack.displayName}
+                      {t("settings.packSummary", {
+                        rules: pack.ruleCount,
+                        words: pack.wordCount,
+                        publisher: pack.publisher
+                          ? t("settings.packPublisher", {
+                              name: pack.publisher,
+                            })
+                          : "",
+                      })}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={t("settings.packRemove")}
+                    onClick={() => setPendingRemove(pack.name)}
+                  >
+                    <X size={12} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+          <div className="field-row">
+            <button type="button" onClick={() => void importPack()}>
+              {t("settings.packImport")}
+            </button>
+          </div>
+          {packError && <p className="error">{packError}</p>}
+        </section>
+
+        {error && <p className="error">{error}</p>}
       </div>
-    </div>
+      <div className="modal-footer">
+        <button className="primary" onClick={save} disabled={!ready || saving}>
+          {t("settings.save")}
+        </button>
+      </div>
+    </Modal>
   );
 }

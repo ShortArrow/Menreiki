@@ -1,4 +1,6 @@
+import { useId } from "react";
 import { useI18n } from "./i18n";
+import Modal, { firstFocusableInRoot } from "./Modal";
 
 const ACK_KEY = "menreiki.acknowledged.v1";
 
@@ -16,32 +18,44 @@ export function needsAcknowledgement(): boolean {
 ///
 /// The text is prose with inline emphasis rather than short labels, so each
 /// language gets its own component instead of a dictionary of fragments.
+///
+/// Neither Escape nor a backdrop click dismisses it: only the button does,
+/// and the app behind stays inert until then.
 export default function FirstRunNotice(props: { onAcknowledge: () => void }) {
   const { language } = useI18n();
+  const titleId = useId();
   return (
-    <div className="modal-backdrop">
-      <div className="modal first-run">
-        {language === "ja" ? <NoticeJa /> : <NoticeEn />}
-        <div className="modal-actions">
-          <button
-            className="primary"
-            onClick={() => {
-              localStorage.setItem(ACK_KEY, "1");
-              props.onAcknowledge();
-            }}
-          >
-            {language === "ja" ? "理解しました" : "I understand"}
-          </button>
-        </div>
+    <Modal
+      titleId={titleId}
+      className="first-run"
+      // Whatever screen is behind (home, or review when launched from a
+      // .mnrk), focus lands on its first control.
+      fallbackFocus={firstFocusableInRoot}
+    >
+      {language === "ja" ? (
+        <NoticeJa titleId={titleId} />
+      ) : (
+        <NoticeEn titleId={titleId} />
+      )}
+      <div className="modal-actions">
+        <button
+          className="primary"
+          onClick={() => {
+            localStorage.setItem(ACK_KEY, "1");
+            props.onAcknowledge();
+          }}
+        >
+          {language === "ja" ? "理解しました" : "I understand"}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }
 
-function NoticeJa() {
+function NoticeJa(props: { titleId: string }) {
   return (
     <>
-      <h2>ご利用の前に</h2>
+      <h2 id={props.titleId}>ご利用の前に</h2>
       <p>
         Menreiki は書類の匿名化を<b>支援</b>する道具です。安全な公開の
         可否は、最終的にあなたの確認にかかっています。次の3点をご理解の
@@ -76,10 +90,10 @@ function NoticeJa() {
   );
 }
 
-function NoticeEn() {
+function NoticeEn(props: { titleId: string }) {
   return (
     <>
-      <h2>Before you start</h2>
+      <h2 id={props.titleId}>Before you start</h2>
       <p>
         Menreiki <b>assists</b> with de-identifying documents. Whether a
         document is safe to publish is ultimately your call. Please read the

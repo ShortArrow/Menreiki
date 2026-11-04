@@ -13,7 +13,7 @@ import {
   Sun,
   X,
 } from "./icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   addDictionaryEntry,
@@ -59,6 +59,7 @@ import {
   type Language,
   type Translate,
 } from "./i18n";
+import Modal from "./Modal";
 import PageViewer, { DrawMode } from "./PageViewer";
 import RegionThumb from "./RegionThumb";
 import SettingsView from "./SettingsView";
@@ -1104,6 +1105,8 @@ export default function ReviewView(props: {
     null,
   );
   const [previewRegion, setPreviewRegion] = useState<number | null>(null);
+  const previewTitleId = useId();
+  const homeButton = useRef<HTMLButtonElement>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
   const [scrollPageFlip, setScrollPageFlip] = useState(
     () => localStorage.getItem("menreiki.scrollPageFlip") === "1",
@@ -2606,7 +2609,11 @@ export default function ReviewView(props: {
   return (
     <div className="review">
       <header className="toolbar">
-        <button disabled={closing} onClick={() => void goHome()}>
+        <button
+          ref={homeButton}
+          disabled={closing}
+          onClick={() => void goHome()}
+        >
           {t("review.home")}
         </button>
         <span className="file-name" title={project.projectDir}>
@@ -4273,6 +4280,7 @@ export default function ReviewView(props: {
             setSettingsOpen(false);
             refreshLlmConfigured();
           }}
+          fallbackFocus={() => homeButton.current}
           onLanguageChange={props.onLanguageChange}
           onDetectorsChanged={() => {
             if (project.analyzed) {
@@ -4378,44 +4386,43 @@ export default function ReviewView(props: {
       )}
 
       {previewRegion !== null && regionRules[previewRegion] && (
-        <div
-          className="modal-backdrop"
-          onClick={() => setPreviewRegion(null)}
+        <Modal
+          titleId={previewTitleId}
+          onDismiss={() => setPreviewRegion(null)}
+          fallbackFocus={() => homeButton.current}
         >
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h2>
-                {t("review.regionPreview", {
-                  pages: project.pageCount,
-                  action: actionLabel(
-                    t,
-                    regionRules[previewRegion].action,
-                  ),
-                })}
-              </h2>
-              <button onClick={() => setPreviewRegion(null)}>
-                {t("review.close")}
-              </button>
-            </div>
-            <p className="status">
-              {t("review.regionPreviewHint")}
-            </p>
-            <div className="modal-body">
-              {Array.from({ length: project.pageCount }, (_, index) => (
-                <div key={index} className="preview-row">
-                  <span className="page-tag">p.{index + 1}</span>
-                  <RegionThumb
-                    projectDir={project.projectDir}
-                    pageIndex={index}
-                    rect={regionRules[previewRegion].rect}
-                    maxWidth={520}
-                    maxHeight={110}
-                  />
-                </div>
-              ))}
-            </div>
+          <div className="modal-header">
+            <h2 id={previewTitleId}>
+              {t("review.regionPreview", {
+                pages: project.pageCount,
+                action: actionLabel(
+                  t,
+                  regionRules[previewRegion].action,
+                ),
+              })}
+            </h2>
+            <button onClick={() => setPreviewRegion(null)}>
+              {t("review.close")}
+            </button>
           </div>
-        </div>
+          <p className="status">
+            {t("review.regionPreviewHint")}
+          </p>
+          <div className="modal-body">
+            {Array.from({ length: project.pageCount }, (_, index) => (
+              <div key={index} className="preview-row">
+                <span className="page-tag">p.{index + 1}</span>
+                <RegionThumb
+                  projectDir={project.projectDir}
+                  pageIndex={index}
+                  rect={regionRules[previewRegion].rect}
+                  maxWidth={520}
+                  maxHeight={110}
+                />
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
     </div>
   );
