@@ -563,7 +563,7 @@ export default function HelpEn() {
                 <span className="from">Candidates</span> ⟶{" "}
                 <span className="to">Ignore list</span>
               </td>
-              <td>Excludes that word × category only; undo it right away with Undo next to the notice, or later in Settings</td>
+              <td>Excludes that word × category only; undo it right away with Undo at the top of the right pane, or later in Settings</td>
             </tr>
             <tr>
               <th>Search: add a … rule</th>

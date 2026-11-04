@@ -579,10 +579,10 @@ test("ignoring a finding can be undone from the status bar", async () => {
 
   await row.getByRole("button", { name: "無視", exact: true }).click();
   await expect(row).toHaveCount(0, { timeout: 60_000 });
-  await expect(
-    page.locator(".statusbar").getByText(text, { exact: false }),
-  ).toBeVisible();
-  const undo = page.getByRole("button", { name: "元に戻す", exact: true });
+  // The undo lives in the same side-pane bar as every other one-step undo.
+  const undoBar = page.locator(".undo-bar");
+  await expect(undoBar.getByText(text, { exact: false })).toBeVisible();
+  const undo = undoBar.getByRole("button", { name: "元に戻す", exact: true });
   await expect(undo).toBeVisible();
 
   await undo.click();

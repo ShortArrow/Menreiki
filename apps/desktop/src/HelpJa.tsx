@@ -529,7 +529,7 @@ export default function HelpJa() {
                 <span className="from">検出候補</span> ⟶{" "}
                 <span className="to">無視リスト</span>
               </td>
-              <td>その語×分類のみ除外。直後なら通知の「元に戻す」で、あとからは設定画面で解除できる</td>
+              <td>その語×分類のみ除外。直後なら右ペイン上部の「元に戻す」で、あとからは設定画面で解除できる</td>
             </tr>
             <tr>
               <th>検索: ◯◯ルールに追加</th>

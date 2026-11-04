@@ -498,11 +498,13 @@ function popoverPosition(anchor: HTMLElement | null): React.CSSProperties {
 }
 
 /// The one deletion the review pane can still take back (transient UI state).
+/// "ignore" is the entry the last "Ignore" click added to the ignore list.
 type LastDeletion =
   | { kind: "entity"; entity: Entity; index: number }
   | { kind: "variant"; entityId: string; variant: string; index: number }
   | { kind: "dictionary"; entry: DictionaryEntry }
   | { kind: "region"; rule: RegionRule; index: number }
+  | { kind: "ignore"; text: string; category: string }
   | null;
 
 /// In-place entity assignment: a small popover right on the row offering a
@@ -1205,12 +1207,6 @@ export default function ReviewView(props: {
   const analyzing = analysis !== null;
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  // The ignore entry the last "Ignore" click added, offered for a one-step
-  // undo until the next operation starts. Never persisted.
-  const [lastIgnored, setLastIgnored] = useState<{
-    text: string;
-    category: string;
-  } | null>(null);
   const [applySummary, setApplySummary] = useState<ApplySummary | null>(null);
   const [appliedEdits, setAppliedEdits] = useState<AppliedEdit[]>([]);
   const [exportPath, setExportPath] = useState<string | null>(null);
@@ -1500,9 +1496,14 @@ export default function ReviewView(props: {
   /// a dictionary restore re-registers the entry like the to-dictionary button does.
   function undoLastDeletion() {
     const deletion = lastDeletion;
-    // A dictionary restore re-runs detection, which must wait for a running
-    // analysis; keep the undo offer until then.
-    if (deletion?.kind === "dictionary" && analysisRef.current) return;
+    // Dictionary and ignore restores re-run detection, which must wait for a
+    // running analysis; keep the undo offer until then.
+    if (
+      (deletion?.kind === "dictionary" || deletion?.kind === "ignore") &&
+      analysisRef.current
+    ) {
+      return;
+    }
     setLastDeletion(null);
     if (!deletion) return;
     if (deletion.kind === "entity") {
@@ -1542,6 +1543,8 @@ export default function ReviewView(props: {
         next.splice(Math.min(index, next.length), 0, rule);
         return next;
       });
+    } else if (deletion.kind === "ignore") {
+      undoIgnore(deletion);
     } else {
       const { entry } = deletion;
       void run(t("review.registeringDictionary"), async () => {
@@ -1572,6 +1575,11 @@ export default function ReviewView(props: {
         return t("review.removedDictionaryEntry", { text: deletion.entry.text });
       case "region":
         return t("review.regionRemoved");
+      case "ignore":
+        return t("review.ignoredNotice", {
+          text: deletion.text,
+          category: categoryLabel(t, deletion.category),
+        });
     }
   }
 
@@ -1638,7 +1646,6 @@ export default function ReviewView(props: {
     setBusy(label);
     setError(null);
     setNotice(null);
-    setLastIgnored(null);
     try {
       return await action();
     } catch (failure) {
@@ -1661,7 +1668,6 @@ export default function ReviewView(props: {
     setAnalysis(kind);
     setError(null);
     setNotice(null);
-    setLastIgnored(null);
     try {
       return await action();
     } catch (failure) {
@@ -2539,7 +2545,6 @@ export default function ReviewView(props: {
     setSuggestingTargets(true);
     setTargetSuggestions(null);
     setError(null);
-    setLastIgnored(null);
     suggestTargets(project.projectDir)
       .then((terms) => setTargetSuggestions(terms))
       .catch((failure) => setError(describeError(failure, t)))
@@ -2567,32 +2572,27 @@ export default function ReviewView(props: {
             { text: finding.text, category: finding.category },
           ],
         });
-        // Set right after saving, so the undo stays available even when the
-        // re-detection below fails.
-        setLastIgnored({ text: finding.text, category: finding.category });
+        // Offered in the side pane's undo bar right after saving, so the
+        // undo stays available even when the re-detection below fails. An
+        // entry that was already there is the reviewer's own; offering to
+        // undo it would remove something this click did not add.
+        setLastDeletion({
+          kind: "ignore",
+          text: finding.text,
+          category: finding.category,
+        });
       }
       if (project.analyzed) {
         await analyzeProject(project.projectDir, "detect-only");
         setFindings(await listFindings(project.projectDir));
-      }
-      // An entry that was already there is the reviewer's own; offering to
-      // undo it would remove something this click did not add.
-      if (!already) {
-        setNotice(
-          t("review.ignoredNotice", {
-            text: finding.text,
-            category: categoryLabel(t, finding.category),
-          }),
-        );
       }
     });
   }
 
   /// Removes the entry the last "Ignore" added and re-detects, so the
   /// candidate returns with its earlier decision (decisions are kept by key).
-  function undoIgnore() {
-    const target = lastIgnored;
-    if (!target || analysisRef.current) return;
+  function undoIgnore(target: { text: string; category: string }) {
+    if (analysisRef.current) return;
     void run(t("review.undoingIgnore"), async () => {
       const settings = await getProjectSettings(project.projectDir);
       const ignored = settings.ignored ?? [];
@@ -3111,11 +3111,6 @@ export default function ReviewView(props: {
             </button>
           )}
           {notice && <span className="status">{notice}</span>}
-          {lastIgnored && !busy && !analyzing && (
-            <button className="mini" onClick={undoIgnore}>
-              {t("review.undoIgnore")}
-            </button>
-          )}
           {error && <span className="error">{error}</span>}
           {decisionsLoadError && (
             <span className="error load-error">
@@ -3346,7 +3341,8 @@ export default function ReviewView(props: {
               </span>
               <button
                 disabled={
-                  lastDeletion.kind === "dictionary" &&
+                  (lastDeletion.kind === "dictionary" ||
+                    lastDeletion.kind === "ignore") &&
                   (busy !== null || analyzing)
                 }
                 onClick={undoLastDeletion}
