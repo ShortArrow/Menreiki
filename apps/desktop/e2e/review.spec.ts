@@ -903,6 +903,17 @@ test("search, decide, apply, export, and audit pass on the dummy document", asyn
   await confirm.getByRole("button", { name: "レビューに戻る" }).click();
   await expect(confirm).toBeHidden();
   await expect(page.getByText(/出力: .+sanitized\.pdf/)).toHaveCount(0);
+  // The menu item that opened the dialog is gone, so focus returns to the
+  // menu toggle rather than to Home (one Enter away from leaving).
+  await expect(page.getByRole("button", { name: "PDF出力" })).toBeFocused();
+
+  // Escape behaves the same way.
+  await page.getByRole("button", { name: "PDF出力" }).click();
+  await page.getByRole("button", { name: "すべてのページを出力" }).click();
+  await expect(confirm).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(confirm).toBeHidden();
+  await expect(page.getByRole("button", { name: "PDF出力" })).toBeFocused();
 
   // PDF again: proceeding exports as before.
   await page.getByRole("button", { name: "PDF出力" }).click();

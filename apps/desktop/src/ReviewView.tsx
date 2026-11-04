@@ -1115,6 +1115,9 @@ export default function ReviewView(props: {
   const clearAllTitleId = useId();
   const bulkApplyTitleId = useId();
   const homeButton = useRef<HTMLButtonElement>(null);
+  // The export menu items unmount before the confirmation opens, so the
+  // dialog hands focus back to the menu toggle instead.
+  const exportToggle = useRef<HTMLButtonElement>(null);
   const [showRulePreview, setShowRulePreview] = useState(true);
   const [scrollPageFlip, setScrollPageFlip] = useState(
     () => localStorage.getItem("menreiki.scrollPageFlip") === "1",
@@ -2983,6 +2986,7 @@ export default function ReviewView(props: {
         )}
         <div className="reanalyze-menu">
           <button
+            ref={exportToggle}
             onClick={() => setExportMenuOpen((open) => !open)}
             disabled={busy !== null || analyzing || !hasRenders || stale}
           >
@@ -4570,7 +4574,11 @@ export default function ReviewView(props: {
           undecidedCount={undecidedCount}
           busy={busy !== null}
           onCancel={() => setPendingExport(null)}
-          fallbackFocus={() => homeButton.current}
+          fallbackFocus={() =>
+            exportToggle.current && !exportToggle.current.disabled
+              ? exportToggle.current
+              : homeButton.current
+          }
           onProceed={() => {
             const action = pendingExport;
             setPendingExport(null);
